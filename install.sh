@@ -41,6 +41,8 @@ printf 'installing figma-mcp dependencies…\n'
 )
 
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
+install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
+install_link "$repo_dir/codex/skills/handoff" "$HOME/.pi/agent/skills/handoff"
 install_link "$repo_dir/pi/extensions/codex-goal" "$HOME/.pi/agent/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$HOME/.pi/agent/extensions/figma-mcp"
 

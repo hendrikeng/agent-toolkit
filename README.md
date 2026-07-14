@@ -5,6 +5,7 @@ Personal, version-controlled tooling for Codex and Pi.
 ## Included
 
 - `codex/skills/autoreview` — structured multi-engine code review helper. Codex defaults to `gpt-5.6-sol` with high reasoning and an access-only fallback to `gpt-5.6-terra`.
+- `codex/skills/handoff` — portable, clipboard-ready context transfer for another agent; also loaded by Pi as `/skill:handoff`.
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — token-efficient, opt-in access to Figma's local and remote MCP endpoints through one compact Pi tool.
 
@@ -18,6 +19,8 @@ The installer installs pinned npm dependencies for `figma-mcp` and creates these
 
 ```text
 ~/.codex/skills/autoreview             -> codex/skills/autoreview
+~/.codex/skills/handoff                -> codex/skills/handoff
+~/.pi/agent/skills/handoff             -> codex/skills/handoff
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
 ```
@@ -38,4 +41,4 @@ Edit the repository copies directly. The installed paths are symlinks, so change
 
 ## Licensing and attribution
 
-The goal extension carries its own `LICENSE` and `NOTICE.md`, including attribution for prompt templates ported from OpenAI Codex. The Figma integration has a component `NOTICE.md`; its npm dependencies are not vendored and retain their upstream licenses. See component files for applicable notices.
+The goal extension carries its own `LICENSE` and `NOTICE.md`, including attribution for prompt templates ported from OpenAI Codex. The handoff skill includes its upstream MIT license and revision attribution. The Figma integration has a component `NOTICE.md`; its npm dependencies are not vendored and retain their upstream licenses. See component files for applicable notices.

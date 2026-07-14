@@ -6,6 +6,8 @@ tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
+cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
+cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.pi/agent/skills/handoff/SKILL.md"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/mcp-remote/dist/proxy.js"
@@ -15,5 +17,15 @@ printf '%s\n' '{"id":"commands","type":"get_commands"}' \
   | pi --offline --mode rpc --no-session >"$tmp_dir/rpc.jsonl" 2>"$tmp_dir/rpc.err"
 grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
+
+fresh_agent_dir="$tmp_dir/fresh-pi-agent"
+mkdir -p "$fresh_agent_dir/skills"
+ln -s "$repo_dir/codex/skills/handoff" "$fresh_agent_dir/skills/handoff"
+printf '%s\n' '{"enableSkillCommands":true}' >"$fresh_agent_dir/settings.json"
+printf '%s\n' '{"id":"commands","type":"get_commands"}' \
+  | PI_CODING_AGENT_DIR="$fresh_agent_dir" pi --offline --mode rpc --no-session --no-extensions \
+    >"$tmp_dir/fresh-rpc.jsonl" 2>"$tmp_dir/fresh-rpc.err"
+grep -q '"name":"skill:handoff"' "$tmp_dir/fresh-rpc.jsonl"
 
 printf '\nAll checks passed.\n'
