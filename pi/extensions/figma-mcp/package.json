@@ -1,0 +1,14 @@
+{
+  "name": "pi-figma-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "mcp-remote": "0.1.38",
+    "zod": "4.4.3"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/figma-core.test.ts"
+  }
+}
