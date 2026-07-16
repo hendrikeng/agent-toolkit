@@ -38,15 +38,105 @@ Pi's `web-search.json` is a user-owned `0600` file rather than a symlink: instal
 
 Run `/reload` in an already-running Pi session after installation or updates. Codex asks you to review and trust Ponytail's lifecycle hooks on first start; use `/hooks` if needed. New sessions start in `full` mode.
 
-## Pi usage
+## Usage manual
 
-Skills are task instructions loaded on demand; extensions are runtime features loaded automatically when Pi starts. After installation, normal Vue and React work needs no activation.
+After `./install.sh`, skills are discovered automatically when a task matches and extensions load when their host starts. Use the commands below only to force a skill, change a mode, or enable an opt-in integration.
 
-- **Vue:** ask for the Vue task normally. Pi loads the `vue` skill when the task matches; use `/skill:vue` only to force it.
-- **React:** work normally. React Doctor is an optional scanner, not a general React skill; run `/skill:react-doctor` manually for a health check or before shipping a meaningful change, then choose its changed or full scan.
-- **Extensions:** use their commands directly. Web access can load itself when needed or be toggled with `/web on|off`; Figma stays off until `/figma on`; goals start with `/goal <objective>`.
-- Run `/reload` after installing or editing toolkit resources in an already-running Pi session.
-- DeepSec remains project-local and is not installed globally.
+### Shared and cross-agent tools
+
+#### Ponytail (Claude Code, Codex, Pi)
+
+Ponytail is active for coding tasks in `full` mode in every new session.
+
+| Action | Claude Code / Pi | Codex |
+|---|---|---|
+| Change mode | `/ponytail lite`, `/ponytail full`, `/ponytail ultra` | `@ponytail lite`, `@ponytail full`, `@ponytail ultra` |
+| Disable | `/ponytail off` or say “normal mode” | `@ponytail off` or say “normal mode” |
+| Diff over-engineering review | `/ponytail-review` | `@ponytail-review` |
+| Whole-repo over-engineering audit | `/ponytail-audit` | `@ponytail-audit` |
+| List deferred `ponytail:` shortcuts | `/ponytail-debt` | `@ponytail-debt` |
+| Show the benchmark scoreboard | `/ponytail-gain` | `@ponytail-gain` |
+| Show command help | `/ponytail-help` | `@ponytail-help` |
+
+The shared config sets the default to `full`; `PONYTAIL_DEFAULT_MODE` can override it with `lite`, `full`, `ultra`, or `off`. Codex may require approving Ponytail's lifecycle hooks through `/hooks` after installation.
+
+#### Autoreview (Codex skill, multiple review engines)
+
+Ask for “autoreview” or invoke `@autoreview` before committing or shipping a non-trivial change. It reviews local changes with Codex by default and can use Claude, Pi, Droid, Copilot, Cursor, or OpenCode when requested.
+
+Direct helper examples:
+
+```bash
+~/.codex/skills/autoreview/scripts/autoreview --mode local
+~/.codex/skills/autoreview/scripts/autoreview --mode branch --base origin/main
+~/.codex/skills/autoreview/scripts/autoreview --mode commit --commit HEAD
+```
+
+Add `--engine claude` for one alternate reviewer or `--reviewers codex,claude` for an opt-in panel. Treat findings as advisory, verify accepted findings in the real code, and rerun after review-driven edits. See [`codex/skills/autoreview/SKILL.md`](codex/skills/autoreview/SKILL.md) for all engines and options.
+
+#### Handoff (Codex and Pi)
+
+Use `@handoff <task>` in Codex or `/skill:handoff <task>` in Pi. The skill gathers portable context, writes a standalone prompt for another agent, and copies it to the clipboard. Ask it to print the full prompt when needed.
+
+### Pi tools
+
+Pi skills load on matching tasks; `/skill:<name>` forces one. Pi extensions below load automatically, but web and Figma keep their larger schemas disabled until needed.
+
+#### Vue
+
+Ask for Vue work normally; no activation is required. Pi loads the Vue 3 guidance when the task matches. Use `/skill:vue` to force it. This is guidance, not a scanner.
+
+#### React Doctor
+
+Normal React work needs no toolkit activation. React Doctor is an optional scanner for health checks or meaningful pre-ship reviews:
+
+```text
+/skill:react-doctor changed  # new issues versus the detected base
+/skill:react-doctor lines    # issues touching changed lines only
+/skill:react-doctor full     # complete project
+```
+
+It is intentionally manual-only and should not run after every small edit.
+
+#### Goals
+
+```text
+/goal <objective>  Start and immediately pursue a goal
+/goal              Show status and usage
+/goal edit         Edit the objective
+/goal pause        Pause it
+/goal resume       Resume it
+/goal clear        Clear it
+```
+
+Goal state persists in the current Pi session and active goals continue automatically after Pi settles. The model uses `get_goal`, `create_goal`, and `update_goal` behind these commands.
+
+#### Web access
+
+The model can call the compact `enable_web_access` loader when current information, external docs, or URL content is needed. Manual controls:
+
+```text
+/web on
+/web off
+/web status
+```
+
+Enabling it exposes `web_search`, `fetch_content`, and `get_search_content`. Browser-cookie access stays disabled and `/web off` returns to the schema-light loader.
+
+#### Figma Desktop
+
+For a Figma task, the model can call `enable_figma`, or use:
+
+```text
+/figma on
+/figma status
+/figma tools
+/figma off
+```
+
+Open Figma Desktop and enable its local MCP server first. Once enabled, the model uses `figma_mcp` for common `inspect`, `screenshot`, `variables`, `metadata`, and `figjam` reads, plus catalog/schema/call and resource access. This integration is for local read workflows; use native Codex CLI for remote/write access while Figma restricts remote OAuth to approved clients.
+
+Run `/reload` after installing or editing toolkit resources in an already-running Pi session. DeepSec remains project-local and is not installed globally.
 
 ## Verification
 
