@@ -8,7 +8,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `codex/skills/handoff` — portable, clipboard-ready context transfer for another agent; also loaded by Pi as `/skill:handoff`.
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — token-efficient, opt-in access to Figma's local and remote MCP endpoints through one compact Pi tool.
-- `shared/ponytail` — shared `lite`-mode configuration plus the tested Pi package version for [Ponytail](https://github.com/DietrichGebert/ponytail). Ponytail remains an upstream dependency and is not vendored here.
+- `shared/ponytail` — shared `full`-mode configuration plus the tested Pi package version for [Ponytail](https://github.com/DietrichGebert/ponytail). Ponytail remains an upstream dependency and is not vendored here.
 
 ## Install
 
@@ -29,7 +29,7 @@ The installer installs pinned npm dependencies for `figma-mcp`, installs Ponytai
 
 Unavailable agent CLIs are skipped. The Ponytail config follows `XDG_CONFIG_HOME` when set. Pi's Ponytail package is pinned to the version in `shared/ponytail/VERSION`; Claude and Codex use their native Ponytail marketplaces. Existing non-symlink installations are moved to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
-Run `/reload` in an already-running Pi session after installation or updates. Codex asks you to review and trust Ponytail's lifecycle hooks on first start; use `/hooks` if needed. New sessions start in `lite` mode.
+Run `/reload` in an already-running Pi session after installation or updates. Codex asks you to review and trust Ponytail's lifecycle hooks on first start; use `/hooks` if needed. New sessions start in `full` mode.
 
 ## Verification
 
