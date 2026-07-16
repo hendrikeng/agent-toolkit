@@ -9,44 +9,17 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { isFigmaUseResource, parseFigmaUrl } from "./figma-core.ts";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseFigmaUrl } from "./figma-core.ts";
 
 const TOOL_NAME = "figma_mcp";
+const LOADER_TOOL_NAME = "enable_figma";
 const LOCAL_URL = "http://127.0.0.1:3845/mcp";
-const REMOTE_URL = "https://mcp.figma.com/mcp";
-const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
-const configuredAgentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
-const expandedAgentDir =
-  configuredAgentDir === "~"
-    ? homedir()
-    : configuredAgentDir.startsWith("~/")
-      ? join(homedir(), configuredAgentDir.slice(2))
-      : configuredAgentDir;
-const AUTH_DIR = join(resolve(expandedAgentDir), "mcp-auth");
-const OAUTH_ENV_VARS = [
-  "DISPLAY",
-  "WAYLAND_DISPLAY",
-  "XDG_RUNTIME_DIR",
-  "DBUS_SESSION_BUS_ADDRESS",
-  "XAUTHORITY",
-  "BROWSER",
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "NO_PROXY",
-  "ALL_PROXY",
-  "http_proxy",
-  "https_proxy",
-  "no_proxy",
-  "all_proxy",
-  "NODE_EXTRA_CA_CERTS",
-  "SSL_CERT_FILE",
-  "SSL_CERT_DIR",
-] as const;
+const REMOTE_UNAVAILABLE =
+  "Figma remote MCP rejects unlisted OAuth clients, including Pi. Use /figma on local for desktop reads or native Codex CLI for Figma remote/write access.";
 
-type Endpoint = "local" | "remote";
+type Endpoint = "local";
 type McpTool = {
   name: string;
   description?: string;
@@ -89,7 +62,6 @@ type McpClient = {
 
 type McpTransport = {
   close(): Promise<void>;
-  stderr?: NodeJS.ReadableStream | null;
 };
 
 type ToolParams = {
@@ -147,15 +119,6 @@ const PARAMETERS = Type.Object({
   contentsOnly: Type.Optional(Type.Boolean()),
   includeImagesOfNodes: Type.Optional(Type.Boolean()),
 });
-
-function oauthEnvironment(): Record<string, string> {
-  const env: Record<string, string> = { MCP_REMOTE_CONFIG_DIR: AUTH_DIR };
-  for (const key of OAUTH_ENV_VARS) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
-  return env;
-}
 
 function compactError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -236,8 +199,6 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
   let connectAbort: AbortController | undefined;
   let connectionEpoch = 0;
   let lastError: string | undefined;
-  let stderrTail = "";
-  let figmaUseGuidanceLoaded = false;
 
   const setStatus = (ctx: ExtensionContext) => {
     ctx.ui.setStatus("figma-mcp", connectedEndpoint ? `figma:${connectedEndpoint}` : undefined);
@@ -257,7 +218,6 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
     connectedEndpoint = undefined;
     tools = new Map();
     resources = undefined;
-    figmaUseGuidanceLoaded = false;
   };
 
   const disconnect = async (keepDesired = false) => {
@@ -268,29 +228,42 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
     connectPromise = undefined;
     const inFlightTransport = pendingTransport;
     pendingTransport = undefined;
-    if (!keepDesired) desiredEndpoint = undefined;
-    await inFlightTransport?.close().catch(() => undefined);
-    if (pending) await pending.catch(() => undefined);
     const oldClient = client;
     const oldTransport = transport;
+    if (!keepDesired) desiredEndpoint = undefined;
     clearConnection();
-    if (oldClient) await oldClient.close().catch(() => undefined);
-    else await oldTransport?.close().catch(() => undefined);
+    const closePendingTransport = inFlightTransport?.close().catch(() => undefined);
+    const closeActiveTransport = oldClient
+      ? oldClient.close().catch(() => undefined)
+      : oldTransport?.close().catch(() => undefined);
+    await Promise.all([closePendingTransport, pending?.catch(() => undefined), closeActiveTransport]);
   };
 
-  const connect = async (endpoint: Endpoint): Promise<void> => {
-    if (client && connectedEndpoint === endpoint) return;
+  const connect = async (endpoint: Endpoint, signal?: AbortSignal): Promise<boolean> => {
+    if (client && connectedEndpoint === endpoint) return false;
     if (connectPromise) {
-      await connectPromise;
-      if (client && connectedEndpoint === endpoint) return;
+      const sharedConnect = connectPromise;
+      if (signal) {
+        signal.throwIfAborted();
+        await new Promise<void>((resolve, reject) => {
+          const abortSharedWait = () => reject(new Error("Figma connection cancelled."));
+          signal.addEventListener("abort", abortSharedWait, { once: true });
+          sharedConnect.then(resolve, reject).finally(() => signal.removeEventListener("abort", abortSharedWait));
+        });
+      } else {
+        await sharedConnect;
+      }
+      if (client && connectedEndpoint === endpoint) return false;
     }
 
     const epoch = ++connectionEpoch;
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
     connectAbort = controller;
     desiredEndpoint = endpoint;
     lastError = undefined;
-    stderrTail = "";
     const oldClient = client;
     const oldTransport = transport;
     clearConnection();
@@ -299,42 +272,13 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
       if (oldClient) await oldClient.close().catch(() => undefined);
       else await oldTransport?.close().catch(() => undefined);
 
-      const [{ Client }, transportModule] = await Promise.all([
+      const [{ Client }, { StreamableHTTPClientTransport }] = await Promise.all([
         import("@modelcontextprotocol/sdk/client/index.js"),
-        endpoint === "local"
-          ? import("@modelcontextprotocol/sdk/client/streamableHttp.js")
-          : import("@modelcontextprotocol/sdk/client/stdio.js"),
+        import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
       ]);
 
       const nextClient = new Client({ name: "pi-figma", version: "0.1.0" }) as unknown as McpClient;
-      let nextTransport: McpTransport;
-
-      if (endpoint === "local") {
-        const { StreamableHTTPClientTransport } = transportModule as typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js");
-        nextTransport = new StreamableHTTPClientTransport(new URL(LOCAL_URL)) as unknown as McpTransport;
-      } else {
-        const { StdioClientTransport } = transportModule as typeof import("@modelcontextprotocol/sdk/client/stdio.js");
-        const proxy = resolve(EXTENSION_DIR, "node_modules", "mcp-remote", "dist", "proxy.js");
-        nextTransport = new StdioClientTransport({
-          command: "node",
-          args: [
-            proxy,
-            REMOTE_URL,
-            "--transport",
-            "http-only",
-            "--auth-timeout",
-            "120",
-            "--enable-proxy",
-            "--silent",
-          ],
-          // The MCP SDK adds safe HOME/PATH defaults. Add only OAuth browser/proxy/TLS variables, never provider credentials.
-          env: oauthEnvironment(),
-          stderr: "pipe",
-        }) as unknown as McpTransport;
-        nextTransport.stderr?.on("data", (chunk) => {
-          stderrTail = `${stderrTail}${String(chunk)}`.slice(-8192);
-        });
-      }
+      const nextTransport = new StreamableHTTPClientTransport(new URL(LOCAL_URL)) as unknown as McpTransport;
 
       pendingTransport = nextTransport;
       if (controller.signal.aborted) throw new Error("Figma connection cancelled.");
@@ -347,10 +291,7 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
       };
 
       try {
-        await nextClient.connect(nextTransport, {
-          signal: controller.signal,
-          timeout: endpoint === "remote" ? 180_000 : 15_000,
-        });
+        await nextClient.connect(nextTransport, { signal: controller.signal, timeout: 15_000 });
         const result = await nextClient.listTools({}, { signal: controller.signal, timeout: 30_000 });
         if (controller.signal.aborted || connectionEpoch !== epoch || desiredEndpoint !== endpoint) {
           if (!controller.signal.aborted) await nextClient.close().catch(() => undefined);
@@ -361,19 +302,20 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
         connectedEndpoint = endpoint;
         tools = new Map(result.tools.map((tool) => [tool.name, tool]));
       } catch (error) {
-        if (!controller.signal.aborted) await nextClient.close().catch(() => undefined);
-        const suffix = stderrTail.trim() ? ` (${stderrTail.trim().split("\n").at(-1)})` : "";
-        throw new Error(`${compactError(error)}${suffix}`);
+        await nextClient.close().catch(() => undefined);
+        throw new Error(compactError(error));
       }
     })();
     connectPromise = pending;
 
     try {
       await pending;
+      return true;
     } finally {
       if (connectPromise === pending) connectPromise = undefined;
       if (connectAbort === controller) connectAbort = undefined;
       if (pendingTransport === transport || !connectedEndpoint) pendingTransport = undefined;
+      signal?.removeEventListener("abort", abort);
     }
   };
 
@@ -393,15 +335,44 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
   };
 
   pi.registerTool({
+    name: LOADER_TOOL_NAME,
+    label: "Enable Figma",
+    description:
+      "Enable the local Figma Desktop MCP for this session. Use when the task references Figma, a Figma URL, the current Figma selection, or asks for design inspection. Requires Figma Desktop with its MCP server enabled.",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, signal) {
+      const sharedConnection = Boolean(client || connectPromise);
+      let ownsConnection = false;
+      try {
+        ownsConnection = await connect("local", signal);
+        signal?.throwIfAborted();
+        setToolActive(true);
+        return {
+          content: [{ type: "text", text: `Figma enabled: ${tools.size} desktop tools are available through figma_mcp.` }],
+          details: { endpoint: "local", toolCount: tools.size },
+        };
+      } catch (error) {
+        if (ownsConnection) await disconnect(false);
+        else if (!sharedConnection && !client) {
+          desiredEndpoint = undefined;
+          setToolActive(false);
+        }
+        throw new Error(
+          `Figma Desktop MCP connection failed: ${compactError(error)}. Open Figma Desktop and enable its MCP server.`,
+        );
+      }
+    },
+  });
+
+  pi.registerTool({
     name: TOOL_NAME,
     label: "Figma MCP",
     description:
-      "Token-efficient, on-demand Figma access. Common reads use inspect/screenshot/variables/metadata/figjam. Use catalog, then schema and call for other remote tools. Use resources/resource to load Figma guidance only when needed.",
-    promptSnippet: "Inspect or modify Figma through the currently enabled MCP connection",
+      "Token-efficient Figma Desktop access. Common reads use inspect/screenshot/variables/metadata/figjam. Use catalog, then schema and call for other tools. Use resources/resource to load Figma guidance only when needed.",
+    promptSnippet: "Inspect Figma through the currently enabled desktop MCP connection",
     promptGuidelines: [
       "Use figma_mcp only when Figma access is enabled; prefer its compact aliases for common reads.",
       "Before a generic figma_mcp call, inspect catalog and schema rather than guessing arguments.",
-      "Before calling Figma's use_figma write tool, load the relevant official Figma skill with figma_mcp resource and include its required skillNames value.",
     ],
     parameters: PARAMETERS,
     executionMode: "parallel",
@@ -475,8 +446,6 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
           .map((item: any) => (typeof item.text === "string" ? item.text : `[Binary resource: ${item.uri ?? uri}]`))
           .join("\n\n");
         const output = await truncateForContext(text || "Resource is empty.");
-        const selectedResource = available.find((resource) => resource.uri === uri);
-        if (!output.file && isFigmaUseResource(selectedResource, uri)) figmaUseGuidanceLoaded = true;
         return { content: [{ type: "text", text: output.text }], details: { endpoint: connectedEndpoint, uri, fullOutput: output.file } };
       }
 
@@ -491,25 +460,12 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
       if (!remoteToolName) throw new Error(`Unsupported action: ${params.action}`);
       const selected = tools.get(remoteToolName);
       if (!selected) {
-        const hint = connectedEndpoint === "local" ? "Try /figma on remote for write and remote-only tools." : "Use action=catalog.";
-        throw new Error(`Figma endpoint does not expose ${remoteToolName}. ${hint}`);
+        throw new Error(`Figma Desktop does not expose ${remoteToolName}. Use action=catalog.`);
       }
       if (params.action === "call" && !params.tool) throw new Error("action=call requires tool.");
 
       const callArguments =
         params.action === "call" ? (params.arguments ?? {}) : toolArguments(selected, params);
-      if (remoteToolName === "use_figma") {
-        const skillNames =
-          typeof callArguments.skillNames === "string"
-            ? callArguments.skillNames.split(",").map((name) => name.trim())
-            : [];
-        if (!figmaUseGuidanceLoaded || !skillNames.includes("resource:figma-use")) {
-          throw new Error(
-            "use_figma requires the complete official figma-use resource to be loaded in this connection and skillNames to include resource:figma-use.",
-          );
-        }
-      }
-
       const result = await activeClient.callTool(
         { name: remoteToolName, arguments: callArguments },
         undefined,
@@ -551,9 +507,9 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("figma", {
-    description: "Toggle token-efficient Figma MCP: /figma on [local|remote], off, status, tools",
+    description: "Control token-efficient Figma Desktop MCP: /figma on, off, status, tools",
     getArgumentCompletions(prefix) {
-      const values = ["on", "on local", "on remote", "off", "status", "tools"];
+      const values = ["on", "off", "status", "tools"];
       const matches = values.filter((value) => value.startsWith(prefix));
       return matches.length ? matches.map((value) => ({ value, label: value })) : null;
     },
@@ -564,19 +520,19 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
         setToolActive(false);
         await disconnect(false);
         setStatus(ctx);
-        ctx.ui.notify("Figma MCP off; its tool schema is no longer sent to the model.", "info");
+        ctx.ui.notify("Figma MCP off; the small enable_figma loader remains available.", "info");
         return;
       }
 
       if (command === "status") {
-        const state = connectedEndpoint ? `on (${connectedEndpoint}, ${tools.size} MCP tools behind 1 Pi tool)` : desiredEndpoint ? `reconnecting (${desiredEndpoint})` : "off";
+        const state = connectedEndpoint ? `on (local, ${tools.size} MCP tools behind 1 Pi tool)` : desiredEndpoint ? "reconnecting (local)" : "off";
         ctx.ui.notify(`Figma MCP: ${state}${lastError ? ` — last error: ${lastError}` : ""}`, connectedEndpoint ? "info" : "warning");
         return;
       }
 
       if (command === "tools") {
         if (!desiredEndpoint) {
-          ctx.ui.notify("Figma MCP is off. Run /figma on first.", "warning");
+          ctx.ui.notify("Figma MCP is off. Run /figma on or let the model call enable_figma.", "warning");
           return;
         }
         const activeClient = await ensureConnected();
@@ -585,37 +541,35 @@ export default function figmaMcpExtension(pi: ExtensionAPI) {
       }
 
       if (command !== "on") {
-        ctx.ui.notify("Usage: /figma on [local|remote] | off | status | tools", "warning");
+        ctx.ui.notify("Usage: /figma on | off | status | tools", "warning");
+        return;
+      }
+      if (["remote", "write"].includes(requestedEndpoint)) {
+        ctx.ui.notify(REMOTE_UNAVAILABLE, "warning");
+        return;
+      }
+      if (requestedEndpoint && !["local", "desktop", "read"].includes(requestedEndpoint)) {
+        ctx.ui.notify("Usage: /figma on | off | status | tools", "warning");
         return;
       }
 
-      let endpoint: Endpoint | undefined;
-      if (["local", "desktop", "read"].includes(requestedEndpoint)) endpoint = "local";
-      if (["remote", "write"].includes(requestedEndpoint)) endpoint = "remote";
-      if (!endpoint && ctx.hasUI) {
-        const choice = await ctx.ui.select("Figma connection", [
-          "Local desktop — fastest, current selection, read-only",
-          "Remote — OAuth, links, read and write",
-        ]);
-        if (!choice) return;
-        endpoint = choice.startsWith("Local") ? "local" : "remote";
-      }
-      endpoint ??= "local";
-
-      ctx.ui.notify(endpoint === "remote" ? "Connecting to Figma remote; your browser may open for OAuth…" : "Connecting to the Figma desktop MCP…", "info");
+      ctx.ui.notify("Connecting to the Figma desktop MCP…", "info");
       try {
-        await connect(endpoint);
+        await connect("local");
         setToolActive(true);
         setStatus(ctx);
         ctx.ui.notify(
-          `Figma MCP on (${endpoint}): ${tools.size} server tools are hidden behind one compact Pi tool.`,
+          `Figma MCP on (local): ${tools.size} server tools are hidden behind one compact Pi tool.`,
           "info",
         );
       } catch (error) {
         setToolActive(false);
         await disconnect(false);
         setStatus(ctx);
-        ctx.ui.notify(`Figma connection failed: ${compactError(error)}`, "error");
+        ctx.ui.notify(
+          `Figma connection failed: ${compactError(error)}. Open Figma Desktop and enable its MCP server.`,
+          "warning",
+        );
       }
     },
   });

@@ -1,36 +1,29 @@
-# Token-efficient Figma MCP for Pi
+# Token-efficient Figma Desktop MCP for Pi
 
-A global Pi extension that keeps Figma completely out of model requests until you explicitly enable it.
+A global Pi extension that keeps Figma's main tool out of model requests until a Figma task needs it.
 
 ## Commands
 
 ```text
-/figma on local    # Figma desktop MCP: fast, current selection, read-only
-/figma on remote   # Figma remote MCP: OAuth, URL-based reads and canvas writes
-/figma on          # interactive endpoint picker
+/figma on       # connect to Figma Desktop MCP
 /figma status
 /figma tools
 /figma off
 ```
 
-The extension exposes the entire active Figma server through **one compact Pi tool** (`figma_mcp`) instead of forwarding every MCP schema to the model. `/figma off` removes that schema from future model requests and closes the connection.
+The model may also call the tiny `enable_figma` loader automatically when a task references Figma. The extension exposes all five desktop server tools through one compact Pi tool (`figma_mcp`) rather than forwarding every MCP schema to the model. `/figma off` removes that schema and leaves only the loader available.
 
 ## How it stays small
 
-- Default state is off for every Pi session.
-- MCP SDK modules and connections are loaded lazily.
-- Remote OAuth starts only after `/figma on remote`.
-- The OAuth proxy receives only the MCP SDK's safe environment allowlist, its dedicated config directory, and explicit browser/proxy/TLS variables; Pi's provider and cloud credentials are not forwarded.
+- Each Pi session starts with only `enable_figma`; MCP modules and connections load lazily.
 - Common reads have compact aliases: `inspect`, `screenshot`, `variables`, `metadata`, and `figjam`.
 - Other tools use `catalog` → `schema` → `call`, so only the needed schema enters conversation context.
-- Official Figma guidance is fetched on demand with `resources` / `resource` rather than installed as always-visible skills.
+- Official Figma guidance is fetched on demand with `resources` / `resource` rather than installed as an always-visible skill.
 - Text results are capped at Pi's 50 KB / 2,000-line limits; full truncated output is written under the system temp directory.
 
 ## Requirements
 
-### Local desktop
-
-Open the Figma desktop app and enable its desktop MCP server. The endpoint is:
+Open Figma Desktop and enable its desktop MCP server at:
 
 ```text
 http://127.0.0.1:3845/mcp
@@ -38,28 +31,15 @@ http://127.0.0.1:3845/mcp
 
 The desktop server supports read workflows and the current Figma selection.
 
-### Remote
+## Remote limitation
 
-The remote endpoint is:
+Pi does not advertise remote/write mode. Figma's hosted MCP server currently rejects OAuth Dynamic Client Registration from clients outside its approved MCP catalog, so generic bridges such as `mcp-remote` fail with HTTP 403 before OAuth can begin. Use Figma Desktop here, or native Codex CLI for Figma remote/write access. Re-add remote mode only when Figma officially supports Pi or provides approved client credentials.
 
-```text
-https://mcp.figma.com/mcp
-```
+Official references:
 
-The first connection opens a browser for Figma OAuth. Credentials are managed by `mcp-remote` under:
+- https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/
+- https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/
 
-```text
-~/.pi/agent/mcp-auth/
-```
+## Installation
 
-Remote mode is required for Figma's canvas-write tools. Before `use_figma`, the agent is required to load the official `figma-use` resource and pass its required `skillNames` argument.
-
-## Installation layout
-
-This extension is installed globally at:
-
-```text
-~/.pi/agent/extensions/figma-mcp/
-```
-
-After edits or first installation, run `/reload` in Pi. Dependencies are pinned in `package.json` and `package-lock.json`.
+The extension is symlinked to `~/.pi/agent/extensions/figma-mcp/`. Run `/reload` in an existing Pi session after installation or updates. Dependencies are pinned in `package.json` and `package-lock.json`.

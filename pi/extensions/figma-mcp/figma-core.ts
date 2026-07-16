@@ -1,14 +1,3 @@
-export function isFigmaUseResource(
-  resource: { name?: string; title?: string } | undefined,
-  uri: string,
-): boolean {
-  if ([resource?.name, resource?.title].some((value) => value?.trim().toLowerCase() === "figma-use")) return true;
-  let decoded = uri;
-  try { decoded = decodeURIComponent(uri); } catch { /* Keep the original URI. */ }
-  const normalized = decoded.toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "");
-  return /(?:^|\/)figma-use(?:\.md|\.skill\.md)?$/.test(normalized) || /(?:^|\/)figma-use\/skill\.md$/.test(normalized);
-}
-
 export function parseFigmaUrl(raw?: string): { fileKey?: string; nodeId?: string } {
   if (!raw) return {};
   try {

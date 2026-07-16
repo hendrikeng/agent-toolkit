@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isFigmaUseResource, parseFigmaUrl } from "../figma-core.ts";
+import { parseFigmaUrl } from "../figma-core.ts";
 
 test("parses Figma URLs and normalizes copied node IDs", () => {
   assert.deepEqual(
@@ -17,12 +17,4 @@ test("rejects non-Figma and malformed URLs", () => {
   assert.deepEqual(parseFigmaUrl("https://example.com/design/secret?node-id=1-2"), {});
   assert.deepEqual(parseFigmaUrl("not a URL"), {});
   assert.deepEqual(parseFigmaUrl(), {});
-});
-
-test("recognizes only the root figma-use guidance resource", () => {
-  assert.equal(isFigmaUseResource({ name: "figma-use" }, "skill://figma/opaque"), true);
-  assert.equal(isFigmaUseResource(undefined, "skill://figma/figma-use"), true);
-  assert.equal(isFigmaUseResource(undefined, "skill://figma/figma-use/SKILL.md"), true);
-  assert.equal(isFigmaUseResource(undefined, "skill://figma/figma-use/references/gotchas.md"), false);
-  assert.equal(isFigmaUseResource(undefined, "skill://figma/other/figma-use/references.md"), false);
 });
