@@ -18,7 +18,14 @@ const TOOL_NAME = "figma_mcp";
 const LOCAL_URL = "http://127.0.0.1:3845/mcp";
 const REMOTE_URL = "https://mcp.figma.com/mcp";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
-const AUTH_DIR = join(homedir(), ".pi", "agent", "mcp-auth");
+const configuredAgentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+const expandedAgentDir =
+  configuredAgentDir === "~"
+    ? homedir()
+    : configuredAgentDir.startsWith("~/")
+      ? join(homedir(), configuredAgentDir.slice(2))
+      : configuredAgentDir;
+const AUTH_DIR = join(resolve(expandedAgentDir), "mcp-auth");
 const OAUTH_ENV_VARS = [
   "DISPLAY",
   "WAYLAND_DISPLAY",

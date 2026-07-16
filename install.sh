@@ -5,6 +5,18 @@ repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 timestamp=$(date +%Y%m%d-%H%M%S)
 backup_root="${XDG_DATA_HOME:-$HOME/.local/share}/agent-toolkit/backups/$timestamp"
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
+pi_agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
+if [[ $pi_agent_dir != /* ]]; then
+  printf 'PI_CODING_AGENT_DIR must be an absolute path; expand ~ before running the installer\n' >&2
+  exit 2
+fi
+if [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
+  pi_web_config_dir=$pi_agent_dir
+elif [[ -n ${XDG_CONFIG_HOME:-} ]]; then
+  pi_web_config_dir=$XDG_CONFIG_HOME/pi
+else
+  pi_web_config_dir=$HOME/.pi
+fi
 
 install_link() {
   local source=$1
@@ -60,6 +72,51 @@ claude_has_user_ponytail() {
   ' "$1"
 }
 
+install_pi_web_config() {
+  local target=$pi_web_config_dir/web-search.json
+  mkdir -p "$pi_web_config_dir"
+  node -e '
+    const fs = require("fs");
+    const defaultsPath = process.argv[1];
+    const target = process.argv[2];
+    const defaults = JSON.parse(fs.readFileSync(defaultsPath, "utf8"));
+    let current = {};
+    let targetStat;
+    try { targetStat = fs.lstatSync(target); } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (targetStat) {
+      try { current = JSON.parse(fs.readFileSync(target, "utf8")); } catch (error) {
+        if (!targetStat.isSymbolicLink() || error?.code !== "ENOENT") throw error;
+      }
+    }
+    const temporary = `${target}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify({ ...current, ...defaults }, null, 2) + "\n", { mode: 0o600 });
+      fs.renameSync(temporary, target);
+      fs.chmodSync(target, 0o600);
+    } finally {
+      try { fs.unlinkSync(temporary); } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+  ' "$repo_dir/shared/pi-web-access/defaults.json" "$target"
+  printf 'configured %s from safe defaults (existing API keys preserved)\n' "$target"
+}
+
+install_pi_web_access() {
+  local source="npm:pi-web-access@0.13.0"
+  if ! command -v pi >/dev/null 2>&1; then
+    printf 'skipped Pi web access package (pi not found)\n'
+    return
+  fi
+
+  pi install "$source"
+
+  local settings_path=$pi_agent_dir/settings.json
+  node "$repo_dir/shared/pi-web-access/configure-package.cjs" "$settings_path" "$source"
+}
+
 install_ponytail() {
   local version pi_source marketplace_source
   version=$(<"$repo_dir/shared/ponytail/VERSION")
@@ -111,21 +168,35 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-printf 'installing figma-mcp dependencies…\n'
+printf 'installing pinned toolkit dependencies…\n'
 (
   cd "$repo_dir/pi/extensions/figma-mcp"
+  npm ci --ignore-scripts --no-audit --no-fund
+)
+(
+  cd "$repo_dir/pi/skills/react-doctor"
+  npm ci --ignore-scripts --no-audit --no-fund
+)
+(
+  cd "$repo_dir/shared/pi-web-access"
   npm ci --ignore-scripts --no-audit --no-fund
 )
 
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
-install_link "$repo_dir/codex/skills/handoff" "$HOME/.pi/agent/skills/handoff"
-install_link "$repo_dir/pi/extensions/codex-goal" "$HOME/.pi/agent/extensions/codex-goal"
-install_link "$repo_dir/pi/extensions/figma-mcp" "$HOME/.pi/agent/extensions/figma-mcp"
+install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
+install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
+install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
+install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
+install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
+install_link "$repo_dir/pi/skills/vue" "$pi_agent_dir/skills/vue"
 install_link "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
+install_pi_web_config
 
 printf '\ninstalling Ponytail for available agent hosts…\n'
 install_ponytail
+printf '\ninstalling lazy Pi web access…\n'
+install_pi_web_access
 
 printf '\nInstallation complete. Run /reload in active Pi sessions and start new agent sessions.\n'
 printf 'On first Codex start, review and trust Ponytail hooks when prompted (or open /hooks).\n'

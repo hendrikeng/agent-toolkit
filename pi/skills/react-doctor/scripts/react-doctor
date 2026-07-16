@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  printf 'usage: %s [changed|full|lines] [react-doctor options...]\n' "$0"
+  exit 0
+fi
+
+scope=${1:-changed}
+case "$scope" in
+  changed|lines) scope_args=(--scope "$scope" --include-untracked) ;;
+  full) scope_args=(--scope full) ;;
+  *) printf 'usage: %s [changed|full|lines] [react-doctor options...]\n' "$0" >&2; exit 2 ;;
+esac
+shift || true
+for option in "$@"; do
+  case "$option" in
+    --|--score|--supply-chain)
+      printf 'react-doctor wrapper refuses privacy override: %s\n' "$option" >&2
+      exit 2
+      ;;
+  esac
+done
+
+skill_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$skill_dir/node_modules/.bin/react-doctor" . --verbose "$@" \
+  "${scope_args[@]}" --no-telemetry --no-supply-chain
