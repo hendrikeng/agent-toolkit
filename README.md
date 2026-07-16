@@ -40,9 +40,12 @@ Run `/reload` in an already-running Pi session after installation or updates. Co
 
 ## Pi usage
 
-- Web access starts schema-light. The model can call `enable_web_access`, or use `/web on`; `/web off` removes the full schemas again.
-- Run React Doctor manually with `/skill:react-doctor`, then follow its changed/full scan instructions.
-- Vue guidance loads only for matching Vue tasks and does not execute a scanner.
+Skills are task instructions loaded on demand; extensions are runtime features loaded automatically when Pi starts. After installation, normal Vue and React work needs no activation.
+
+- **Vue:** ask for the Vue task normally. Pi loads the `vue` skill when the task matches; use `/skill:vue` only to force it.
+- **React:** work normally. React Doctor is an optional scanner, not a general React skill; run `/skill:react-doctor` manually for a health check or before shipping a meaningful change, then choose its changed or full scan.
+- **Extensions:** use their commands directly. Web access can load itself when needed or be toggled with `/web on|off`; Figma stays off until `/figma on`; goals start with `/goal <objective>`.
+- Run `/reload` after installing or editing toolkit resources in an already-running Pi session.
 - DeepSec remains project-local and is not installed globally.
 
 ## Verification
