@@ -18,6 +18,7 @@ fi
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
+node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
 "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKILL.md"
@@ -31,6 +32,7 @@ node -e '
 ' "$pi_web_config_dir/web-search.json"
 
 ponytail_version=$(<"$repo_dir/shared/ponytail/VERSION")
+permission_version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
 if command -v claude >/dev/null 2>&1; then
   claude plugin list --json | node -e '
     const plugins = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -40,14 +42,34 @@ if command -v claude >/dev/null 2>&1; then
       plugin.enabled === true
     ) ? 0 : 1);
   '
+  node -e '
+    const settings = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const ask = settings.permissions?.ask ?? [];
+    process.exit(settings.sandbox?.enabled === true && settings.sandbox?.failIfUnavailable === true && ask.includes("Bash(rm *)") && ask.includes("Bash(*/sh -c *)") && ask.includes("Bash(git reset --hard)") ? 0 : 1);
+  ' "$HOME/.claude/settings.json"
 fi
 if command -v codex >/dev/null 2>&1; then
   codex plugin list | grep '^ponytail@ponytail[[:space:]].*installed, enabled' >/dev/null
+  test ! -L "$HOME/.codex/rules/agent-safety.rules"
+  cmp "$repo_dir/shared/agent-safety/codex.rules" "$HOME/.codex/rules/agent-safety.rules"
+  test "$(<"$HOME/.codex/rules/agent-safety.rules.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.codex/rules/agent-safety.rules" | awk '{print $1}')"
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- rm -rf keep-me \
+    | grep -q '"decision": "prompt"'
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- /bin/rm -rf keep-me \
+    | grep -q '"decision": "prompt"'
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- git --no-pager clean -fdx \
+    | grep -q '"decision": "prompt"'
+  grep -Eq "^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*['\"](workspace-write|read-only)['\"]([[:space:]]*#.*)?$" "$HOME/.codex/config.toml"
+  grep -Eq "^[[:space:]]*approval_policy[[:space:]]*=[[:space:]]*(['\"](on-request|untrusted)['\"]|\\{)" "$HOME/.codex/config.toml"
 fi
 if command -v pi >/dev/null 2>&1; then
   pi list --no-approve \
     | grep -F "git:github.com/DietrichGebert/ponytail@v$ponytail_version" >/dev/null
   pi list --no-approve | grep -F "npm:pi-web-access@0.13.0" >/dev/null
+  pi list --no-approve | grep -F "npm:@gotgenes/pi-permission-system@$permission_version" >/dev/null
+  test ! -L "$pi_agent_dir/extensions/pi-permission-system/config.json"
+  cmp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$pi_agent_dir/extensions/pi-permission-system/config.json"
+  test "$(<"$pi_agent_dir/extensions/pi-permission-system/config.json.agent-toolkit.sha256")" = "$(shasum -a 256 "$pi_agent_dir/extensions/pi-permission-system/config.json" | awk '{print $1}')"
   pi_settings=$pi_agent_dir/settings.json
   node -e '
     const settings = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));

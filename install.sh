@@ -42,6 +42,79 @@ install_link() {
   printf 'installed %s -> %s\n' "$target" "$source"
 }
 
+install_managed_copy() {
+  local source=$1
+  local target=$2
+  local marker="$target.agent-toolkit.sha256"
+  local source_hash target_hash managed_hash
+
+  mkdir -p "$(dirname "$target")"
+  source_hash=$(shasum -a 256 "$source" | awk '{print $1}')
+  if [[ -L "$target" ]]; then
+    if [[ $(realpath "$target") != $(realpath "$source") ]]; then
+      printf 'refusing unmanaged symlink at %s\n' "$target" >&2
+      return 1
+    fi
+  elif [[ -e "$target" ]]; then
+    target_hash=$(shasum -a 256 "$target" | awk '{print $1}')
+    managed_hash=$(cat "$marker" 2>/dev/null || true)
+    if [[ $target_hash == "$source_hash" ]]; then
+      chmod 600 "$target"
+      printf '%s\n' "$source_hash" >"$marker"
+      chmod 600 "$marker"
+      return
+    fi
+    if [[ $managed_hash != "$target_hash" ]]; then
+      printf 'refusing to replace user-managed policy at %s\n' "$target" >&2
+      return 1
+    fi
+  fi
+
+  if [[ -e "$target" || -L "$target" ]]; then
+    local backup="$backup_root/${target#"$HOME"/}"
+    mkdir -p "$(dirname "$backup")"
+    cp -P "$target" "$backup"
+    printf 'backed up %s -> %s\n' "$target" "$backup"
+  fi
+  rm -f "$target"
+  cp "$source" "$target"
+  chmod 600 "$target"
+  printf '%s\n' "$source_hash" >"$marker"
+  chmod 600 "$marker"
+  printf 'installed managed policy %s\n' "$target"
+}
+
+configure_agent_file() {
+  local host=$1
+  local target=$2
+  if [[ -L "$target" ]]; then
+    target=$(realpath "$target")
+  fi
+  local temporary="$target.tmp-$timestamp"
+
+  mkdir -p "$(dirname "$target")"
+  if [[ -e "$target" ]]; then
+    cp -p "$target" "$temporary"
+  else
+    if [[ $host == claude ]]; then printf '%s\n' '{}' >"$temporary"; else : >"$temporary"; fi
+    chmod 600 "$temporary"
+  fi
+  node "$repo_dir/shared/agent-safety/configure.cjs" "$host" "$temporary"
+
+  if [[ -e "$target" ]] && cmp -s "$target" "$temporary"; then
+    rm "$temporary"
+    return
+  fi
+  if [[ -e "$target" ]]; then
+    local backup="$backup_root/${target#"$HOME"/}"
+    mkdir -p "$(dirname "$backup")"
+    cp -p "$target" "$backup"
+    printf 'backed up %s -> %s\n' "$target" "$backup"
+  fi
+  mv "$temporary" "$target"
+  printf 'configured %s agent safety\n' "$host"
+}
+
 claude_ponytail_marketplace_source() {
   claude plugin marketplace list --json 2>/dev/null | node -e '
     const marketplaces = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -115,6 +188,31 @@ install_pi_web_access() {
 
   local settings_path=$pi_agent_dir/settings.json
   node "$repo_dir/shared/pi-web-access/configure-package.cjs" "$settings_path" "$source"
+}
+
+install_agent_safety() {
+  local version
+
+  if command -v claude >/dev/null 2>&1; then
+    configure_agent_file claude "$HOME/.claude/settings.json"
+  else
+    printf 'skipped Claude agent safety (claude not found)\n'
+  fi
+
+  if command -v codex >/dev/null 2>&1; then
+    configure_agent_file codex "$HOME/.codex/config.toml"
+    install_managed_copy "$repo_dir/shared/agent-safety/codex.rules" "$HOME/.codex/rules/agent-safety.rules"
+  else
+    printf 'skipped Codex agent safety (codex not found)\n'
+  fi
+
+  if command -v pi >/dev/null 2>&1; then
+    version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
+    pi install "npm:@gotgenes/pi-permission-system@$version"
+    install_managed_copy "$repo_dir/shared/agent-safety/pi-permission-system.json" "$pi_agent_dir/extensions/pi-permission-system/config.json"
+  else
+    printf 'skipped Pi agent safety (pi not found)\n'
+  fi
 }
 
 install_ponytail() {
@@ -195,6 +293,8 @@ install_pi_web_config
 
 printf '\ninstalling Ponytail for available agent hosts…\n'
 install_ponytail
+printf '\ninstalling agent safety boundaries…\n'
+install_agent_safety
 printf '\ninstalling lazy Pi web access…\n'
 install_pi_web_access
 

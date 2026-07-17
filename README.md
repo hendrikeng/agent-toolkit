@@ -13,6 +13,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/skills/vue` — on-demand Vue 3 guidance vendored from Anthony Fu's MIT-licensed skill at a recorded revision.
 - `shared/ponytail` — shared `full`-mode configuration plus the tested Pi package version for [Ponytail](https://github.com/DietrichGebert/ponytail). Ponytail remains an upstream dependency and is not vendored here.
 - `shared/pi-web-access` — safe defaults for a raw-result workflow with browser-cookie access disabled for pinned `pi-web-access@0.13.0`.
+- `shared/agent-safety` — workspace sandboxes and approval gates for destructive commands across Claude Code, Codex, and Pi; Pi uses pinned `@gotgenes/pi-permission-system@20.7.3`.
 
 ## Install
 
@@ -20,7 +21,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 ./install.sh
 ```
 
-The installer installs pinned toolkit dependencies, installs Ponytail through each available host's native package manager, installs `pi-web-access` with its bundled skill filtered out, and creates these symlinks:
+The installer installs pinned toolkit dependencies, installs Ponytail through each available host's native package manager, installs `pi-web-access` with its bundled skill filtered out, configures agent safety without replacing user-owned settings, and creates these symlinks:
 
 ```text
 ~/.codex/skills/autoreview             -> codex/skills/autoreview
@@ -34,6 +35,8 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 <config-dir>/ponytail/config.json       -> shared/ponytail/config.json
 ```
 
+Safety policies are installed as managed `0600` copies under `~/.codex/rules/agent-safety.rules` and `~/.pi/agent/extensions/pi-permission-system/config.json`, not as workspace-writable symlinks. The installer refuses to replace modified or user-managed policy files. Codex permission profiles and uncommon TOML forms are also refused rather than rewritten unsafely; configure those profiles directly.
+
 Pi's `web-search.json` is a user-owned `0600` file rather than a symlink: installation merges the managed safe defaults while preserving existing API keys. A custom `PI_CODING_AGENT_DIR` must be an absolute path because the web package does not expand a literal `~`. Unavailable agent CLIs are skipped. The Ponytail config follows `XDG_CONFIG_HOME` when set. Pi's Ponytail package is pinned to the version in `shared/ponytail/VERSION`; Claude and Codex use their native Ponytail marketplaces. Existing non-symlink installations are moved to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
 Run `/reload` in an already-running Pi session after installation or updates. Codex asks you to review and trust Ponytail's lifecycle hooks on first start; use `/hooks` if needed. New sessions start in `full` mode.
@@ -41,6 +44,10 @@ Run `/reload` in an already-running Pi session after installation or updates. Co
 ## Usage manual
 
 After `./install.sh`, skills are discovered automatically when a task matches and extensions load when their host starts. Use the commands below only to force a skill, change a mode, or enable an opt-in integration.
+
+### Agent safety
+
+Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort approval layer for external access and common destructive command forms such as `rm`, `git clean`, and `git reset --hard`. Pi project-local permission configuration is trusted and can override its global policy, so use trusted projects or an OS/container sandbox when Pi needs a hard boundary. Keep irreplaceable untracked data outside agent worktrees or in versioned backups: these controls reduce accidents but do not replace backups.
 
 ### Shared and cross-agent tools
 
@@ -144,7 +151,7 @@ Run `/reload` after installing or editing toolkit resources in an already-runnin
 ./verify.sh
 ```
 
-This runs the autoreview self-tests, extension and skill checks, verifies automatic command discovery through Pi RPC, and confirms pinned Ponytail and web-access package configuration.
+This runs the autoreview self-tests, extension and skill checks, verifies automatic command discovery through Pi RPC, and confirms agent-safety policies plus pinned Ponytail and web-access package configuration.
 
 ## Updating
 
