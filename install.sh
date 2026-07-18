@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 timestamp=$(date +%Y%m%d-%H%M%S)
 backup_root="${XDG_DATA_HOME:-$HOME/.local/share}/agent-toolkit/backups/$timestamp"
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -191,7 +191,7 @@ install_pi_web_access() {
 }
 
 install_agent_safety() {
-  local version
+  local version policy_temp
 
   if command -v claude >/dev/null 2>&1; then
     configure_agent_file claude "$HOME/.claude/settings.json"
@@ -209,7 +209,11 @@ install_agent_safety() {
   if command -v pi >/dev/null 2>&1; then
     version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
     pi install "npm:@gotgenes/pi-permission-system@$version"
-    install_managed_copy "$repo_dir/shared/agent-safety/pi-permission-system.json" "$pi_agent_dir/extensions/pi-permission-system/config.json"
+    policy_temp=$(mktemp "${TMPDIR:-/tmp}/agent-toolkit-pi-policy.XXXXXX")
+    cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$policy_temp"
+    node "$repo_dir/shared/agent-safety/configure.cjs" pi "$policy_temp" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
+    install_managed_copy "$policy_temp" "$pi_agent_dir/extensions/pi-permission-system/config.json"
+    rm "$policy_temp"
   else
     printf 'skipped Pi agent safety (pi not found)\n'
   fi

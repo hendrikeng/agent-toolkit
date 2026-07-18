@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const pathModule = require("node:path");
+const os = require("node:os");
 
 const ASK_RULES = [
   "Bash(dangerouslyDisableSandbox:true)",
@@ -92,6 +94,30 @@ function configureClaude(text) {
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
+function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
+  const paths = [toolkitDir, piAgentDir, piWebConfigDir];
+  if (paths.some((value) => !pathModule.isAbsolute(value))) throw new Error("Pi safety paths must be absolute");
+  if (paths.some((value) => /[*?]/.test(value))) throw new Error("Pi safety paths cannot contain permission glob characters");
+
+  const canonical = (value) => fs.existsSync(value) ? fs.realpathSync(value) : pathModule.resolve(value);
+  const toolkit = canonical(toolkitDir);
+  const agentDir = canonical(piAgentDir);
+  const webConfigDir = canonical(piWebConfigDir);
+  const settings = JSON.parse(text);
+  const home = os.homedir();
+  settings.piInfrastructureReadPaths = [
+    pathModule.join(toolkit, "codex/skills/handoff"),
+    pathModule.join(toolkit, "pi/skills/react-doctor"),
+    pathModule.join(toolkit, "pi/skills/vue"),
+    canonical(pathModule.join(home, ".agents/skills")),
+    canonical(pathModule.join(home, ".claude/skills")),
+    canonical(pathModule.join(home, ".codex/skills")),
+  ];
+  settings.permission.path[pathModule.join(agentDir, "auth.json")] = "deny";
+  settings.permission.path[pathModule.join(webConfigDir, "web-search.json")] = "deny";
+  return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
 function configureCodex(text) {
   if (text.includes("'''") || text.includes('\"\"\"')) {
     throw new Error("refusing to rewrite Codex TOML containing multiline strings");
@@ -129,6 +155,16 @@ if (process.argv[2] === "--self-test") {
   const claude = JSON.parse(configureClaude('{// keep values\n"permissions":{"ask":["Bash(custom *)",],},}'));
   assert.equal(claude.sandbox.enabled, true);
   assert.deepEqual(claude.permissions.ask.slice(0, 2), ["Bash(custom *)", ASK_RULES[0]]);
+  const pi = JSON.parse(configurePi('{"piInfrastructureReadPaths":[],"permission":{"path":{}}}', "/toolkit", "/pi-agent", "/pi-config"));
+  assert.deepEqual(pi.piInfrastructureReadPaths.slice(0, 3), [
+    "/toolkit/codex/skills/handoff",
+    "/toolkit/pi/skills/react-doctor",
+    "/toolkit/pi/skills/vue",
+  ]);
+  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/.agents/skills")), true);
+  assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
+  assert.equal(pi.permission.path["/pi-config/web-search.json"], "deny");
+  assert.throws(() => configurePi('{"permission":{"path":{}}}', "/tool?kit", "/pi-agent", "/pi-config"));
   assert.match(configureCodex('sandbox_mode = "danger-full-access"\napproval_policy = "never"\n\n[features]\nhooks = true\n'), /^sandbox_mode = "workspace-write"\napproval_policy = "on-request"/);
   assert.match(configureCodex("  sandbox_mode = 'read-only' # keep\n  approval_policy = 'untrusted' # keep\n"), /sandbox_mode = 'read-only' # keep\n  approval_policy = 'untrusted' # keep/);
   assert.match(configureCodex('[profiles.unsafe] # local\nsandbox_mode = "danger-full-access"\n'), /^approval_policy = "on-request"\nsandbox_mode = "workspace-write"/);
@@ -142,10 +178,11 @@ if (process.argv[2] === "--self-test") {
   process.exit(0);
 }
 
-const [, , host, path] = process.argv;
-if (!path || !["claude", "codex"].includes(host)) {
-  console.error("usage: configure.cjs <claude|codex> <path>");
+const [, , host, path, extra, piAgentDir, piWebConfigDir] = process.argv;
+if (!path || !["claude", "codex", "pi"].includes(host) || (host === "pi" && (!extra || !piAgentDir || !piWebConfigDir))) {
+  console.error("usage: configure.cjs <claude|codex|pi> <path> [toolkit-dir pi-agent-dir pi-web-config-dir]");
   process.exit(2);
 }
 const text = fs.readFileSync(path, "utf8");
-fs.writeFileSync(path, host === "claude" ? configureClaude(text) : configureCodex(text));
+const configured = host === "claude" ? configureClaude(text) : host === "codex" ? configureCodex(text) : configurePi(text, extra, piAgentDir, piWebConfigDir);
+fs.writeFileSync(path, configured);

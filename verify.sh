@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
 pi_agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
 if [[ $pi_agent_dir != /* ]]; then
@@ -69,7 +69,9 @@ if command -v pi >/dev/null 2>&1; then
   pi list --no-approve | grep -F "npm:pi-web-access@0.13.0" >/dev/null
   pi list --no-approve | grep -F "npm:@gotgenes/pi-permission-system@$permission_version" >/dev/null
   test ! -L "$pi_agent_dir/extensions/pi-permission-system/config.json"
-  cmp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$pi_agent_dir/extensions/pi-permission-system/config.json"
+  cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$tmp_dir/pi-permission-system.json"
+  node "$repo_dir/shared/agent-safety/configure.cjs" pi "$tmp_dir/pi-permission-system.json" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
+  cmp "$tmp_dir/pi-permission-system.json" "$pi_agent_dir/extensions/pi-permission-system/config.json"
   test "$(<"$pi_agent_dir/extensions/pi-permission-system/config.json.agent-toolkit.sha256")" = "$(shasum -a 256 "$pi_agent_dir/extensions/pi-permission-system/config.json" | awk '{print $1}')"
   pi_settings=$pi_agent_dir/settings.json
   node -e '
