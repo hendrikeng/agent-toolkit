@@ -58,6 +58,8 @@
       "find * -delete*": "ask",
       "*/find * -delete*": "ask",
       "command *": "ask",
+      "command -v *": "allow",
+      "command -V *": "allow",
       "exec *": "ask",
       "builtin *": "ask",
       "*/env *": "ask",
