@@ -11,7 +11,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
 - `pi/extensions/web-access-gate` — keeps `pi-web-access` behind one compact loader; full search/fetch schemas load only when the model or `/web on` enables them.
 - `pi/skills/react-doctor` — manual-only, telemetry-free React diagnostics using pinned `react-doctor@0.7.8`.
-- `pi/skills/vue` — on-demand Vue 3 guidance vendored from Anthony Fu's MIT-licensed skill at a recorded revision.
+- `pi/skills/vue` — shared on-demand Vue 3 guidance for Claude Code, Codex, and Pi, vendored from Anthony Fu's MIT-licensed skill at a recorded revision.
 - `shared/ponytail` — shared `full`-mode configuration plus the tested Pi package version for [Ponytail](https://github.com/DietrichGebert/ponytail). Ponytail remains an upstream dependency and is not vendored here.
 - `shared/pi-web-access` — safe defaults for a raw-result workflow with browser-cookie access disabled for pinned `pi-web-access@0.13.0`.
 - `shared/agent-safety` — workspace sandboxes and approval gates for destructive commands across Claude Code, Codex, and Pi; Pi uses pinned `@gotgenes/pi-permission-system@20.7.3`.
@@ -27,6 +27,8 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ```text
 ~/.codex/skills/autoreview             -> codex/skills/autoreview
 ~/.codex/skills/handoff                -> codex/skills/handoff
+~/.codex/skills/vue                    -> pi/skills/vue
+~/.claude/skills/vue                   -> pi/skills/vue
 ~/.pi/agent/skills/handoff             -> codex/skills/handoff
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
@@ -93,7 +95,7 @@ Pi skills load on matching tasks; `/skill:<name>` forces one. Pi extensions belo
 
 #### Vue
 
-Ask for Vue work normally; no activation is required. Pi loads the Vue 3 guidance when the task matches. Use `/skill:vue` to force it. This is guidance, not a scanner.
+Ask for Vue work normally; no activation is required. Claude Code, Codex, and Pi load the Vue 3 guidance when the task matches. Force it with `/vue` in Claude Code, `@vue` in Codex, or `/skill:vue` in Pi. This is guidance, not a scanner.
 
 #### React Doctor
 

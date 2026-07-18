@@ -286,6 +286,8 @@ printf 'installing pinned toolkit dependencies…\n'
 
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
+install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
+install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
 install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
