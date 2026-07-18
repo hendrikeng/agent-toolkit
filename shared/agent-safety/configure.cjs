@@ -106,9 +106,8 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
   const settings = JSON.parse(text);
   const home = os.homedir();
   settings.piInfrastructureReadPaths = [
-    pathModule.join(toolkit, "codex/skills/handoff"),
-    pathModule.join(toolkit, "pi/skills/react-doctor"),
-    pathModule.join(toolkit, "pi/skills/vue"),
+    pathModule.join(toolkit, "codex/skills"),
+    pathModule.join(toolkit, "pi/skills"),
     canonical(pathModule.join(home, ".agents/skills")),
     canonical(pathModule.join(home, ".claude/skills")),
     canonical(pathModule.join(home, ".codex/skills")),
@@ -156,10 +155,9 @@ if (process.argv[2] === "--self-test") {
   assert.equal(claude.sandbox.enabled, true);
   assert.deepEqual(claude.permissions.ask.slice(0, 2), ["Bash(custom *)", ASK_RULES[0]]);
   const pi = JSON.parse(configurePi('{"piInfrastructureReadPaths":[],"permission":{"path":{}}}', "/toolkit", "/pi-agent", "/pi-config"));
-  assert.deepEqual(pi.piInfrastructureReadPaths.slice(0, 3), [
-    "/toolkit/codex/skills/handoff",
-    "/toolkit/pi/skills/react-doctor",
-    "/toolkit/pi/skills/vue",
+  assert.deepEqual(pi.piInfrastructureReadPaths.slice(0, 2), [
+    "/toolkit/codex/skills",
+    "/toolkit/pi/skills",
   ]);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/.agents/skills")), true);
   assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
