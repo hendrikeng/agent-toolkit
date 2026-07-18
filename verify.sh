@@ -25,6 +25,7 @@ cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKIL
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$pi_agent_dir/skills/vue/SKILL.md"
 cmp "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
+cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/extensions/orca-permission-bell/index.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -82,6 +83,7 @@ fi
 
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"

@@ -8,6 +8,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `codex/skills/handoff` — portable, clipboard-ready context transfer for another agent; also loaded by Pi as `/skill:handoff`.
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — lazy access to Figma Desktop's MCP server through one compact loader and one compact Pi tool; unsupported remote OAuth is not advertised.
+- `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
 - `pi/extensions/web-access-gate` — keeps `pi-web-access` behind one compact loader; full search/fetch schemas load only when the model or `/web on` enables them.
 - `pi/skills/react-doctor` — manual-only, telemetry-free React diagnostics using pinned `react-doctor@0.7.8`.
 - `pi/skills/vue` — on-demand Vue 3 guidance vendored from Anthony Fu's MIT-licensed skill at a recorded revision.
@@ -29,6 +30,7 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.pi/agent/skills/handoff             -> codex/skills/handoff
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
+~/.pi/agent/extensions/orca-permission-bell -> pi/extensions/orca-permission-bell
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
 ~/.pi/agent/skills/react-doctor        -> pi/skills/react-doctor
 ~/.pi/agent/skills/vue                 -> pi/skills/vue
@@ -47,7 +49,7 @@ After `./install.sh`, skills are discovered automatically when a task matches an
 
 ### Agent safety
 
-Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort approval layer for external access and common destructive command forms such as `rm`, `git clean`, and `git reset --hard`. Pi project-local permission configuration is trusted and can override its global policy, so use trusted projects or an OS/container sandbox when Pi needs a hard boundary. Keep irreplaceable untracked data outside agent worktrees or in versioned backups: these controls reduce accidents but do not replace backups.
+Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort approval layer for external access and common destructive command forms such as `rm`, `git clean`, and `git reset --hard`. Inside Orca, Pi permission dialogs also emit a terminal bell so Orca can show its native attention notification; Orca's Terminal Bell notification setting must remain enabled. Pi project-local permission configuration is trusted and can override its global policy, so use trusted projects or an OS/container sandbox when Pi needs a hard boundary. Keep irreplaceable untracked data outside agent worktrees or in versioned backups: these controls reduce accidents but do not replace backups.
 
 ### Shared and cross-agent tools
 
