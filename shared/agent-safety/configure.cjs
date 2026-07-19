@@ -111,6 +111,9 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
     canonical(pathModule.join(home, ".agents/skills")),
     canonical(pathModule.join(home, ".claude/skills")),
     canonical(pathModule.join(home, ".codex/skills")),
+    // ponytail: trusted read-only development roots; writes still use the external-directory gate.
+    canonical(pathModule.join(home, "Code")),
+    canonical(pathModule.join(home, "orca/workspaces")),
   ];
   settings.permission.path[pathModule.join(agentDir, "auth.json")] = "deny";
   settings.permission.path[pathModule.join(webConfigDir, "web-search.json")] = "deny";
@@ -160,6 +163,8 @@ if (process.argv[2] === "--self-test") {
     "/toolkit/pi/skills",
   ]);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/.agents/skills")), true);
+  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/Code")), true);
+  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), true);
   assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
   assert.equal(pi.permission.path["/pi-config/web-search.json"], "deny");
   assert.throws(() => configurePi('{"permission":{"path":{}}}', "/tool?kit", "/pi-agent", "/pi-config"));
