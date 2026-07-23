@@ -21,10 +21,13 @@ trap 'rm -rf "$tmp_dir"' EXIT
 node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
 "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
+cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.codex/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.codex/skills/vue/SKILL.md"
+cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.claude/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.claude/skills/vue/SKILL.md"
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKILL.md"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
+cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$pi_agent_dir/skills/vue/SKILL.md"
 cmp "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/extensions/orca-permission-bell/index.ts"
@@ -101,6 +104,7 @@ grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:react-doctor"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:fastify"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:vue"' "$tmp_dir/rpc.jsonl"
 if grep -q '"name":"skill:librarian"' "$tmp_dir/rpc.jsonl"; then
   printf 'pi-web-access librarian skill should be filtered out\n' >&2

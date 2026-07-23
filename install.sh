@@ -286,7 +286,9 @@ printf 'installing pinned toolkit dependencies…\n'
 
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
+install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
+install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
 install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
@@ -294,6 +296,7 @@ install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
+install_link "$repo_dir/pi/skills/fastify" "$pi_agent_dir/skills/fastify"
 install_link "$repo_dir/pi/skills/vue" "$pi_agent_dir/skills/vue"
 install_link "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 install_pi_web_config
