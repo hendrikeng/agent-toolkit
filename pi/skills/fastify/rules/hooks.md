@@ -252,7 +252,7 @@ app.addHook('onError', async (request, reply, error) => {
     err: error,
     url: request.url,
     method: request.method,
-    body: request.body,
+    requestId: request.id,
   }, 'Request error');
 
   // Track error metrics

@@ -111,8 +111,7 @@ app.register(fastifyMultipart, {
   },
   // IMPORTANT: Throw on limit exceeded (default is to truncate silently!)
   throwFileSizeLimit: true,
-  // Attach all fields to request.body for easier access
-  attachFieldsToBody: true,
+  // Keep fields streaming so request.file(), request.files(), and request.parts() work
   // Only accept specific file types (security!)
   // onFile: async (part) => {
   //   if (!['image/jpeg', 'image/png'].includes(part.mimetype)) {
@@ -254,28 +253,24 @@ app.addContentTypeParser(
 Handle unknown content types:
 
 ```typescript
-app.addContentTypeParser('*', async (request, payload) => {
-  const chunks: Buffer[] = [];
+app.addContentTypeParser(
+  '*',
+  { parseAs: 'buffer', bodyLimit: 1024 * 1024 },
+  async (request, body) => {
+    // Try to determine content type after Fastify enforces the 1MB limit
+    const contentType = request.headers['content-type'];
 
-  for await (const chunk of payload) {
-    chunks.push(chunk);
-  }
+    if (contentType?.includes('json')) {
+      return JSON.parse(body.toString('utf-8'));
+    }
 
-  const buffer = Buffer.concat(chunks);
+    if (contentType?.includes('text')) {
+      return body.toString('utf-8');
+    }
 
-  // Try to determine content type
-  const contentType = request.headers['content-type'];
-
-  if (contentType?.includes('json')) {
-    return JSON.parse(buffer.toString('utf-8'));
-  }
-
-  if (contentType?.includes('text')) {
-    return buffer.toString('utf-8');
-  }
-
-  return buffer;
-});
+    return body;
+  },
+);
 ```
 
 ## Body Limit Configuration

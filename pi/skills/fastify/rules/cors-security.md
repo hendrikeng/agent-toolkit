@@ -224,7 +224,9 @@ Protect against Cross-Site Request Forgery:
 import fastifyCsrf from '@fastify/csrf-protection';
 import fastifyCookie from '@fastify/cookie';
 
-app.register(fastifyCookie);
+app.register(fastifyCookie, {
+  secret: process.env.COOKIE_SECRET,
+});
 app.register(fastifyCsrf, {
   cookieOpts: {
     signed: true,
@@ -398,16 +400,17 @@ app.get('/ip', async (request) => {
 
 ## HTTPS Redirect
 
-Force HTTPS in production:
+Force HTTPS in production using a validated canonical origin, not the request's `Host` header:
 
 ```typescript
+const publicOrigin = 'https://api.example.com'; // Validated configuration, no trailing slash
+
 app.addHook('onRequest', async (request, reply) => {
   if (
     process.env.NODE_ENV === 'production' &&
     request.headers['x-forwarded-proto'] !== 'https'
   ) {
-    const httpsUrl = `https://${request.hostname}${request.url}`;
-    reply.redirect(301, httpsUrl);
+    reply.redirect(301, `${publicOrigin}${request.url}`);
   }
 });
 ```
