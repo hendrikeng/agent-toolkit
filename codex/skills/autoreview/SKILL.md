@@ -14,8 +14,10 @@ For user-visible behavior, pair autoreview with `behavior-validator`. Autoreview
 Use when:
 
 - user asks for Codex review / Claude review / Pi review / Droid review / Cursor review / OpenCode review / autoreview / second-model review
-- after non-trivial code edits, before final/commit/ship
-- reviewing a local branch or PR branch after fixes
+- a configured commit/PR/ship gate classifies the change as risky
+- reviewing a local branch or PR branch after fixes when explicitly requested or required by that gate
+
+Do not run autoreview merely because code was edited, a task is ending, or focused tests passed. Ordinary closeout uses focused deterministic checks; review is explicit or risk-gated.
 
 ## Contract
 
@@ -103,6 +105,13 @@ export AUTOREVIEW_HARNESS="skills/autoreview/scripts/test-review-harness"
 ```bash
 # Global skill:
 export AGENTS_HOME="${AGENTS_HOME:-$HOME/.agents}"
+export AUTOREVIEW="$AGENTS_HOME/skills/autoreview/scripts/autoreview"
+export AUTOREVIEW_HARNESS="$AGENTS_HOME/skills/autoreview/scripts/test-review-harness"
+```
+
+```bash
+# Pi global skill:
+export AGENTS_HOME="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 export AUTOREVIEW="$AGENTS_HOME/skills/autoreview/scripts/autoreview"
 export AUTOREVIEW_HARNESS="$AGENTS_HOME/skills/autoreview/scripts/test-review-harness"
 ```

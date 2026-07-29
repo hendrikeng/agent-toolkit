@@ -45,6 +45,7 @@ install_link() {
 install_managed_copy() {
   local source=$1
   local target=$2
+  local mode=${3:-600}
   local marker="$target.agent-toolkit.sha256"
   local source_hash target_hash managed_hash
 
@@ -59,7 +60,7 @@ install_managed_copy() {
     target_hash=$(shasum -a 256 "$target" | awk '{print $1}')
     managed_hash=$(cat "$marker" 2>/dev/null || true)
     if [[ $target_hash == "$source_hash" ]]; then
-      chmod 600 "$target"
+      chmod "$mode" "$target"
       printf '%s\n' "$source_hash" >"$marker"
       chmod 600 "$marker"
       return
@@ -78,7 +79,7 @@ install_managed_copy() {
   fi
   rm -f "$target"
   cp "$source" "$target"
-  chmod 600 "$target"
+  chmod "$mode" "$target"
   printf '%s\n' "$source_hash" >"$marker"
   chmod 600 "$marker"
   printf 'installed managed policy %s\n' "$target"
@@ -290,7 +291,13 @@ install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pi-yolo" 700
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/codex-yolo" 700
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/claude-yolo" 700
+install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
+install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
+install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"

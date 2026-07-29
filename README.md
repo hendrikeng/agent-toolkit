@@ -6,6 +6,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 
 - `codex/skills/autoreview` — structured multi-engine code review helper. Codex defaults to `gpt-5.6-sol` with high reasoning and an access-only fallback to `gpt-5.6-terra`.
 - `codex/skills/handoff` — portable, clipboard-ready context transfer for another agent; also loaded by Pi as `/skill:handoff`.
+- `pi/AGENTS.md` — automatic, risk-gated Pi review policy at commit/PR/ship boundaries; ordinary task closeout uses focused checks only.
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — lazy access to Figma Desktop's MCP server through one compact loader and one compact Pi tool; unsupported remote OAuth is not advertised.
 - `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
@@ -15,7 +16,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/skills/vue` — shared on-demand Vue 3 guidance for Claude Code, Codex, and Pi, vendored from Anthony Fu's MIT-licensed skill at a recorded revision.
 - `shared/ponytail` — shared `full`-mode configuration plus the tested Pi package version for [Ponytail](https://github.com/DietrichGebert/ponytail). Ponytail remains an upstream dependency and is not vendored here.
 - `shared/pi-web-access` — safe defaults for a raw-result workflow with browser-cookie access disabled for pinned `pi-web-access@0.13.0`.
-- `shared/agent-safety` — workspace sandboxes and approval gates for destructive commands across Claude Code, Codex, and Pi; Pi uses pinned `@gotgenes/pi-permission-system@20.7.3`.
+- `shared/agent-safety` — workspace sandboxes, blocks for common irreversible commands, and opt-in `*-yolo` launchers across Claude Code, Codex, and Pi; Pi uses pinned `@gotgenes/pi-permission-system@20.7.3`.
 
 ## Install
 
@@ -32,6 +33,8 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.codex/skills/vue                    -> pi/skills/vue
 ~/.claude/skills/fastify               -> pi/skills/fastify
 ~/.claude/skills/vue                   -> pi/skills/vue
+~/.pi/agent/AGENTS.md                  -> pi/AGENTS.md
+~/.pi/agent/skills/autoreview          -> codex/skills/autoreview
 ~/.pi/agent/skills/handoff             -> codex/skills/handoff
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
@@ -43,7 +46,7 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 <config-dir>/ponytail/config.json       -> shared/ponytail/config.json
 ```
 
-Safety policies are installed as managed `0600` copies under `~/.codex/rules/agent-safety.rules` and `~/.pi/agent/extensions/pi-permission-system/config.json`, not as workspace-writable symlinks. The installer refuses to replace modified or user-managed policy files. Codex permission profiles and uncommon TOML forms are also refused rather than rewritten unsafely; configure those profiles directly.
+Safety policies are installed as managed `0600` copies under `~/.codex/rules/agent-safety.rules` and `~/.pi/agent/extensions/pi-permission-system/config.json`. The three `~/.local/bin/*-yolo` launchers and Codex's `~/.local/libexec/agent-toolkit/git` guard are managed `0700` copies. None are workspace-writable symlinks. The installer refuses to replace modified or user-managed policy files. Codex permission profiles and uncommon TOML forms are also refused rather than rewritten unsafely; configure those profiles directly.
 
 Pi's `web-search.json` is a user-owned `0600` file rather than a symlink: installation merges the managed safe defaults while preserving existing API keys. A custom `PI_CODING_AGENT_DIR` must be an absolute path because the web package does not expand a literal `~`. Unavailable agent CLIs are skipped. The Ponytail config follows `XDG_CONFIG_HOME` when set. Pi's Ponytail package is pinned to the version in `shared/ponytail/VERSION`; Claude and Codex use their native Ponytail marketplaces. Existing non-symlink installations are moved to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
@@ -55,7 +58,11 @@ After `./install.sh`, skills are discovered automatically when a task matches an
 
 ### Agent safety
 
-Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort approval layer for external access and common destructive command forms such as `rm`, `git clean`, and `git reset --hard`. Read-only access to installed global skill directories and trusted development roots (`~/Code`, `~/orca/workspaces`) is pre-approved, while writes outside the active workspace and direct access to credential stores, private keys, and environment files remain denied or approval-gated. Inside Orca, Pi permission dialogs also emit a terminal bell so Orca can show its native attention notification; Orca's Terminal Bell notification setting must remain enabled. Pi project-local permission configuration is trusted and can override its global policy, so use trusted projects or an OS/container sandbox when Pi needs a hard boundary. Keep irreplaceable untracked data outside agent worktrees or in versioned backups: these controls reduce accidents but do not replace backups.
+Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort command and path gate. Common irreversible command forms such as `rm`, `git clean`, and `git reset --hard` are denied rather than approval-gated. Trusted development roots (`~/Code`, `~/orca/workspaces`) are available without repeated cross-repository prompts, while configured credential, private-key, and environment-file paths remain denied or gated.
+
+For an unattended session, launch `pi-yolo`, `codex-yolo`, or `claude-yolo`. These auto-approve or suppress ordinary approval prompts while retaining the host sandbox where available and the toolkit's best-effort command blocks; unattended Git uses a constrained subcommand allowlist and blocks pushes, and they do **not** use Codex's unrestricted `--yolo`/danger-full-access mode. Pi gets an ephemeral yolo config, so the managed policy file is not modified. Ensure `~/.local/bin` is on `PATH`.
+
+Inside Orca, ordinary Pi permission dialogs emit a terminal bell so Orca can show its native attention notification; Orca's Terminal Bell notification setting must remain enabled. Pi project-local permission configuration is trusted and can override its global policy, so use trusted projects or an OS/container sandbox when Pi needs a hard boundary. Keep irreplaceable untracked data outside agent worktrees or in versioned backups: these controls reduce accidents but do not replace backups.
 
 ### Shared and cross-agent tools
 
@@ -73,11 +80,11 @@ Ponytail is active for coding tasks in `full` mode in every new session.
 | Show the benchmark scoreboard | `/ponytail-gain` | `@ponytail-gain` |
 | Show command help | `/ponytail-help` | `@ponytail-help` |
 
-The shared config sets the default to `full`; `PONYTAIL_DEFAULT_MODE` can override it with `lite`, `full`, `ultra`, or `off`. Codex may require approving Ponytail's lifecycle hooks through `/hooks` after installation.
+The shared config sets the default to `full`; `PONYTAIL_DEFAULT_MODE` can override it with `lite`, `full`, `ultra`, or `off`. Codex may require approving Ponytail's lifecycle hooks through `/hooks` after installation. In Pi, `ponytail-review` remains a separate one-shot review and is invoked automatically only by the risk-gated closeout policy described below.
 
 #### Autoreview (Codex skill, multiple review engines)
 
-Ask for “autoreview” or invoke `@autoreview` before committing or shipping a non-trivial change. It reviews local changes with Codex by default and can use Claude, Pi, Droid, Copilot, Cursor, or OpenCode when requested.
+Ask for “autoreview” or invoke `@autoreview` for an explicit second-model review. Pi also invokes it automatically at commit/PR/ship boundaries only for security-sensitive, data, migration, concurrency, public-contract, install/release, or large changes. It does not run merely because editing finished. Autoreview uses Codex by default and can use Claude, Pi, Droid, Copilot, Cursor, or OpenCode when requested.
 
 Direct helper examples:
 
@@ -96,6 +103,12 @@ Use `@handoff <task>` in Codex or `/skill:handoff <task>` in Pi. The skill gathe
 ### Pi tools
 
 Pi skills load on matching tasks; `/skill:<name>` forces one. Pi extensions below load automatically, but web and Figma keep their larger schemas disabled until needed.
+
+#### Risk-gated review closeout
+
+When Pi is asked to commit, push, open or update a PR, merge, or ship, the global `AGENTS.md` policy inspects the current change bundle and runs focused deterministic checks. It adds `ponytail-review` only for dependency, abstraction, configurable-surface, or 150+ non-test/non-doc-line changes. It adds autoreview only for sensitive contracts and data paths, release/install work, or 200+ non-test/non-doc-line changes. Unchanged bundles are not reviewed again at each later Git step.
+
+No AI review is installed as a Git hook. Hooks should stay fast and deterministic, and ordinary editing closeout should not trigger either review. Run `/ponytail-review` or `/skill:autoreview` manually whenever you want to override the automatic gate.
 
 #### Fastify
 

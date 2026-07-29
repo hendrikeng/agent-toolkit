@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+trusted_roots=()
+for root in "$HOME/Code" "$HOME/orca/workspaces"; do
+  [[ ! -d $root ]] || trusted_roots+=("$root")
+done
+
+enable_git_guard() {
+  guard=$HOME/.local/libexec/agent-toolkit/git
+  marker=$guard.agent-toolkit.sha256
+  [[ -x $guard && -f $marker ]] || { printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1; }
+  [[ $(<"$marker") == "$(shasum -a 256 "$guard" | awk '{print $1}')" ]] || {
+    printf '%s: installed Git guard failed its integrity check\n' "${0##*/}" >&2
+    exit 1
+  }
+  PATH="${guard%/git}:$PATH"
+}
+
+case ${0##*/} in
+  codex-yolo)
+    rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
+    [[ -f $rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    codex execpolicy check --rules "$rules" -- rm -rf yolo-policy-check | grep -q '"decision":"forbidden"' || {
+      printf 'codex-yolo: installed safety policy failed its self-check\n' >&2
+      exit 1
+    }
+    enable_git_guard
+    args=(--ask-for-approval never --sandbox workspace-write)
+    for root in "${trusted_roots[@]}"; do args+=(--add-dir "$root"); done
+    PATH=$PATH exec codex "${args[@]}" "$@"
+    ;;
+  claude-yolo)
+    settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+    node -e '
+      const s = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+      process.exit(s.sandbox?.enabled === true && s.sandbox?.failIfUnavailable === true && s.permissions?.deny?.includes("Bash(rm *)") ? 0 : 1);
+    ' "$settings" || { printf 'claude-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    enable_git_guard
+    PATH=$PATH exec claude --permission-mode bypassPermissions \
+      --settings '{"permissions":{"deny":["Bash(*/git *)"]}}' \
+      "$@"
+    ;;
+  pi-yolo)
+    agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
+    policy=$agent_dir/extensions/pi-permission-system/config.json
+    [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+
+    temporary=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-yolo.XXXXXX")
+    trap 'rm -rf "$temporary"' EXIT
+    for source in "$agent_dir"/*; do
+      [[ ${source##*/} == extensions ]] || ln -s "$source" "$temporary/${source##*/}"
+    done
+    mkdir "$temporary/extensions"
+    for source in "$agent_dir/extensions"/*; do
+      [[ ${source##*/} == pi-permission-system ]] || ln -s "$source" "$temporary/extensions/${source##*/}"
+    done
+    mkdir "$temporary/extensions/pi-permission-system"
+    node - "$policy" "$temporary/extensions/pi-permission-system/config.json" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+for (const pattern of ["rm *", "git clean *", "git reset --hard", "command *", "exec *"]) {
+  if (config.permission?.bash?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy: ${pattern}`);
+}
+for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
+  config.permission.path[pattern] = "deny";
+}
+config.permission.external_directory = { "*": "deny" };
+for (const root of [path.join(process.env.HOME, "Code"), path.join(process.env.HOME, "orca/workspaces")]) {
+  config.permission.external_directory[root] = "allow";
+  config.permission.external_directory[path.join(root, "*")] = "allow";
+}
+config.yoloMode = true;
+config.permission.bash["*/git *"] = "deny";
+for (const wrapper of ["eval", "sudo", "env", "xargs", "time", "nohup", "timeout", "nice", "parallel", "rust-parallel", "rush", "doas", "setsid", "stdbuf", "watch", "flock", "bash", "sh", "dash", "zsh", "ksh"]) {
+  config.permission.bash[`${wrapper} *`] = "deny";
+  config.permission.bash[`*/${wrapper} *`] = "deny";
+}
+for (const pattern of ["find * -exec*", "*/find * -exec*", "find * -ok*", "*/find * -ok*", "fd * -x *", "*/fd * -x *", "fd * -X *", "*/fd * -X *", "fd * --exec*", "*/fd * --exec*"]) {
+  config.permission.bash[pattern] = "deny";
+}
+fs.writeFileSync(process.argv[3], `${JSON.stringify(config, null, 2)}\n`);
+NODE
+
+    enable_git_guard
+    PATH=$PATH PI_CODING_AGENT_DIR=$temporary pi "$@"
+    ;;
+  *)
+    printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2
+    exit 2
+    ;;
+esac

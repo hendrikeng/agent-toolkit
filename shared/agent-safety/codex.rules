@@ -1,4 +1,4 @@
-# Destructive commands stay available, but require explicit approval.
+# Irreversible commands are blocked; the sandbox handles everything else.
 for command in [
     ["rm"],
     ["rmdir"],
@@ -15,24 +15,51 @@ for command in [
     ["/usr/bin/truncate"],
     ["/bin/dd"],
     ["/usr/bin/dd"],
+    ["sudo"],
+    ["/usr/bin/sudo"],
+]:
+    prefix_rule(
+        pattern = command,
+        decision = "forbidden",
+        justification = "Irreversible deletion is disabled in unattended sessions.",
+    )
+
+for git in ["git", "/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"]:
+    for operation in [
+        ["clean"],
+        ["reset", "--hard"],
+        ["checkout", "--"],
+        ["restore"],
+        ["branch", "-D"],
+        ["branch", "-d"],
+        ["branch", "--delete"],
+        ["push", "-f"],
+        ["push", "--force"],
+        ["push", "--force-with-lease"],
+    ]:
+        prefix_rule(
+            pattern = [git] + operation,
+            decision = "forbidden",
+            justification = "Irreversible Git operation is disabled in unattended sessions.",
+        )
+
+# Prefix rules cannot inspect past arbitrary Git global-option values. Keep those
+# forms approval-gated; approval_policy=never rejects them without interrupting yolo.
+for command in [
     ["command"],
     ["exec"],
     ["env"],
     ["/usr/bin/env"],
-    ["sudo"],
-    ["/usr/bin/sudo"],
     [["bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh"], "-c"],
-    # Prefix rules cannot skip Git global options, so gate common option forms broadly.
-    ["git", ["-C", "-c", "-p", "-P", "--paginate", "--no-pager", "--no-replace-objects", "--bare", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--exec-path", "--html-path", "--man-path", "--info-path", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-advice", "--no-lazy-fetch"]],
     [["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"]],
-    ["git", "clean"],
-    ["git", "reset", "--hard"],
-    ["git", "checkout", "--"],
-    ["git", "restore"],
-    ["git", "branch", "-D"],
+    [["git", "/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"], "push"],
+    [
+        ["git", "/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"],
+        ["-C", "-c", "-p", "-P", "--paginate", "--no-pager", "--no-replace-objects", "--bare", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--exec-path", "--html-path", "--man-path", "--info-path", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-advice", "--no-lazy-fetch"],
+    ],
 ]:
     prefix_rule(
         pattern = command,
         decision = "prompt",
-        justification = "Destructive command requires approval to protect recoverable work and data.",
+        justification = "Ambiguous command wrappers and Git pushes require approval outside unattended sessions.",
     )

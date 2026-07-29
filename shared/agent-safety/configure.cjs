@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const pathModule = require("node:path");
 const os = require("node:os");
 
-const ASK_RULES = [
+const DENY_RULES = [
   "Bash(dangerouslyDisableSandbox:true)",
   "Bash(rm *)",
   "Bash(*/rm *)",
@@ -20,28 +20,70 @@ const ASK_RULES = [
   "Bash(*/dd *)",
   "Bash(find * -delete*)",
   "Bash(*/find * -delete*)",
+  "Bash(sudo *)",
+  "Bash(*/sudo *)",
+  "Bash(git clean *)",
+  "Bash(*/git clean *)",
+  "Bash(git reset --hard)",
+  "Bash(git reset --hard *)",
+  "Bash(*/git reset --hard)",
+  "Bash(*/git reset --hard *)",
+  "Bash(git checkout -- *)",
+  "Bash(*/git checkout -- *)",
+  "Bash(git restore *)",
+  "Bash(*/git restore *)",
+  "Bash(git branch -D *)",
+  "Bash(git branch -d*)",
+  "Bash(git branch --delete*)",
+  "Bash(*/git branch -D *)",
+  "Bash(*/git branch -d*)",
+  "Bash(*/git branch --delete*)",
+  "Bash(git push *--force*)",
+  "Bash(*/git push *--force*)",
+  "Bash(git push -f*)",
+  "Bash(git push * -f*)",
+  "Bash(*/git push -f*)",
+  "Bash(*/git push * -f*)",
+  "Bash(git -* clean*)",
+  "Bash(*/git -* clean*)",
+  "Bash(git -* reset --hard*)",
+  "Bash(*/git -* reset --hard*)",
+  "Bash(git -* checkout -- *)",
+  "Bash(*/git -* checkout -- *)",
+  "Bash(git -* restore *)",
+  "Bash(*/git -* restore *)",
+  "Bash(git -* branch -D *)",
+  "Bash(git -* branch -d*)",
+  "Bash(git -* branch --delete*)",
+  "Bash(*/git -* branch -D *)",
+  "Bash(*/git -* branch -d*)",
+  "Bash(*/git -* branch --delete*)",
+  "Bash(git -* push *--force*)",
+  "Bash(*/git -* push *--force*)",
+  "Bash(git -* push -f*)",
+  "Bash(git -* push * -f*)",
+  "Bash(*/git -* push -f*)",
+  "Bash(*/git -* push * -f*)",
   "Bash(command *)",
   "Bash(exec *)",
   "Bash(builtin *)",
   "Bash(env *)",
   "Bash(*/env *)",
-  "Bash(sudo *)",
-  "Bash(*/sudo *)",
   "Bash(bash -c *)",
   "Bash(sh -c *)",
   "Bash(zsh -c *)",
   "Bash(*/bash -c *)",
   "Bash(*/sh -c *)",
   "Bash(*/zsh -c *)",
+];
+
+const LEGACY_ASK_RULES = [
+  ...DENY_RULES,
   "Bash(git -*)",
   "Bash(*/git *)",
-  "Bash(git clean *)",
-  "Bash(git reset --hard)",
-  "Bash(git reset --hard *)",
-  "Bash(git checkout -- *)",
-  "Bash(git restore *)",
-  "Bash(git branch -D *)",
 ];
+
+const ASK_RULES = ["Bash(git push -*)", "Bash(*/git push -*)"];
 
 function parseJsonc(text) {
   let output = "";
@@ -80,16 +122,23 @@ function parseJsonc(text) {
 
 function configureClaude(text) {
   const settings = text.trim() ? parseJsonc(text) : {};
+  const trustedRoots = [pathModule.join(os.homedir(), "Code"), pathModule.join(os.homedir(), "orca/workspaces")];
   settings.sandbox = {
     ...settings.sandbox,
     enabled: true,
     autoAllowBashIfSandboxed: true,
     allowUnsandboxedCommands: settings.sandbox?.allowUnsandboxedCommands === false ? false : true,
     failIfUnavailable: true,
+    filesystem: {
+      ...settings.sandbox?.filesystem,
+      allowWrite: [...new Set([...(settings.sandbox?.filesystem?.allowWrite ?? []), ...trustedRoots])],
+    },
   };
   settings.permissions = {
     ...settings.permissions,
-    ask: [...new Set([...(settings.permissions?.ask ?? []), ...ASK_RULES])],
+    ask: [...new Set([...(settings.permissions?.ask ?? []).filter((rule) => !LEGACY_ASK_RULES.includes(rule)), ...ASK_RULES])],
+    deny: [...new Set([...(settings.permissions?.deny ?? []), ...DENY_RULES])],
+    additionalDirectories: [...new Set([...(settings.permissions?.additionalDirectories ?? []), ...trustedRoots])],
   };
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
@@ -154,9 +203,15 @@ function configureCodex(text) {
 }
 
 if (process.argv[2] === "--self-test") {
-  const claude = JSON.parse(configureClaude('{// keep values\n"permissions":{"ask":["Bash(custom *)",],},}'));
+  const claude = JSON.parse(configureClaude('{// keep values\n"permissions":{"ask":["Bash(custom *)","Bash(git -*)",],},}'));
   assert.equal(claude.sandbox.enabled, true);
-  assert.deepEqual(claude.permissions.ask.slice(0, 2), ["Bash(custom *)", ASK_RULES[0]]);
+  assert.deepEqual(claude.permissions.ask, ["Bash(custom *)", ...ASK_RULES]);
+  assert.equal(claude.permissions.deny.includes("Bash(rm *)"), true);
+  assert.equal(claude.permissions.deny.includes("Bash(git -* clean*)"), true);
+  assert.equal(claude.permissions.deny.includes("Bash(git push -f*)"), true);
+  assert.equal(claude.permissions.deny.includes("Bash(git push *-f*)"), false);
+  assert.equal(claude.permissions.additionalDirectories.some((value) => value.endsWith("/Code")), true);
+  assert.equal(claude.sandbox.filesystem.allowWrite.some((value) => value.endsWith("/orca/workspaces")), true);
   const pi = JSON.parse(configurePi('{"piInfrastructureReadPaths":[],"permission":{"path":{}}}', "/toolkit", "/pi-agent", "/pi-config"));
   assert.deepEqual(pi.piInfrastructureReadPaths.slice(0, 2), [
     "/toolkit/codex/skills",

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+real_git=
+for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
+  if [[ -x $candidate && $candidate != "$0" ]]; then real_git=$candidate; break; fi
+done
+[[ -n $real_git ]] || { printf 'git yolo guard: real Git executable is unavailable\n' >&2; exit 126; }
+
+args=("$@")
+i=0
+while ((i < ${#args[@]})); do
+  case ${args[i]} in
+    -C|--git-dir|--work-tree|--namespace|--super-prefix) i=$((i + 2)) ;;
+    -c)
+      case ${args[i+1]:-} in core.fsmonitor=false|core.pager=cat|diff.external=|diff.renames=false|pager.diff=cat|pager.log=cat|pager.show=cat) i=$((i + 2)) ;; *) printf 'git yolo guard: Git config override is not allowlisted\n' >&2; exit 126 ;; esac
+      ;;
+    --config-env=*|--exec-path|--exec-path=*) printf 'git yolo guard: executable overrides are disabled\n' >&2; exit 126 ;;
+    --git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--html-path|--man-path|--info-path|-p|-P|--paginate|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-advice|--no-lazy-fetch) i=$((i + 1)) ;;
+    --) i=$((i + 1)); break ;;
+    -*) printf 'git yolo guard: unsupported global option: %s\n' "${args[i]}" >&2; exit 126 ;;
+    *) break ;;
+  esac
+done
+
+command=${args[i]:-}
+case $command in
+  status|diff|log|show|add|commit|fetch|merge|rebase|cherry-pick|revert|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|remote|init|clone|version|help)
+    ;;
+  branch)
+    [[ ${args[i+1]:-} == --show-current ]] || { printf 'git yolo guard: unsupported unattended git branch operation\n' >&2; exit 126; }
+    ;;
+  worktree)
+    case ${args[i+1]:-list} in add|list|lock|unlock|repair|move) ;; *) printf 'git yolo guard: blocked git worktree %s\n' "${args[i+1]:-}" >&2; exit 126 ;; esac
+    ;;
+  *)
+    printf 'git yolo guard: unsupported unattended git command: %s\n' "$command" >&2
+    exit 126
+    ;;
+esac
+exec "$real_git" "$@"
