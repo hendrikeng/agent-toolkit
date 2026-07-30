@@ -90,11 +90,12 @@ Output:
 
 ## Clipboard
 
-On macOS, create a private unpredictable file first:
+On macOS, create a private unpredictable file inside the current working directory
+so sandboxed agents can write and remove it:
 
 ```sh
 umask 077
-mktemp "${TMPDIR:-/tmp}/handoff-prompt.XXXXXX"
+mktemp "./.handoff-prompt.XXXXXX"
 ```
 
 Capture the returned path, write the prompt there with the file-writing tool,
