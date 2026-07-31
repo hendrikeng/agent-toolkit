@@ -7,6 +7,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `codex/skills/autoreview` — structured multi-engine code review helper. Codex defaults to `gpt-5.6-sol` with high reasoning and an access-only fallback to `gpt-5.6-terra`.
 - `codex/skills/handoff` — portable, clipboard-ready context transfer for another agent; also loaded by Pi as `/skill:handoff`.
 - `pi/AGENTS.md` — automatic, risk-gated Pi review policy at commit/PR/ship boundaries; ordinary task closeout uses focused checks only.
+- `pi/extensions/codex-account` — switches future Codex subprocesses between the `tracn` and `private` account homes without restarting Pi.
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — lazy access to Figma Desktop's MCP server through one compact loader and one compact Pi tool; unsupported remote OAuth is not advertised.
 - `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
@@ -36,6 +37,7 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.pi/agent/AGENTS.md                  -> pi/AGENTS.md
 ~/.pi/agent/skills/autoreview          -> codex/skills/autoreview
 ~/.pi/agent/skills/handoff             -> codex/skills/handoff
+~/.pi/agent/extensions/codex-account   -> pi/extensions/codex-account
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
 ~/.pi/agent/extensions/orca-permission-bell -> pi/extensions/orca-permission-bell
@@ -103,6 +105,24 @@ Use `@handoff <task>` in Codex or `/skill:handoff <task>` in Pi. The skill gathe
 ### Pi tools
 
 Pi skills load on matching tasks; `/skill:<name>` forces one. Pi extensions below load automatically, but web and Figma keep their larger schemas disabled until needed.
+
+#### Codex accounts
+
+Log into each isolated Codex account home once:
+
+```bash
+CODEX_HOME="$HOME/.codex-accounts/tracn" codex login
+CODEX_HOME="$HOME/.codex-accounts/private" codex login
+```
+
+Then switch the account inherited by future Codex subprocesses without leaving Pi:
+
+```text
+/codex-account tracn
+/codex-account private
+```
+
+Running `/codex-account` without an argument opens a selector. Existing Codex processes keep their current account.
 
 #### Risk-gated review closeout
 

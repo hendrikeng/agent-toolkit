@@ -33,6 +33,7 @@
       "~/Library/Keychains/*": "deny",
       "~/.claude/.credentials.json": "deny",
       "~/.codex/auth.json": "deny",
+      "~/.codex-accounts/*/auth.json": "deny",
       "~/.pi/agent/auth.json": "deny"
     },
     "read": "allow",

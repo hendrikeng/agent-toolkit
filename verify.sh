@@ -47,6 +47,7 @@ cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.claude/skills/vue/SKILL.md"
 cmp "$repo_dir/codex/skills/autoreview/SKILL.md" "$pi_agent_dir/skills/autoreview/SKILL.md"
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKILL.md"
 cmp "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
+cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$pi_agent_dir/skills/vue/SKILL.md"
@@ -116,6 +117,7 @@ if command -v pi >/dev/null 2>&1; then
 fi
 
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
+node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
@@ -128,6 +130,7 @@ printf '%s\n' '{"id":"commands","type":"get_commands"}' \
 grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"

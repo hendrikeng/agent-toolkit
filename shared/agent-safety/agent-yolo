@@ -20,6 +20,7 @@ enable_git_guard() {
 case ${0##*/} in
   codex-yolo)
     rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
+    [[ -f $rules ]] || rules=$HOME/.codex/rules/agent-safety.rules
     [[ -f $rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
     codex execpolicy check --rules "$rules" -- rm -rf yolo-policy-check | grep -q '"decision":"forbidden"' || {
       printf 'codex-yolo: installed safety policy failed its self-check\n' >&2

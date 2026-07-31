@@ -298,6 +298,7 @@ install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.loca
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
 install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
+install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
