@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, symlinkSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
@@ -10,11 +10,24 @@ export function codexProfileHome(profile: CodexAccountProfile, root = join(homed
 	return join(root, profile)
 }
 
-export function activateCodexProfile(profile: CodexAccountProfile, root?: string): string | undefined {
+export function activateCodexProfile(
+	profile: CodexAccountProfile,
+	root?: string,
+	sharedHome = join(homedir(), ".codex"),
+): { home: string } | { error: "login-required" | "safety-policy-missing" } {
 	const profileHome = codexProfileHome(profile, root)
-	if (!existsSync(join(profileHome, "auth.json"))) return undefined
+	if (!existsSync(join(profileHome, "auth.json"))) return { error: "login-required" }
+
+	const sharedPolicy = join(sharedHome, "rules", "agent-safety.rules")
+	if (!existsSync(sharedPolicy)) return { error: "safety-policy-missing" }
+
+	const profileRules = join(profileHome, "rules")
+	mkdirSync(profileRules, { recursive: true, mode: 0o700 })
+	const profilePolicy = join(profileRules, "agent-safety.rules")
+	if (!existsSync(profilePolicy)) symlinkSync(sharedPolicy, profilePolicy)
+
 	process.env.CODEX_HOME = profileHome
-	return profileHome
+	return { home: profileHome }
 }
 
 function currentProfile(root?: string): CodexAccountProfile | undefined {
@@ -48,10 +61,13 @@ export default function codexAccountExtension(pi: ExtensionAPI) {
 				return
 			}
 
-			const profileHome = activateCodexProfile(profile as CodexAccountProfile)
-			if (!profileHome) {
-				const home = codexProfileHome(profile as CodexAccountProfile)
-				ctx.ui.notify(`Log in first: CODEX_HOME="${home}" codex login`, "warning")
+			const result = activateCodexProfile(profile as CodexAccountProfile)
+			if ("error" in result) {
+				const message =
+					result.error === "login-required"
+						? `Log in first: CODEX_HOME="${codexProfileHome(profile as CodexAccountProfile)}" codex login`
+						: "Codex safety policy is missing; rerun agent-toolkit/install.sh"
+				ctx.ui.notify(message, "warning")
 				return
 			}
 
