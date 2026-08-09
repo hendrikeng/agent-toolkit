@@ -82,6 +82,12 @@ for (const pattern of ["rm *", "git clean *", "git reset --hard", "command *", "
 for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
   config.permission.path[pattern] = "deny";
 }
+const managedAgentDir = fs.realpathSync(path.resolve(process.argv[2], "../../.."));
+config.piInfrastructureReadPaths = [...new Set([
+  ...(config.piInfrastructureReadPaths ?? []),
+  path.join(managedAgentDir, "git"),
+  path.join(managedAgentDir, "npm/node_modules"),
+])];
 config.permission.external_directory = { "*": "deny" };
 for (const root of [path.join(process.env.HOME, "Code"), path.join(process.env.HOME, "orca/workspaces")]) {
   config.permission.external_directory[root] = "allow";

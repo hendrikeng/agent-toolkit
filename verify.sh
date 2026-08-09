@@ -21,6 +21,32 @@ trap 'rm -rf "$tmp_dir"' EXIT
 node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
 bash -n "$repo_dir/shared/agent-safety/agent-yolo"
 bash -n "$repo_dir/shared/agent-safety/git-yolo-guard"
+mkdir "$tmp_dir/fake-bin"
+cat >"$tmp_dir/fake-bin/pi" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+cp "$PI_CODING_AGENT_DIR/extensions/pi-permission-system/config.json" "$PI_YOLO_CAPTURE"
+SH
+chmod +x "$tmp_dir/fake-bin/pi"
+cp "$repo_dir/shared/agent-safety/agent-yolo" "$tmp_dir/pi-yolo"
+chmod +x "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" PI_CODING_AGENT_DIR="$pi_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" "$tmp_dir/pi-yolo"
+node - "$tmp_dir/pi-yolo-config.json" "$pi_agent_dir" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+assert.equal(config.yoloMode, true);
+assert.equal(config.permission.external_directory["*"], "deny");
+assert.equal(config.permission.external_directory[path.join(process.env.HOME, "Code", "*")], "allow");
+assert.equal(config.permission.path["*.env"], "deny");
+assert.equal(config.permission.bash["bash *"], "deny");
+assert.equal(config.permission.bash["*/git *"], "deny");
+const managedAgentDir = fs.realpathSync(process.argv[3]);
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(managedAgentDir, "git")));
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(managedAgentDir, "npm/node_modules")));
+assert.ok(!config.piInfrastructureReadPaths.includes(managedAgentDir));
+NODE
 for launcher in pi-yolo codex-yolo claude-yolo; do
   target=$HOME/.local/bin/$launcher
   test ! -L "$target"
