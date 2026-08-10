@@ -302,6 +302,7 @@ install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/c
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
+install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
 install_link "$repo_dir/pi/skills/fastify" "$pi_agent_dir/skills/fastify"

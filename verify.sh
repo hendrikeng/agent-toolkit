@@ -79,6 +79,7 @@ cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.m
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$pi_agent_dir/skills/vue/SKILL.md"
 cmp "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/extensions/orca-permission-bell/index.ts"
+cmp "$repo_dir/pi/extensions/review-mode/index.ts" "$pi_agent_dir/extensions/review-mode/index.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -146,6 +147,7 @@ fi
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
@@ -157,6 +159,7 @@ grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"

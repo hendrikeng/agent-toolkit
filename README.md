@@ -11,6 +11,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — lazy access to Figma Desktop's MCP server through one compact loader and one compact Pi tool; unsupported remote OAuth is not advertised.
 - `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
+- `pi/extensions/review-mode` — provides a persistent per-session `/reviews auto|off` override with visible status and system-prompt enforcement.
 - `pi/extensions/web-access-gate` — keeps `pi-web-access` behind one compact loader; full search/fetch schemas load only when the model or `/web on` enables them.
 - `pi/skills/react-doctor` — manual-only, telemetry-free React diagnostics using pinned `react-doctor@0.7.8`.
 - `pi/skills/fastify` — shared Fastify guidance for Claude Code, Codex, and Pi, vendored from Fastify lead maintainer Matteo Collina's MIT-licensed skill at a recorded revision.
@@ -41,6 +42,7 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
 ~/.pi/agent/extensions/orca-permission-bell -> pi/extensions/orca-permission-bell
+~/.pi/agent/extensions/review-mode    -> pi/extensions/review-mode
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
 ~/.pi/agent/skills/react-doctor        -> pi/skills/react-doctor
 ~/.pi/agent/skills/fastify             -> pi/skills/fastify
@@ -129,6 +131,10 @@ Running `/codex-account` without an argument opens a selector. Existing Codex pr
 When Pi is asked to commit, push, open or update a PR, merge, or ship, the global `AGENTS.md` policy inspects the current change bundle and runs focused deterministic checks. It adds `ponytail-review` only for dependency, abstraction, configurable-surface, or 150+ non-test/non-doc-line changes. It adds autoreview only for sensitive contracts and data paths, release/install work, or 200+ non-test/non-doc-line changes. Unchanged bundles are not reviewed again at each later Git step.
 
 No AI review is installed as a Git hook. Hooks should stay fast and deterministic, and ordinary editing closeout should not trigger either review. Run `/ponytail-review` or `/skill:autoreview` manually whenever you want to override the automatic gate.
+
+`/reviews auto` is the default. It actively prevents AI review on questions, investigation, ordinary edits, test success, or task completion, then considers one review only when the user explicitly asks to commit, push, open or update a PR, merge, or ship and the risk gate applies. Explicit review requests always run.
+
+Use `/reviews off` to disable even those automatic boundary reviews for the current Pi session. The mode survives resume, reload, compaction, and branch navigation; `reviews:off` remains visible in the footer. Use `/reviews auto` to restore the risk-gated default, or `/reviews` to show the current mode. Review-off mode keeps the smallest directly relevant deterministic checks but must not compensate by running broad test suites.
 
 #### Fastify
 
