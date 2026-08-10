@@ -10,6 +10,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/extensions/codex-account` — switches future Codex subprocesses between the `tracn` and `private` account homes without restarting Pi.
 - `pi/extensions/codex-goal` — lean Codex-style `/goal` workflow for Pi with persisted state, continuation, pause/resume/edit/clear, and optional token budgets.
 - `pi/extensions/figma-mcp` — lazy access to Figma Desktop's MCP server through one compact loader and one compact Pi tool; unsupported remote OAuth is not advertised.
+- `pi/extensions/git-push` — provides an interactive user-only `/push` command while unattended agent-issued pushes remain blocked.
 - `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
 - `pi/extensions/review-mode` — provides a persistent per-session `/reviews auto|off` override with visible status and system-prompt enforcement.
 - `pi/extensions/web-access-gate` — keeps `pi-web-access` behind one compact loader; full search/fetch schemas load only when the model or `/web on` enables them.
@@ -41,6 +42,7 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.pi/agent/extensions/codex-account   -> pi/extensions/codex-account
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
+~/.pi/agent/extensions/git-push        -> pi/extensions/git-push
 ~/.pi/agent/extensions/orca-permission-bell -> pi/extensions/orca-permission-bell
 ~/.pi/agent/extensions/review-mode    -> pi/extensions/review-mode
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
@@ -64,7 +66,9 @@ After `./install.sh`, skills are discovered automatically when a task matches an
 
 Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort command and path gate. Common irreversible command forms such as `rm`, `git clean`, and `git reset --hard` are denied rather than approval-gated. Trusted development roots (`~/Code`, `~/orca/workspaces`) are available without repeated cross-repository prompts, while configured credential, private-key, and environment-file paths remain denied or gated.
 
-For an unattended session, launch `pi-yolo`, `codex-yolo`, or `claude-yolo`. These auto-approve or suppress ordinary approval prompts while retaining the host sandbox where available and the toolkit's best-effort command blocks; unattended Git uses a constrained subcommand allowlist and blocks pushes, and they do **not** use Codex's unrestricted `--yolo`/danger-full-access mode. Pi gets an ephemeral yolo config and retains read access to managed package resources without opening the managed agent tree for writes. Ensure `~/.local/bin` is on `PATH`.
+For an unattended session, launch `pi-yolo`, `codex-yolo`, or `claude-yolo`. These auto-approve or suppress ordinary approval prompts while retaining the host sandbox where available and the toolkit's best-effort command blocks; unattended Git uses a constrained subcommand allowlist and blocks agent-issued pushes, and they do **not** use Codex's unrestricted `--yolo`/danger-full-access mode. Pi gets an ephemeral yolo config and retains read access to managed package resources without opening the managed agent tree for writes. Ensure `~/.local/bin` is on `PATH`.
+
+In interactive Pi, `/push` is the only yolo-safe push path. It accepts no arguments and starts the normal risk-gated closeout; after that succeeds, a temporary tool previews the clean current branch's exact commit, single configured SSH push URL, outgoing commits, and upstream before requiring confirmation. It refuses detached, dirty, behind, or untracked branches and performs one non-force current-branch push with extra tags, submodules, and pre-push hooks disabled. The command refuses non-interactive Pi modes; ordinary agent-issued `git push` remains blocked.
 
 Inside Orca, ordinary Pi permission dialogs emit a terminal bell so Orca can show its native attention notification; Orca's Terminal Bell notification setting must remain enabled. Pi project-local permission configuration is trusted and can override its global policy, so use trusted projects or an OS/container sandbox when Pi needs a hard boundary. Keep irreplaceable untracked data outside agent worktrees or in versioned backups: these controls reduce accidents but do not replace backups.
 
