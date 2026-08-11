@@ -58,17 +58,24 @@ NODE
     PATH=$PATH exec claude --permission-mode bypassPermissions --settings "$claude_settings" "$@"
     ;;
   pi-yolo)
-    agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
-    policy=$agent_dir/extensions/pi-permission-system/config.json
+    source_agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
+    if [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
+      source_web_config_dir=$source_agent_dir
+    elif [[ -n ${XDG_CONFIG_HOME:-} ]]; then
+      source_web_config_dir=$XDG_CONFIG_HOME/pi
+    else
+      source_web_config_dir=$HOME/.pi
+    fi
+    policy=$source_agent_dir/extensions/pi-permission-system/config.json
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
 
     temporary=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-yolo.XXXXXX")
     trap 'rm -rf "$temporary"' EXIT
-    for source in "$agent_dir"/*; do
+    for source in "$source_agent_dir"/*; do
       [[ ${source##*/} == extensions ]] || ln -s "$source" "$temporary/${source##*/}"
     done
     mkdir "$temporary/extensions"
-    for source in "$agent_dir/extensions"/*; do
+    for source in "$source_agent_dir/extensions"/*; do
       [[ ${source##*/} == pi-permission-system ]] || ln -s "$source" "$temporary/extensions/${source##*/}"
     done
     mkdir "$temporary/extensions/pi-permission-system"
@@ -106,7 +113,7 @@ fs.writeFileSync(process.argv[3], `${JSON.stringify(config, null, 2)}\n`);
 NODE
 
     enable_git_guard
-    PATH=$PATH PI_CODING_AGENT_DIR=$temporary pi "$@"
+    PATH=$PATH AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir PI_CODING_AGENT_DIR=$temporary pi "$@"
     ;;
   *)
     printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2

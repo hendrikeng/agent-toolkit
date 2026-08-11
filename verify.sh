@@ -3,12 +3,14 @@ set -euo pipefail
 
 repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
-pi_agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
+pi_agent_dir=${AGENT_TOOLKIT_PI_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}
 if [[ $pi_agent_dir != /* ]]; then
   printf 'PI_CODING_AGENT_DIR must be an absolute path; expand ~ before running verification\n' >&2
   exit 2
 fi
-if [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
+if [[ -n ${AGENT_TOOLKIT_PI_WEB_CONFIG_DIR:-} ]]; then
+  pi_web_config_dir=$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR
+elif [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
   pi_web_config_dir=$pi_agent_dir
 elif [[ -n ${XDG_CONFIG_HOME:-} ]]; then
   pi_web_config_dir=$XDG_CONFIG_HOME/pi
@@ -26,11 +28,15 @@ cat >"$tmp_dir/fake-bin/pi" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 cp "$PI_CODING_AGENT_DIR/extensions/pi-permission-system/config.json" "$PI_YOLO_CAPTURE"
+printf '%s\n' "$AGENT_TOOLKIT_PI_AGENT_DIR" > "$PI_YOLO_SOURCE_CAPTURE"
+printf '%s\n' "$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR" > "$PI_YOLO_WEB_CONFIG_CAPTURE"
 SH
 chmod +x "$tmp_dir/fake-bin/pi"
 cp "$repo_dir/shared/agent-safety/agent-yolo" "$tmp_dir/pi-yolo"
 chmod +x "$tmp_dir/pi-yolo"
-PATH="$tmp_dir/fake-bin:$PATH" PI_CODING_AGENT_DIR="$pi_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" PI_CODING_AGENT_DIR="$pi_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/pi-yolo-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/pi-yolo-web-config.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/pi-yolo-source.txt")" = "$pi_agent_dir"
+test "$(<"$tmp_dir/pi-yolo-web-config.txt")" = "$pi_agent_dir"
 node - "$tmp_dir/pi-yolo-config.json" "$pi_agent_dir" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -67,8 +73,10 @@ fi
 "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.codex/skills/fastify/SKILL.md"
+cmp "$repo_dir/pi/extensions/simple-english/SKILL.md" "$HOME/.codex/skills/simple-english/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.codex/skills/vue/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.claude/skills/fastify/SKILL.md"
+cmp "$repo_dir/pi/extensions/simple-english/SKILL.md" "$HOME/.claude/skills/simple-english/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.claude/skills/vue/SKILL.md"
 cmp "$repo_dir/codex/skills/autoreview/SKILL.md" "$pi_agent_dir/skills/autoreview/SKILL.md"
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKILL.md"
@@ -77,10 +85,12 @@ cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/c
 cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.md"
+test ! -e "$pi_agent_dir/skills/simple-english" && test ! -L "$pi_agent_dir/skills/simple-english"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$pi_agent_dir/skills/vue/SKILL.md"
 cmp "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/extensions/orca-permission-bell/index.ts"
 cmp "$repo_dir/pi/extensions/review-mode/index.ts" "$pi_agent_dir/extensions/review-mode/index.ts"
+cmp "$repo_dir/pi/extensions/simple-english/index.ts" "$pi_agent_dir/extensions/simple-english/index.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -150,6 +160,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests
 node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/tests/simple-english.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
@@ -163,12 +174,17 @@ grep -q '"name":"push"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:react-doctor"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:fastify"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:vue"' "$tmp_dir/rpc.jsonl"
+if grep -q '"name":"skill:simple-english"' "$tmp_dir/rpc.jsonl"; then
+  printf 'Simple English should be exposed only through /simple-english in Pi\n' >&2
+  exit 1
+fi
 if grep -q '"name":"skill:librarian"' "$tmp_dir/rpc.jsonl"; then
   printf 'pi-web-access librarian skill should be filtered out\n' >&2
   exit 1

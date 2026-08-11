@@ -13,6 +13,7 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/extensions/git-push` — provides an interactive user-only `/push` command while unattended agent-issued pushes remain blocked.
 - `pi/extensions/orca-permission-bell` — bridges Pi permission dialogs to Orca's native terminal-bell notifications when Pi runs inside an Orca pane.
 - `pi/extensions/review-mode` — provides a persistent per-session `/reviews auto|off` override with visible status and system-prompt enforcement.
+- `pi/extensions/simple-english` — bundles the vendored SimpleEnglish skill and provides Pi's `/simple-english` check and rewrite options.
 - `pi/extensions/web-access-gate` — keeps `pi-web-access` behind one compact loader; full search/fetch schemas load only when the model or `/web on` enables them.
 - `pi/skills/react-doctor` — manual-only, telemetry-free React diagnostics using pinned `react-doctor@0.7.8`.
 - `pi/skills/fastify` — shared Fastify guidance for Claude Code, Codex, and Pi, vendored from Fastify lead maintainer Matteo Collina's MIT-licensed skill at a recorded revision.
@@ -33,8 +34,10 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.codex/skills/autoreview             -> codex/skills/autoreview
 ~/.codex/skills/handoff                -> codex/skills/handoff
 ~/.codex/skills/fastify                -> pi/skills/fastify
+~/.codex/skills/simple-english         -> pi/extensions/simple-english
 ~/.codex/skills/vue                    -> pi/skills/vue
 ~/.claude/skills/fastify               -> pi/skills/fastify
+~/.claude/skills/simple-english        -> pi/extensions/simple-english
 ~/.claude/skills/vue                   -> pi/skills/vue
 ~/.pi/agent/AGENTS.md                  -> pi/AGENTS.md
 ~/.pi/agent/skills/autoreview          -> codex/skills/autoreview
@@ -45,6 +48,7 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.pi/agent/extensions/git-push        -> pi/extensions/git-push
 ~/.pi/agent/extensions/orca-permission-bell -> pi/extensions/orca-permission-bell
 ~/.pi/agent/extensions/review-mode    -> pi/extensions/review-mode
+~/.pi/agent/extensions/simple-english -> pi/extensions/simple-english
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
 ~/.pi/agent/skills/react-doctor        -> pi/skills/react-doctor
 ~/.pi/agent/skills/fastify             -> pi/skills/fastify
@@ -56,7 +60,7 @@ Safety policies are installed as managed `0600` copies under `~/.codex/rules/age
 
 Pi's `web-search.json` is a user-owned `0600` file rather than a symlink: installation merges the managed safe defaults while preserving existing API keys. A custom `PI_CODING_AGENT_DIR` must be an absolute path because the web package does not expand a literal `~`. Unavailable agent CLIs are skipped. The Ponytail config follows `XDG_CONFIG_HOME` when set. Pi's Ponytail package is pinned to the version in `shared/ponytail/VERSION`; Claude and Codex use their native Ponytail marketplaces. Existing non-symlink installations are moved to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
-Run `/reload` in an already-running Pi session after installation or updates. Codex asks you to review and trust Ponytail's lifecycle hooks on first start; use `/hooks` if needed. New sessions start in `full` mode.
+Run `/reload` in an already-running Pi session after installation or updates. If installation from inside `pi-yolo` adds a new resource, restart that session because its temporary resource tree was created at launch. Codex asks you to review and trust Ponytail's lifecycle hooks on first start; use `/hooks` if needed. New sessions start in `full` mode.
 
 ## Usage manual
 
@@ -66,7 +70,7 @@ After `./install.sh`, skills are discovered automatically when a task matches an
 
 Claude Code and Codex use their native workspace sandboxes; Pi uses `pi-permission-system` as a best-effort command and path gate. Common irreversible command forms such as `rm`, `git clean`, and `git reset --hard` are denied rather than approval-gated. Trusted development roots (`~/Code`, `~/orca/workspaces`) are available without repeated cross-repository prompts, while configured credential, private-key, and environment-file paths remain denied or gated.
 
-For an unattended session, launch `pi-yolo`, `codex-yolo`, or `claude-yolo`. These auto-approve or suppress ordinary approval prompts while retaining the host sandbox where available and the toolkit's best-effort command blocks; unattended Git uses a constrained subcommand allowlist and blocks agent-issued pushes, and they do **not** use Codex's unrestricted `--yolo`/danger-full-access mode. Pi gets an ephemeral yolo config and retains read access to managed package resources without opening the managed agent tree for writes. Ensure `~/.local/bin` is on `PATH`.
+For an unattended session, launch `pi-yolo`, `codex-yolo`, or `claude-yolo`. These auto-approve or suppress ordinary approval prompts while retaining the host sandbox where available and the toolkit's best-effort command blocks; unattended Git uses a constrained subcommand allowlist and blocks agent-issued pushes, and they do **not** use Codex's unrestricted `--yolo`/danger-full-access mode. Pi gets an ephemeral yolo config and retains read access to managed package resources without opening the managed agent tree for writes. The launcher also preserves the persistent Pi configuration paths, so installer changes made inside `pi-yolo` survive a restart. Ensure `~/.local/bin` is on `PATH`.
 
 In interactive Pi, `/push` is the only yolo-safe push path. It accepts no arguments and starts the normal risk-gated closeout; after that succeeds, a temporary tool previews the clean current branch's exact commit, single configured SSH push URL, outgoing commits, and upstream before requiring confirmation. It refuses detached, dirty, behind, or untracked branches and performs one non-force current-branch push with extra tags, submodules, and pre-push hooks disabled. The command refuses non-interactive Pi modes; ordinary agent-issued `git push` remains blocked.
 
@@ -148,6 +152,18 @@ Ask for work normally in a repository that depends on Fastify; no activation is 
 
 Ask for Vue work normally; no activation is required. Claude Code, Codex, and Pi load the Vue 3 guidance when the task matches. Force it with `/vue` in Claude Code, `@vue` in Codex, or `/skill:vue` in Pi. This is guidance, not a scanner.
 
+#### Simple English
+
+Simple English is manual-only, so it does not change normal responses. In Pi, run `/simple-english` to select an action and target, or provide them directly:
+
+```text
+/simple-english check README.md
+/simple-english rewrite README.md
+/simple-english rewrite README.md strict
+```
+
+`check` reports findings without editing files. `rewrite` uses pragmatic mode by default. Use strict mode only when you need ASD-STE100-style compliance. In Codex, use `@simple-english`; in Claude, use `/simple-english`.
+
 #### React Doctor
 
 Normal React work needs no toolkit activation. React Doctor is an optional scanner for health checks or meaningful pre-ship reviews:
@@ -198,7 +214,7 @@ For a Figma task, the model can call `enable_figma`, or use:
 
 Open Figma Desktop and enable its local MCP server first. Once enabled, the model uses `figma_mcp` for common `inspect`, `screenshot`, `variables`, `metadata`, and `figjam` reads, plus catalog/schema/call and resource access. This integration is for local read workflows; use native Codex CLI for remote/write access while Figma restricts remote OAuth to approved clients.
 
-Run `/reload` after installing or editing toolkit resources in an already-running Pi session. DeepSec remains project-local and is not installed globally.
+Run `/reload` after editing existing toolkit resources. Restart `pi-yolo` when installation adds a new resource. DeepSec remains project-local and is not installed globally.
 
 ## Verification
 
@@ -214,4 +230,4 @@ Edit the repository copies directly. The installed paths are symlinks, so change
 
 ## Licensing and attribution
 
-The goal extension carries its own `LICENSE` and `NOTICE.md`, including attribution for prompt templates ported from OpenAI Codex. The Fastify, handoff, and Vue skills include their upstream licenses and revision attribution. The Figma integration has a component `NOTICE.md`; npm dependencies, including React Doctor and Pi Web Access, are not vendored and retain their upstream licenses. See component files for applicable notices.
+The goal extension carries its own `LICENSE` and `NOTICE.md`, including attribution for prompt templates ported from OpenAI Codex. The Fastify, handoff, Simple English, and Vue skills include their upstream licenses and revision attribution. The Figma integration has a component `NOTICE.md`; npm dependencies, including React Doctor and Pi Web Access, are not vendored and retain their upstream licenses. See component files for applicable notices.

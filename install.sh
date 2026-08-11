@@ -5,12 +5,14 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 timestamp=$(date +%Y%m%d-%H%M%S)
 backup_root="${XDG_DATA_HOME:-$HOME/.local/share}/agent-toolkit/backups/$timestamp"
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
-pi_agent_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
+pi_agent_dir=${AGENT_TOOLKIT_PI_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}
 if [[ $pi_agent_dir != /* ]]; then
   printf 'PI_CODING_AGENT_DIR must be an absolute path; expand ~ before running the installer\n' >&2
   exit 2
 fi
-if [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
+if [[ -n ${AGENT_TOOLKIT_PI_WEB_CONFIG_DIR:-} ]]; then
+  pi_web_config_dir=$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR
+elif [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
   pi_web_config_dir=$pi_agent_dir
 elif [[ -n ${XDG_CONFIG_HOME:-} ]]; then
   pi_web_config_dir=$XDG_CONFIG_HOME/pi
@@ -285,11 +287,23 @@ printf 'installing pinned toolkit dependencies…\n'
   npm ci --ignore-scripts --no-audit --no-fund
 )
 
+legacy_simple_english="$pi_agent_dir/skills/simple-english"
+if [[ -L "$legacy_simple_english" && $(readlink "$legacy_simple_english") == "$repo_dir/pi/skills/simple-english" ]]; then
+  backup="$backup_root/${legacy_simple_english#"$HOME"/}"
+  mkdir -p "$(dirname "$backup")"
+  mv "$legacy_simple_english" "$backup"
+  printf 'retired %s -> %s\n' "$legacy_simple_english" "$backup"
+elif [[ -e "$legacy_simple_english" || -L "$legacy_simple_english" ]]; then
+  printf 'refusing to retire user-managed path at %s\n' "$legacy_simple_english" >&2
+  exit 1
+fi
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
+install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
+install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pi-yolo" 700
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/codex-yolo" 700
@@ -304,6 +318,7 @@ install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma
 install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-push"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
+install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
 install_link "$repo_dir/pi/skills/fastify" "$pi_agent_dir/skills/fastify"
@@ -318,5 +333,9 @@ install_agent_safety
 printf '\ninstalling lazy Pi web access…\n'
 install_pi_web_access
 
-printf '\nInstallation complete. Run /reload in active Pi sessions and start new agent sessions.\n'
+if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
+  printf '\nInstallation complete. Restart the current pi-yolo session to load newly installed resources.\n'
+else
+  printf '\nInstallation complete. Run /reload in active Pi sessions and start new agent sessions.\n'
+fi
 printf 'On first Codex start, review and trust Ponytail hooks when prompted (or open /hooks).\n'
