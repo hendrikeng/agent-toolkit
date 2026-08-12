@@ -48,7 +48,10 @@ if (process.platform === "darwin") {
     if (endpoint && path.dirname(endpoint) === userData) network.allowUnixSockets = [endpoint];
   } catch {}
 }
-process.stdout.write(JSON.stringify({ permissions: { deny: ["Bash(*/git *)"] }, sandbox: { network } }));
+process.stdout.write(JSON.stringify({
+  permissions: { deny: ["Bash(dangerouslyDisableSandbox:true)", "Bash(*/git *)"] },
+  sandbox: { network, filesystem: { disabled: true } },
+}));
 NODE
     ); then
       printf 'claude-yolo: run agent-toolkit/install.sh first\n' >&2

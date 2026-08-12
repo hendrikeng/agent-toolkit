@@ -4,8 +4,9 @@ const fs = require("node:fs");
 const pathModule = require("node:path");
 const os = require("node:os");
 
+const CLAUDE_YOLO_ONLY_DENY = "Bash(dangerouslyDisableSandbox:true)";
+
 const DENY_RULES = [
-  "Bash(dangerouslyDisableSandbox:true)",
   "Bash(rm *)",
   "Bash(*/rm *)",
   "Bash(rmdir *)",
@@ -137,7 +138,7 @@ function configureClaude(text) {
   settings.permissions = {
     ...settings.permissions,
     ask: [...new Set([...(settings.permissions?.ask ?? []).filter((rule) => !LEGACY_ASK_RULES.includes(rule)), ...ASK_RULES])],
-    deny: [...new Set([...(settings.permissions?.deny ?? []), ...DENY_RULES])],
+    deny: [...new Set([...(settings.permissions?.deny ?? []).filter((rule) => rule !== CLAUDE_YOLO_ONLY_DENY), ...DENY_RULES])],
     additionalDirectories: [...new Set([...(settings.permissions?.additionalDirectories ?? []), ...trustedRoots])],
   };
   return `${JSON.stringify(settings, null, 2)}\n`;
@@ -207,6 +208,8 @@ if (process.argv[2] === "--self-test") {
   assert.equal(claude.sandbox.enabled, true);
   assert.deepEqual(claude.permissions.ask, ["Bash(custom *)", ...ASK_RULES]);
   assert.equal(claude.permissions.deny.includes("Bash(rm *)"), true);
+  assert.equal(claude.permissions.deny.includes(CLAUDE_YOLO_ONLY_DENY), false);
+  assert.equal(claude.sandbox.allowUnsandboxedCommands, true);
   assert.equal(claude.permissions.deny.includes("Bash(git -* clean*)"), true);
   assert.equal(claude.permissions.deny.includes("Bash(git push -f*)"), true);
   assert.equal(claude.permissions.deny.includes("Bash(git push *-f*)"), false);

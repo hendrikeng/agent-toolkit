@@ -113,7 +113,7 @@ if command -v claude >/dev/null 2>&1; then
     const settings = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
     const deny = settings.permissions?.deny ?? [];
     const roots = settings.permissions?.additionalDirectories ?? [];
-    process.exit(settings.sandbox?.enabled === true && settings.sandbox?.failIfUnavailable === true && deny.includes("Bash(rm *)") && deny.includes("Bash(git reset --hard)") && roots.some((root) => root.endsWith("/Code")) ? 0 : 1);
+    process.exit(settings.sandbox?.enabled === true && settings.sandbox?.failIfUnavailable === true && !deny.includes("Bash(dangerouslyDisableSandbox:true)") && deny.includes("Bash(rm *)") && deny.includes("Bash(git reset --hard)") && roots.some((root) => root.endsWith("/Code")) ? 0 : 1);
   ' "$HOME/.claude/settings.json"
 fi
 if command -v codex >/dev/null 2>&1; then
