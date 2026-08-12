@@ -51,6 +51,11 @@ assert.equal(config.permission.bash["*/git *"], "deny");
 const managedAgentDir = fs.realpathSync(process.argv[3]);
 assert.ok(config.piInfrastructureReadPaths.includes(path.join(managedAgentDir, "git")));
 assert.ok(config.piInfrastructureReadPaths.includes(path.join(managedAgentDir, "npm/node_modules")));
+const temporaryDir = fs.realpathSync(require("node:os").tmpdir());
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(temporaryDir, "orca-paste-*")));
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(temporaryDir, "pi-clipboard-*")));
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(temporaryDir, "codex-clipboard-*")));
+assert.ok(!config.piInfrastructureReadPaths.includes(temporaryDir));
 assert.ok(!config.piInfrastructureReadPaths.includes(managedAgentDir));
 NODE
 for launcher in pi-yolo codex-yolo claude-yolo; do

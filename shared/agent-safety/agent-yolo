@@ -84,6 +84,7 @@ NODE
     mkdir "$temporary/extensions/pi-permission-system"
     node - "$policy" "$temporary/extensions/pi-permission-system/config.json" <<'NODE'
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 for (const pattern of ["rm *", "git clean *", "git reset --hard", "command *", "exec *"]) {
@@ -93,10 +94,15 @@ for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
   config.permission.path[pattern] = "deny";
 }
 const managedAgentDir = fs.realpathSync(path.resolve(process.argv[2], "../../.."));
+const temporaryDir = fs.realpathSync(os.tmpdir());
 config.piInfrastructureReadPaths = [...new Set([
   ...(config.piInfrastructureReadPaths ?? []),
   path.join(managedAgentDir, "git"),
   path.join(managedAgentDir, "npm/node_modules"),
+  // Orca and terminal clipboard integrations put pasted images here.
+  path.join(temporaryDir, "orca-paste-*"),
+  path.join(temporaryDir, "pi-clipboard-*"),
+  path.join(temporaryDir, "codex-clipboard-*"),
 ])];
 config.permission.external_directory = { "*": "deny" };
 for (const root of [path.join(process.env.HOME, "Code"), path.join(process.env.HOME, "orca/workspaces")]) {
