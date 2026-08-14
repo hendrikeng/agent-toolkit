@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 
-export const CODEX_ACCOUNT_PROFILES = ["tracn", "private"] as const
+export const CODEX_ACCOUNT_PROFILES = ["personal", "business"] as const
 export type CodexAccountProfile = (typeof CODEX_ACCOUNT_PROFILES)[number]
 
 export function codexProfileHome(profile: CodexAccountProfile, root = join(homedir(), ".codex-accounts")): string {

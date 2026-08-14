@@ -46,4 +46,5 @@ test("rejects inherited executable Git configuration", () => {
 	assert.equal(unsafeGitEnvironmentVariable({ PATH: "/usr/bin" }), undefined)
 	assert.equal(unsafeGitEnvironmentVariable({ GIT_SSH_COMMAND: "wrapper" }), "GIT_SSH_COMMAND")
 	assert.equal(unsafeGitEnvironmentVariable({ GIT_CONFIG_KEY_0: "core.sshCommand" }), "GIT_CONFIG_KEY_0")
+	assert.equal(unsafeGitEnvironmentVariable({ GIT_DIR: "/tmp/other.git" }), "GIT_DIR")
 })

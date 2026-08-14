@@ -23,6 +23,11 @@ trap 'rm -rf "$tmp_dir"' EXIT
 node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
 bash -n "$repo_dir/shared/agent-safety/agent-yolo"
 bash -n "$repo_dir/shared/agent-safety/git-yolo-guard"
+bash -n "$repo_dir/update.sh"
+bash -n "$repo_dir/shared/update-global-skills"
+"$repo_dir/update.sh" --help >/dev/null
+"$repo_dir/shared/update-global-skills" --help >/dev/null
+grep -q -- '--package=skills@1.5.22' "$repo_dir/shared/update-global-skills"
 mkdir "$tmp_dir/fake-bin"
 cat >"$tmp_dir/fake-bin/pi" <<'SH'
 #!/usr/bin/env bash
@@ -92,6 +97,7 @@ cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKIL
 cmp "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
 cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
+cmp "$repo_dir/pi/skills/deepsec/SKILL.md" "$pi_agent_dir/skills/deepsec/SKILL.md"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
 cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$pi_agent_dir/skills/fastapi/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.md"
@@ -102,6 +108,7 @@ cmp "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/extensions/orca-permission-bell/index.ts"
 cmp "$repo_dir/pi/extensions/review-mode/index.ts" "$pi_agent_dir/extensions/review-mode/index.ts"
 cmp "$repo_dir/pi/extensions/simple-english/index.ts" "$pi_agent_dir/extensions/simple-english/index.ts"
+cmp "$repo_dir/pi/extensions/skills-update/index.ts" "$pi_agent_dir/extensions/skills-update/index.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -165,6 +172,25 @@ if command -v pi >/dev/null 2>&1; then
   ' "$pi_settings"
 fi
 
+"$repo_dir/pi/skills/deepsec/scripts/deepsec" --help >/dev/null
+"$repo_dir/pi/skills/deepsec/scripts/deepsec" plan | grep -q 'no Vercel account'
+if "$repo_dir/pi/skills/deepsec/scripts/deepsec" init --max-cost-usd 1 --max-duration 1m >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed AI setup without explicit confirmation\n' >&2
+  exit 1
+fi
+if DEEPSEC_ALLOW_AI=1 DEEPSEC_ALLOW_VERCEL=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" init --max-cost-usd 1 >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed uncapped AI setup\n' >&2
+  exit 1
+fi
+if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" triage >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed triage without Claude approval\n' >&2
+  exit 1
+fi
+if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" sandbox process >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed sandbox use without Vercel approval\n' >&2
+  exit 1
+fi
+grep -q -- 'npx --yes deepsec@2.3.5' "$repo_dir/pi/skills/deepsec/scripts/deepsec"
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
@@ -172,6 +198,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/g
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/tests/simple-english.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/skills-update/tests/skills-update.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
@@ -186,9 +213,11 @@ grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skills-update"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:deepsec"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:react-doctor"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:fastapi"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:fastify"' "$tmp_dir/rpc.jsonl"

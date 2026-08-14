@@ -13,6 +13,13 @@ const EXECUTABLE_GIT_ENV = new Set([
 	"GIT_ASKPASS",
 	"GIT_CONFIG_COUNT",
 	"GIT_CONFIG_PARAMETERS",
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_COMMON_DIR",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_NAMESPACE",
 	"GIT_EXEC_PATH",
 	"GIT_PROXY_COMMAND",
 	"GIT_SSH",
@@ -24,7 +31,7 @@ export function unsafeGitEnvironmentVariable(env: NodeJS.ProcessEnv): string | u
 	return Object.keys(env).find(
 		(key) =>
 			env[key] !== undefined &&
-			(EXECUTABLE_GIT_ENV.has(key) || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)),
+			(EXECUTABLE_GIT_ENV.has(key) || /^GIT_CONFIG_/.test(key)),
 	)
 }
 

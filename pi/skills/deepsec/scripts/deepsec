@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf 'usage: %s {plan|scaffold|install|scan|status|report|export|metrics|init|setup|process|revalidate|triage|enrich|sandbox|sandbox-all} [deepsec options...]\n' "$0"
+}
+
+command=${1:-}
+if [[ $command == "--help" || $command == "-h" || $command == "help" ]]; then
+  usage
+  exit 0
+fi
+if [[ -z $command ]]; then
+  usage >&2
+  exit 2
+fi
+shift
+
+deepsec=(npx --yes deepsec@2.3.5)
+project_root=${DEEPSEC_PROJECT_DIR:-$PWD}
+
+has_option() {
+  local wanted=$1 option
+  shift
+  for option in "$@"; do
+    [[ $option == "$wanted" || $option == "$wanted="* ]] && return 0
+  done
+  return 1
+}
+
+workspace() {
+  if [[ -f "$project_root/deepsec.config.ts" ]]; then
+    printf '%s\n' "$project_root"
+  elif [[ -f "$project_root/.deepsec/deepsec.config.ts" ]]; then
+    printf '%s\n' "$project_root/.deepsec"
+  else
+    printf 'DeepSec workspace not found. Run scaffold first.\n' >&2
+    return 1
+  fi
+}
+
+case "$command" in
+  plan)
+    cat <<'EOF'
+DeepSec local-only plan (no Vercel account):
+1. scaffold  Create .deepsec with local Codex authentication; no AI.
+2. install   Install pinned workspace dependencies; no AI.
+3. Complete .deepsec/data/<project>/INFO.md using its SETUP.md.
+4. scan      Run free local pattern matching.
+5. process   Run an explicitly confirmed, scoped AI investigation.
+
+The upstream one-shot init/setup path requires a Vercel project for Sandbox scope.
+Use it only when Vercel is explicitly requested.
+EOF
+    ;;
+  scaffold)
+    cd "$project_root"
+    "${deepsec[@]}" init --scaffold-only --package-manager npm --headless --output json "$@"
+    node - "$project_root/.deepsec/deepsec.config.ts" <<'JS'
+const fs = require("node:fs")
+const path = process.argv[2]
+let text = fs.readFileSync(path, "utf8")
+const needle = "export default defineConfig({\n"
+const local = 'export default defineConfig({\n  defaultAgent: "codex",\n  ai: { mode: "local", provider: "local" },\n'
+if (!text.includes('ai: { mode: "local", provider: "local" }')) {
+  if (!text.includes(needle)) throw new Error(`Could not configure local DeepSec authentication in ${path}`)
+  text = text.replace(needle, local)
+  fs.writeFileSync(path, text)
+}
+JS
+    ;;
+  install)
+    cd "$(workspace)"
+    exec npm install --ignore-scripts --no-audit --no-fund
+    ;;
+  scan|status|report|export|metrics)
+    cd "$(workspace)"
+    exec "${deepsec[@]}" "$command" "$@"
+    ;;
+  init|setup)
+    if [[ ${DEEPSEC_ALLOW_AI:-} != 1 || ${DEEPSEC_ALLOW_VERCEL:-} != 1 ]]; then
+      printf 'The one-shot DeepSec setup requires explicit AI and Vercel approval (set DEEPSEC_ALLOW_AI=1 and DEEPSEC_ALLOW_VERCEL=1 for this invocation).\n' >&2
+      exit 2
+    fi
+    if ! has_option --max-cost-usd "$@" || ! has_option --max-duration "$@"; then
+      printf '%s requires both --max-cost-usd and --max-duration.\n' "$command" >&2
+      exit 2
+    fi
+    if [[ $command == init ]]; then
+      cd "$project_root"
+    else
+      cd "$(workspace)"
+    fi
+    exec "${deepsec[@]}" "$command" --headless --yes --no-tui --output jsonl "$@"
+    ;;
+  triage)
+    if [[ ${DEEPSEC_ALLOW_AI:-} != 1 || ${DEEPSEC_ALLOW_CLAUDE:-} != 1 ]]; then
+      printf 'DeepSec triage uses Claude and requires explicit AI and Claude approval (set DEEPSEC_ALLOW_AI=1 and DEEPSEC_ALLOW_CLAUDE=1 for this invocation).\n' >&2
+      exit 2
+    fi
+    cd "$(workspace)"
+    exec "${deepsec[@]}" "$command" "$@"
+    ;;
+  sandbox|sandbox-all)
+    if [[ ${DEEPSEC_ALLOW_AI:-} != 1 || ${DEEPSEC_ALLOW_VERCEL:-} != 1 ]]; then
+      printf 'DeepSec sandbox commands require explicit AI and Vercel approval (set DEEPSEC_ALLOW_AI=1 and DEEPSEC_ALLOW_VERCEL=1 for this invocation).\n' >&2
+      exit 2
+    fi
+    cd "$(workspace)"
+    exec "${deepsec[@]}" "$command" "$@"
+    ;;
+  process|revalidate|enrich)
+    if [[ ${DEEPSEC_ALLOW_AI:-} != 1 ]]; then
+      printf 'Refusing an agent/network-enabled DeepSec command without explicit confirmation (set DEEPSEC_ALLOW_AI=1 for this invocation).\n' >&2
+      exit 2
+    fi
+    cd "$(workspace)"
+    exec "${deepsec[@]}" "$command" "$@"
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

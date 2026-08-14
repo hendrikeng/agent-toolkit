@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  printf 'usage: %s\n' "$0"
+  exit 0
+fi
+if (($#)); then
+  printf 'usage: %s\n' "$0" >&2
+  exit 2
+fi
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_dir"
+exec npx --yes --package=skills@1.5.22 -- skills update -g -y
