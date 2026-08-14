@@ -4,7 +4,28 @@ import { dirname, resolve } from "node:path"
 import test from "node:test"
 import skillsUpdateExtension, { GLOBAL_SKILLS_UPDATE_SCRIPT, toolkitRoot } from "../index.ts"
 
-function harness(confirm: boolean, globalUpdateCode = 0, dirtyAfterApproval = false) {
+const BLOCKED_GIT_ENV = new Set([
+	"GIT_ASKPASS",
+	"GIT_CONFIG_PARAMETERS",
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_COMMON_DIR",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_NAMESPACE",
+	"GIT_EXEC_PATH",
+	"GIT_PROXY_COMMAND",
+	"GIT_SSH",
+	"GIT_SSH_COMMAND",
+	"SSH_ASKPASS",
+])
+
+function isBlockedGitVariable(name: string): boolean {
+	return BLOCKED_GIT_ENV.has(name) || name.startsWith("GIT_CONFIG_")
+}
+
+function harness(confirm: boolean, globalUpdateCode = 0, dirtyAfterApproval = false, unsafeGit?: [string, string]) {
 	let handler: (args: string, ctx: any) => Promise<void> = async () => {}
 	const calls: Array<{ command: string; args: string[] }> = []
 	const notices: string[] = []
@@ -41,7 +62,24 @@ function harness(confirm: boolean, globalUpdateCode = 0, dirtyAfterApproval = fa
 			reloaded = true
 		},
 	}
-	return { run: () => handler("", ctx), calls, notices, reloaded: () => reloaded }
+	return {
+		run: async () => {
+			const saved = Object.entries(process.env).filter(([name]) => isBlockedGitVariable(name)) as Array<[string, string]>
+			for (const [name] of saved) delete process.env[name]
+			if (unsafeGit) process.env[unsafeGit[0]] = unsafeGit[1]
+			try {
+				await handler("", ctx)
+			} finally {
+				for (const name of Object.keys(process.env)) {
+					if (isBlockedGitVariable(name)) delete process.env[name]
+				}
+				for (const [name, value] of saved) process.env[name] = value
+			}
+		},
+		calls,
+		notices,
+		reloaded: () => reloaded,
+	}
 }
 
 test("resolves the extension's agent-toolkit checkout", () => {
@@ -57,15 +95,10 @@ test("does not update without approval", async () => {
 })
 
 test("rejects inherited Git executables", async () => {
-	process.env.GIT_SSH_COMMAND = "unsafe-wrapper"
-	try {
-		const app = harness(true)
-		await app.run()
-		assert.equal(app.calls.some(({ args }) => args.includes("pull")), false)
-		assert.ok(app.notices.some((message) => message.includes("GIT_SSH_COMMAND")))
-	} finally {
-		delete process.env.GIT_SSH_COMMAND
-	}
+	const app = harness(true, 0, false, ["GIT_SSH_COMMAND", "unsafe-wrapper"])
+	await app.run()
+	assert.equal(app.calls.some(({ args }) => args.includes("pull")), false)
+	assert.ok(app.notices.some((message) => message.includes("GIT_SSH_COMMAND")))
 })
 
 test("rejects checkout changes after approval", async () => {
