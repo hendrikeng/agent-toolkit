@@ -299,10 +299,14 @@ elif [[ -e "$legacy_simple_english" || -L "$legacy_simple_english" ]]; then
 fi
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
+install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
+install_link "$repo_dir/pi/skills/python" "$HOME/.codex/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
+install_link "$repo_dir/pi/skills/fastapi" "$HOME/.claude/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
+install_link "$repo_dir/pi/skills/python" "$HOME/.claude/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pi-yolo" 700
@@ -321,7 +325,9 @@ install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/rev
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
+install_link "$repo_dir/pi/skills/fastapi" "$pi_agent_dir/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$pi_agent_dir/skills/fastify"
+install_link "$repo_dir/pi/skills/python" "$pi_agent_dir/skills/python"
 install_link "$repo_dir/pi/skills/vue" "$pi_agent_dir/skills/vue"
 install_link "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 install_pi_web_config

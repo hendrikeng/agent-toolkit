@@ -16,7 +16,9 @@ Personal, version-controlled tooling and shared configuration for Claude Code, C
 - `pi/extensions/simple-english` — bundles the vendored SimpleEnglish skill and provides Pi's `/simple-english` check and rewrite options.
 - `pi/extensions/web-access-gate` — keeps `pi-web-access` behind one compact loader; full search/fetch schemas load only when the model or `/web on` enables them.
 - `pi/skills/react-doctor` — manual-only, telemetry-free React diagnostics using pinned `react-doctor@0.7.8`.
+- `pi/skills/fastapi` — shared Python and FastAPI guidance for Claude Code, Codex, and Pi, vendored from FastAPI's official MIT-licensed skill at a recorded revision.
 - `pi/skills/fastify` — shared Fastify guidance for Claude Code, Codex, and Pi, vendored from Fastify lead maintainer Matteo Collina's MIT-licensed skill at a recorded revision.
+- `pi/skills/python` — shared pragmatic, version-aware Python implementation and tooling guidance for Claude Code, Codex, and Pi.
 - `pi/skills/vue` — shared on-demand Vue 3 guidance for Claude Code, Codex, and Pi, vendored from Anthony Fu's MIT-licensed skill at a recorded revision.
 - `shared/ponytail` — shared `full`-mode configuration plus the tested Pi package version for [Ponytail](https://github.com/DietrichGebert/ponytail). Ponytail remains an upstream dependency and is not vendored here.
 - `shared/pi-web-access` — safe defaults for a raw-result workflow with browser-cookie access disabled for pinned `pi-web-access@0.13.0`.
@@ -33,10 +35,14 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ```text
 ~/.codex/skills/autoreview             -> codex/skills/autoreview
 ~/.codex/skills/handoff                -> codex/skills/handoff
+~/.codex/skills/fastapi                -> pi/skills/fastapi
 ~/.codex/skills/fastify                -> pi/skills/fastify
+~/.codex/skills/python                 -> pi/skills/python
 ~/.codex/skills/simple-english         -> pi/extensions/simple-english
 ~/.codex/skills/vue                    -> pi/skills/vue
+~/.claude/skills/fastapi               -> pi/skills/fastapi
 ~/.claude/skills/fastify               -> pi/skills/fastify
+~/.claude/skills/python                -> pi/skills/python
 ~/.claude/skills/simple-english        -> pi/extensions/simple-english
 ~/.claude/skills/vue                   -> pi/skills/vue
 ~/.pi/agent/AGENTS.md                  -> pi/AGENTS.md
@@ -51,7 +57,9 @@ The installer installs pinned toolkit dependencies, installs Ponytail through ea
 ~/.pi/agent/extensions/simple-english -> pi/extensions/simple-english
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
 ~/.pi/agent/skills/react-doctor        -> pi/skills/react-doctor
+~/.pi/agent/skills/fastapi             -> pi/skills/fastapi
 ~/.pi/agent/skills/fastify             -> pi/skills/fastify
+~/.pi/agent/skills/python              -> pi/skills/python
 ~/.pi/agent/skills/vue                 -> pi/skills/vue
 <config-dir>/ponytail/config.json       -> shared/ponytail/config.json
 ```
@@ -144,9 +152,17 @@ No AI review is installed as a Git hook. Hooks should stay fast and deterministi
 
 Use `/reviews off` to disable even those automatic boundary reviews for the current Pi session. The mode survives resume, reload, compaction, and branch navigation; `reviews:off` remains visible in the footer. Use `/reviews auto` to restore the risk-gated default, or `/reviews` to show the current mode. Review-off mode keeps the smallest directly relevant deterministic checks but must not compensate by running broad test suites.
 
+#### FastAPI
+
+Ask for Python or FastAPI work normally; no activation is required. Claude Code, Codex, and Pi load the official FastAPI guidance when the repository or task matches. Force it with `/fastapi` in Claude Code, `@fastapi` in Codex, or `/skill:fastapi` in Pi. This is guidance, not a scanner.
+
 #### Fastify
 
 Ask for work normally in a repository that depends on Fastify; no activation is required. Claude Code, Codex, and Pi load the Fastify guidance when the repository or task matches. Force it with `/fastify` in Claude Code, `@fastify` in Codex, or `/skill:fastify` in Pi. This is guidance, not a scanner.
+
+#### Python
+
+Ask for Python work normally; no activation is required. Claude Code, Codex, and Pi load the Python guidance when the repository or task matches. It follows each project's supported Python version and existing package manager, lint, typing, and test tools rather than forcing migrations. Force it with `/python` in Claude Code, `@python` in Codex, or `/skill:python` in Pi.
 
 #### Vue
 
@@ -230,4 +246,4 @@ Edit the repository copies directly. The installed paths are symlinks, so change
 
 ## Licensing and attribution
 
-The goal extension carries its own `LICENSE` and `NOTICE.md`, including attribution for prompt templates ported from OpenAI Codex. The Fastify, handoff, Simple English, and Vue skills include their upstream licenses and revision attribution. The Figma integration has a component `NOTICE.md`; npm dependencies, including React Doctor and Pi Web Access, are not vendored and retain their upstream licenses. See component files for applicable notices.
+The goal extension carries its own `LICENSE` and `NOTICE.md`, including attribution for prompt templates ported from OpenAI Codex. The FastAPI, Fastify, handoff, Simple English, and Vue skills include their upstream licenses and revision attribution. The Figma integration has a component `NOTICE.md`; npm dependencies, including React Doctor and Pi Web Access, are not vendored and retain their upstream licenses. See component files for applicable notices.
