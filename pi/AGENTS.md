@@ -1,5 +1,9 @@
 # Pi defaults
 
+## Documentation prose
+
+When you create or edit documentation prose in Markdown files, read the installed Simple English skill at `$PI_CODING_AGENT_DIR/extensions/simple-english/SKILL.md` (default `~/.pi/agent/extensions/simple-english/SKILL.md`) completely and follow it in pragmatic mode. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, source code, `AGENTS.md`, `SKILL.md`, or prompt files.
+
 ## Risk-gated review closeout
 
 Do not run `autoreview` or `ponytail-review` merely because code was edited or a task is ending.
