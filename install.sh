@@ -180,17 +180,18 @@ install_pi_web_config() {
   printf 'configured %s from safe defaults (existing API keys preserved)\n' "$target"
 }
 
-install_pi_web_access() {
-  local source="npm:pi-web-access@0.13.0"
+install_pi_packages() {
+  local web_source="npm:pi-web-access@0.13.0"
   if ! command -v pi >/dev/null 2>&1; then
-    printf 'skipped Pi web access package (pi not found)\n'
+    printf 'skipped Pi packages (pi not found)\n'
     return
   fi
 
-  pi install "$source"
+  pi install "npm:@ff-labs/pi-fff@0.10.3"
+  pi install "$web_source"
 
   local settings_path=$pi_agent_dir/settings.json
-  node "$repo_dir/shared/pi-web-access/configure-package.cjs" "$settings_path" "$source"
+  node "$repo_dir/shared/pi-web-access/configure-package.cjs" "$settings_path" "$web_source"
 }
 
 install_agent_safety() {
@@ -316,6 +317,7 @@ install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.loca
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
 install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
+install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensions/ask-user-question"
 install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
@@ -338,8 +340,8 @@ printf '\ninstalling Ponytail for available agent hosts…\n'
 install_ponytail
 printf '\ninstalling agent safety boundaries…\n'
 install_agent_safety
-printf '\ninstalling lazy Pi web access…\n'
-install_pi_web_access
+printf '\ninstalling Pi packages…\n'
+install_pi_packages
 
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
   printf '\nInstallation complete. Restart the current pi-yolo session to load newly installed resources.\n'

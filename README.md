@@ -7,6 +7,7 @@ Agent Toolkit provides version-controlled tools and shared configuration for Cla
 - `codex/skills/autoreview` provides structured, multi-engine code reviews. Codex uses `gpt-5.6-sol` with high reasoning by default.
 - `codex/skills/handoff` creates portable context for another agent. Pi exposes it as `/skill:handoff`.
 - `pi/AGENTS.md` defines the risk-gated Pi review policy. Normal task completion uses focused checks only.
+- `pi/extensions/ask-user-question` lets the model ask structured questions through native Pi dialogs.
 - `pi/extensions/codex-account` switches future Codex processes between the `personal` and `business` account homes.
 - `pi/extensions/codex-goal` provides the persisted `/goal` workflow for Pi.
 - `pi/extensions/figma-mcp` provides lazy access to the local Figma Desktop MCP server.
@@ -16,6 +17,7 @@ Agent Toolkit provides version-controlled tools and shared configuration for Cla
 - `pi/extensions/simple-english` provides the `/simple-english` documentation command.
 - `pi/extensions/skills-update` provides the interactive `/skills-update` command.
 - `pi/extensions/web-access-gate` loads web tools only for necessary tasks.
+- `@ff-labs/pi-fff` adds FFF-backed fuzzy file search, content search, and file autocomplete to Pi.
 - `pi/skills/deepsec` provides manual access to pinned `deepsec@2.3.5` with explicit AI and cost gates.
 - `pi/skills/react-doctor` provides manual, telemetry-free React diagnostics with pinned `react-doctor@0.7.8`.
 - `pi/skills/fastapi` provides shared FastAPI guidance from the official FastAPI skill.
@@ -37,7 +39,7 @@ cd agent-toolkit
 ./install.sh
 ```
 
-The installer installs pinned dependencies and configures agent safety. It does not replace user-owned configuration.
+The installer installs pinned dependencies, including `@ff-labs/pi-fff@0.10.3`, and configures agent safety. It does not replace user-owned configuration.
 
 The installer creates these symlinks:
 
@@ -57,6 +59,7 @@ The installer creates these symlinks:
 ~/.pi/agent/AGENTS.md                  -> pi/AGENTS.md
 ~/.pi/agent/skills/autoreview          -> codex/skills/autoreview
 ~/.pi/agent/skills/handoff             -> codex/skills/handoff
+~/.pi/agent/extensions/ask-user-question -> pi/extensions/ask-user-question
 ~/.pi/agent/extensions/codex-account   -> pi/extensions/codex-account
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
@@ -229,6 +232,12 @@ Toolkit-owned skills remain reviewed and pinned in this repository. The commands
 Both commands pull the toolkit before they update globally tracked skills. The installer also runs after a failed external skill update.
 
 The commands do not overwrite local safety changes with direct skills.sh copies. Nothing updates automatically at startup.
+
+#### User questions
+
+When a required decision is unclear, the model can call `ask_user_question` instead of guessing.
+
+The tool supports one to four single-choice questions. Each question also accepts a custom text answer.
 
 #### Codex accounts
 
@@ -422,4 +431,4 @@ The FastAPI, Fastify, handoff, Simple English, and Vue skills include upstream l
 
 The Figma integration contains a component `NOTICE.md`.
 
-External npm packages retain their upstream licenses. These packages include DeepSec, React Doctor, and Pi Web Access.
+External npm packages retain their upstream licenses. These packages include DeepSec, React Doctor, Pi FFF, and Pi Web Access.

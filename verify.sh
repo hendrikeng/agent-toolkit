@@ -95,6 +95,7 @@ cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.claude/skills/vue/SKILL.md"
 cmp "$repo_dir/codex/skills/autoreview/SKILL.md" "$pi_agent_dir/skills/autoreview/SKILL.md"
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKILL.md"
 cmp "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
+cmp "$repo_dir/pi/extensions/ask-user-question/index.ts" "$pi_agent_dir/extensions/ask-user-question/index.ts"
 cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
 cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
 cmp "$repo_dir/pi/skills/deepsec/SKILL.md" "$pi_agent_dir/skills/deepsec/SKILL.md"
@@ -155,6 +156,7 @@ if command -v pi >/dev/null 2>&1; then
   "$HOME/.local/bin/pi-yolo" --help >/dev/null
   pi list --no-approve \
     | grep -F "git:github.com/DietrichGebert/ponytail@v$ponytail_version" >/dev/null
+  pi list --no-approve | grep -F "npm:@ff-labs/pi-fff@0.10.3" >/dev/null
   pi list --no-approve | grep -F "npm:pi-web-access@0.13.0" >/dev/null
   pi list --no-approve | grep -F "npm:@gotgenes/pi-permission-system@$permission_version" >/dev/null
   test ! -L "$pi_agent_dir/extensions/pi-permission-system/config.json"
@@ -192,6 +194,7 @@ if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" sandbox proc
 fi
 grep -q -- 'npx --yes deepsec@2.3.5' "$repo_dir/pi/skills/deepsec/scripts/deepsec"
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
+node --experimental-strip-types --test "$repo_dir/pi/extensions/ask-user-question/tests/ask-user-question.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
@@ -202,12 +205,14 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/skills-update/te
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
+pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/ask-user-question/index.ts" --list-models >"$tmp_dir/question-models.txt"
 pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/codex-goal/index.ts" --list-models >"$tmp_dir/goal-models.txt"
 pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/figma-mcp/index.ts" --list-models >"$tmp_dir/figma-models.txt"
 printf '%s\n' '{"id":"commands","type":"get_commands"}' \
   | pi --offline --mode rpc --no-session >"$tmp_dir/rpc.jsonl" 2>"$tmp_dir/rpc.err"
 grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"fff-health"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"push"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
