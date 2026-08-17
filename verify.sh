@@ -35,13 +35,35 @@ set -euo pipefail
 cp "$PI_CODING_AGENT_DIR/extensions/pi-permission-system/config.json" "$PI_YOLO_CAPTURE"
 printf '%s\n' "$AGENT_TOOLKIT_PI_AGENT_DIR" > "$PI_YOLO_SOURCE_CAPTURE"
 printf '%s\n' "$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR" > "$PI_YOLO_WEB_CONFIG_CAPTURE"
+if [[ -n ${PI_YOLO_AUTH_CAPTURE:-} ]]; then
+  readlink "$PI_CODING_AGENT_DIR/auth.json" > "$PI_YOLO_AUTH_CAPTURE"
+  printf '%s\n' "$PI_CODING_AGENT_DIR" > "$PI_YOLO_AGENT_DIR_CAPTURE"
+  printf '%s\n' "$AGENT_TOOLKIT_CODEX_ACCOUNT" > "$PI_YOLO_ACCOUNT_CAPTURE"
+fi
 SH
 chmod +x "$tmp_dir/fake-bin/pi"
 cp "$repo_dir/shared/agent-safety/agent-yolo" "$tmp_dir/pi-yolo"
 chmod +x "$tmp_dir/pi-yolo"
-PATH="$tmp_dir/fake-bin:$PATH" PI_CODING_AGENT_DIR="$pi_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/pi-yolo-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/pi-yolo-web-config.txt" "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME= PI_CODING_AGENT_DIR="$pi_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/pi-yolo-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/pi-yolo-web-config.txt" "$tmp_dir/pi-yolo"
 test "$(<"$tmp_dir/pi-yolo-source.txt")" = "$pi_agent_dir"
 test "$(<"$tmp_dir/pi-yolo-web-config.txt")" = "$pi_agent_dir"
+
+profile_agent_dir="$tmp_dir/profile-agent"
+mkdir -p "$profile_agent_dir/extensions/pi-permission-system"
+cp "$pi_agent_dir/extensions/pi-permission-system/config.json" "$profile_agent_dir/extensions/pi-permission-system/config.json"
+printf '%s\n' '{"openai-codex":{"type":"oauth","access":"old","refresh":"old","expires":1},"github-copilot":{"type":"oauth","access":"old","refresh":"old","expires":1},"anthropic":{"type":"api_key","key":"keep"}}' > "$profile_agent_dir/auth.json"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$HOME/.codex-accounts/business/../business/" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/profile-auth-target.txt")" = "$profile_agent_dir/auth-profiles/business/auth.json"
+test "$(<"$tmp_dir/profile-agent-dir.txt")" = "$profile_agent_dir/auth-profiles/business/runtime"
+test "$(<"$tmp_dir/profile-account.txt")" = business
+node - "$profile_agent_dir/auth-profiles/business/auth.json" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const auth = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+assert.equal(auth["openai-codex"], undefined);
+assert.equal(auth["github-copilot"], undefined);
+assert.deepEqual(auth.anthropic, { type: "api_key", key: "keep" });
+NODE
 node - "$tmp_dir/pi-yolo-config.json" "$pi_agent_dir" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -51,6 +73,9 @@ assert.equal(config.yoloMode, true);
 assert.equal(config.permission.external_directory["*"], "deny");
 assert.equal(config.permission.external_directory[path.join(process.env.HOME, "Code", "*")], "allow");
 assert.equal(config.permission.path["*.env"], "deny");
+assert.equal(config.permission.path["~/.pi/agent/auth-profiles"], "deny");
+assert.equal(config.permission.path["~/.pi/agent/auth-profiles/*"], "deny");
+assert.equal(config.permission.path["~/.pi/agent/codex-fast.json"], "deny");
 assert.equal(config.permission.bash["bash *"], "deny");
 assert.equal(config.permission.bash["*/git *"], "deny");
 const managedAgentDir = fs.realpathSync(process.argv[3]);
@@ -97,6 +122,8 @@ cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKIL
 cmp "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 cmp "$repo_dir/pi/extensions/ask-user-question/index.ts" "$pi_agent_dir/extensions/ask-user-question/index.ts"
 cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
+cmp "$repo_dir/pi/extensions/codex-fast/index.ts" "$pi_agent_dir/extensions/codex-fast/index.ts"
+cmp "$repo_dir/pi/extensions/codex-fast/fast-core.ts" "$pi_agent_dir/extensions/codex-fast/fast-core.ts"
 cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
 cmp "$repo_dir/pi/skills/deepsec/SKILL.md" "$pi_agent_dir/skills/deepsec/SKILL.md"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
@@ -196,6 +223,7 @@ grep -q -- 'npx --yes deepsec@2.3.5' "$repo_dir/pi/skills/deepsec/scripts/deepse
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
 node --experimental-strip-types --test "$repo_dir/pi/extensions/ask-user-question/tests/ask-user-question.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-fast/tests/codex-fast.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
@@ -216,6 +244,7 @@ grep -q '"name":"fff-health"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"push"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"fast"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skills-update"' "$tmp_dir/rpc.jsonl"

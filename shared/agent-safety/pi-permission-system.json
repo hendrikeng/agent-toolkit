@@ -34,7 +34,10 @@
       "~/.claude/.credentials.json": "deny",
       "~/.codex/auth.json": "deny",
       "~/.codex-accounts/*/auth.json": "deny",
-      "~/.pi/agent/auth.json": "deny"
+      "~/.pi/agent/auth.json": "deny",
+      "~/.pi/agent/auth-profiles": "deny",
+      "~/.pi/agent/auth-profiles/*": "deny",
+      "~/.pi/agent/codex-fast.json": "deny"
     },
     "read": "allow",
     "write": "allow",

@@ -72,17 +72,63 @@ NODE
     policy=$source_agent_dir/extensions/pi-permission-system/config.json
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
 
-    temporary=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-yolo.XXXXXX")
-    trap 'rm -rf "$temporary"' EXIT
-    for source in "$source_agent_dir"/*; do
-      [[ ${source##*/} == extensions ]] || ln -s "$source" "$temporary/${source##*/}"
-    done
-    mkdir "$temporary/extensions"
-    for source in "$source_agent_dir/extensions"/*; do
-      [[ ${source##*/} == pi-permission-system ]] || ln -s "$source" "$temporary/extensions/${source##*/}"
-    done
-    mkdir "$temporary/extensions/pi-permission-system"
-    node - "$policy" "$temporary/extensions/pi-permission-system/config.json" <<'NODE'
+    account_profile=
+    codex_home=$(node -p 'require("node:path").resolve(process.argv[1])' "${CODEX_HOME:-$HOME/.codex}")
+    case $codex_home in
+      "$HOME/.codex-accounts/personal") account_profile=personal ;;
+      "$HOME/.codex-accounts/business") account_profile=business ;;
+    esac
+    if [[ -n $account_profile ]]; then
+      profile_dir=$source_agent_dir/auth-profiles/$account_profile
+      profile_auth=$profile_dir/auth.json
+      agent_dir=$profile_dir/runtime
+      node - "$source_agent_dir/auth.json" "$profile_dir" "$profile_auth" "$agent_dir" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+function ensurePrivateDirectory(directory) {
+  try { fs.mkdirSync(directory, { mode: 0o700 }); } catch (error) { if (error.code !== "EEXIST") throw error; }
+  const stat = fs.lstatSync(directory);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`unsafe profile directory: ${directory}`);
+  fs.chmodSync(directory, 0o700);
+}
+for (const directory of [path.dirname(process.argv[3]), process.argv[3], process.argv[5], path.join(process.argv[5], "extensions"), path.join(process.argv[5], "extensions/pi-permission-system")]) {
+  ensurePrivateDirectory(directory);
+}
+let auth = {};
+try { auth = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); } catch {}
+auth = Object.fromEntries(Object.entries(auth).filter(([, credential]) => credential?.type !== "oauth"));
+try { fs.writeFileSync(process.argv[4], `${JSON.stringify(auth, null, 2)}\n`, { flag: "wx", mode: 0o600 }); } catch (error) { if (error.code !== "EEXIST") throw error; }
+const authStat = fs.lstatSync(process.argv[4]);
+if (authStat.isSymbolicLink() || !authStat.isFile()) throw new Error(`unsafe profile auth path: ${process.argv[4]}`);
+fs.chmodSync(process.argv[4], 0o600);
+NODE
+      ensure_profile_link() {
+        local target=$1 link=$2
+        if [[ ! -e $link && ! -L $link ]]; then ln -s "$target" "$link" 2>/dev/null || :; fi
+        [[ -L $link && $(readlink "$link") == "$target" ]] || { printf 'pi-yolo: unexpected profile path at %s\n' "$link" >&2; exit 1; }
+      }
+      for source in "$source_agent_dir"/*; do
+        name=${source##*/}
+        [[ $name == auth.json || $name == auth-profiles || $name == extensions ]] || ensure_profile_link "$source" "$agent_dir/$name"
+      done
+      ensure_profile_link "$profile_auth" "$agent_dir/auth.json"
+      for source in "$source_agent_dir/extensions"/*; do
+        name=${source##*/}
+        [[ $name == pi-permission-system ]] || ensure_profile_link "$source" "$agent_dir/extensions/$name"
+      done
+    else
+      agent_dir=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-yolo.XXXXXX")
+      trap 'rm -rf "$agent_dir"' EXIT
+      for source in "$source_agent_dir"/*; do
+        [[ ${source##*/} == extensions ]] || ln -s "$source" "$agent_dir/${source##*/}"
+      done
+      mkdir "$agent_dir/extensions"
+      for source in "$source_agent_dir/extensions"/*; do
+        [[ ${source##*/} == pi-permission-system ]] || ln -s "$source" "$agent_dir/extensions/${source##*/}"
+      done
+      mkdir "$agent_dir/extensions/pi-permission-system"
+    fi
+    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" <<'NODE'
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -118,11 +164,14 @@ for (const wrapper of ["eval", "sudo", "env", "xargs", "time", "nohup", "timeout
 for (const pattern of ["find * -exec*", "*/find * -exec*", "find * -ok*", "*/find * -ok*", "fd * -x *", "*/fd * -x *", "fd * -X *", "*/fd * -X *", "fd * --exec*", "*/fd * --exec*"]) {
   config.permission.bash[pattern] = "deny";
 }
-fs.writeFileSync(process.argv[3], `${JSON.stringify(config, null, 2)}\n`);
+const output = process.argv[3];
+const temporary = `${output}.${process.pid}`;
+fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
+fs.renameSync(temporary, output);
 NODE
 
     enable_git_guard
-    PATH=$PATH AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir PI_CODING_AGENT_DIR=$temporary pi "$@"
+    PATH=$PATH AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir PI_CODING_AGENT_DIR=$agent_dir pi "$@"
     ;;
   *)
     printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2

@@ -166,6 +166,9 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
     canonical(pathModule.join(home, "orca/workspaces")),
   ];
   settings.permission.path[pathModule.join(agentDir, "auth.json")] = "deny";
+  settings.permission.path[pathModule.join(agentDir, "auth-profiles")] = "deny";
+  settings.permission.path[pathModule.join(agentDir, "auth-profiles/*")] = "deny";
+  settings.permission.path[pathModule.join(agentDir, "codex-fast.json")] = "deny";
   settings.permission.path[pathModule.join(webConfigDir, "web-search.json")] = "deny";
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
@@ -224,6 +227,9 @@ if (process.argv[2] === "--self-test") {
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/Code")), true);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), true);
   assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
+  assert.equal(pi.permission.path["/pi-agent/auth-profiles"], "deny");
+  assert.equal(pi.permission.path["/pi-agent/auth-profiles/*"], "deny");
+  assert.equal(pi.permission.path["/pi-agent/codex-fast.json"], "deny");
   assert.equal(pi.permission.path["/pi-config/web-search.json"], "deny");
   assert.throws(() => configurePi('{"permission":{"path":{}}}', "/tool?kit", "/pi-agent", "/pi-config"));
   assert.match(configureCodex('sandbox_mode = "danger-full-access"\napproval_policy = "never"\n\n[features]\nhooks = true\n'), /^sandbox_mode = "workspace-write"\napproval_policy = "on-request"/);

@@ -37,9 +37,16 @@ function currentProfile(root?: string): CodexAccountProfile | undefined {
 	)
 }
 
+function piProfile(): CodexAccountProfile | undefined {
+	const profile = process.env.AGENT_TOOLKIT_CODEX_ACCOUNT
+	return CODEX_ACCOUNT_PROFILES.includes(profile as CodexAccountProfile) ? (profile as CodexAccountProfile) : undefined
+}
+
 function updateStatus(ctx: ExtensionContext): void {
-	const profile = currentProfile()
-	ctx.ui.setStatus("codex-account", profile ? `codex:${profile}` : undefined)
+	const codex = currentProfile()
+	const pi = piProfile()
+	const status = pi && codex && pi !== codex ? `pi:${pi} codex:${codex}` : pi || codex ? `account:${pi ?? codex}` : undefined
+	ctx.ui.setStatus("codex-account", status)
 }
 
 export default function codexAccountExtension(pi: ExtensionAPI) {
@@ -72,7 +79,13 @@ export default function codexAccountExtension(pi: ExtensionAPI) {
 			}
 
 			updateStatus(ctx)
-			ctx.ui.notify(`Codex account switched to ${profile}`, "info")
+			const pi = piProfile()
+			ctx.ui.notify(
+				pi === profile
+					? `Account is ${profile}`
+					: `Codex subprocesses now use ${profile}. Pi ${pi ? `still uses ${pi}` : "does not switch while running"}; select ${profile} in Orca and restart Pi.`,
+				pi === profile ? "info" : "warning",
+			)
 		},
 	})
 

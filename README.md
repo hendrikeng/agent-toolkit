@@ -9,6 +9,7 @@ Agent Toolkit provides version-controlled tools and shared configuration for Cla
 - `pi/AGENTS.md` defines the risk-gated Pi review policy. Normal task completion uses focused checks only.
 - `pi/extensions/ask-user-question` lets the model ask structured questions through native Pi dialogs.
 - `pi/extensions/codex-account` switches future Codex processes between the `personal` and `business` account homes.
+- `pi/extensions/codex-fast` provides persistent `/fast` service-tier control for OpenAI Codex.
 - `pi/extensions/codex-goal` provides the persisted `/goal` workflow for Pi.
 - `pi/extensions/figma-mcp` provides lazy access to the local Figma Desktop MCP server.
 - `pi/extensions/git-push` provides the interactive `/push` command. Unattended agent pushes remain blocked.
@@ -250,14 +251,30 @@ CODEX_HOME="$HOME/.codex-accounts/business" codex login
 
 After an upgrade from an earlier release, rename existing account directories to these public names. You can also log in again.
 
-Select the account for future Codex processes:
+Select the Codex account in Orca before you start Pi. `pi-yolo` uses the matching Pi login for `personal` or `business`.
+
+Each account profile keeps OAuth logins separate. In the first Pi session for each account, run `/login` for each subscription provider that you use.
+
+Use these commands to select the account for future Codex subprocesses in the current Pi session:
 
 ```text
 /codex-account personal
 /codex-account business
 ```
 
-Run `/codex-account` without an argument to open the selector. Existing Codex processes keep their current account.
+Run `/codex-account` without an argument to open the selector. This command cannot change the account of the running Pi process. Select the same account in Orca and restart Pi.
+
+#### Codex Fast mode
+
+Enable Fast mode for supported OpenAI Codex models:
+
+```text
+/fast on
+```
+
+Use `/fast off` to return to the standard service tier. Use `/fast status` to show the current selection.
+
+The selection persists for new Pi sessions. Fast mode reduces latency but uses more subscription quota.
 
 #### Risk-gated review closeout
 
