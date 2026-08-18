@@ -17,6 +17,7 @@ Agent Toolkit provides version-controlled tools and shared configuration for Cla
 - `pi/extensions/review-mode` provides the persistent `/reviews auto|off` session control.
 - `pi/extensions/simple-english` provides the `/simple-english` documentation command.
 - `pi/extensions/skills-update` provides the interactive `/skills-update` command.
+- `pi/extensions/task-graph` provides the `/graph` planner for supervised Orca task graphs.
 - `pi/extensions/web-access-gate` loads web tools only for necessary tasks.
 - `@ff-labs/pi-fff` adds FFF-backed fuzzy file search, content search, and file autocomplete to Pi.
 - `pi/skills/deepsec` provides manual access to pinned `deepsec@2.3.5` with explicit AI and cost gates.
@@ -69,6 +70,7 @@ The installer creates these symlinks:
 ~/.pi/agent/extensions/review-mode     -> pi/extensions/review-mode
 ~/.pi/agent/extensions/simple-english  -> pi/extensions/simple-english
 ~/.pi/agent/extensions/skills-update   -> pi/extensions/skills-update
+~/.pi/agent/extensions/task-graph      -> pi/extensions/task-graph
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
 ~/.pi/agent/skills/deepsec             -> pi/skills/deepsec
 ~/.pi/agent/skills/react-doctor        -> pi/skills/react-doctor
@@ -233,6 +235,14 @@ Toolkit-owned skills remain reviewed and pinned in this repository. The commands
 Both commands pull the toolkit before they update globally tracked skills. The installer also runs after a failed external skill update.
 
 The commands do not overwrite local safety changes with direct skills.sh copies. Nothing updates automatically at startup.
+
+#### Task graphs
+
+Run `/graph <objective>` to plan work that can use parallel workers. The planner first inspects the repository.
+
+The planner completes small or tightly coupled work directly. For suitable work, it proposes a bounded task DAG and asks for approval.
+
+After approval, the planner uses Orca orchestration for task state, dispatch, worker messages, and completion tracking. It does not implement a second scheduler in Pi.
 
 #### User questions
 

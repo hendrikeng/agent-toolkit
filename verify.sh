@@ -137,6 +137,8 @@ cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/exten
 cmp "$repo_dir/pi/extensions/review-mode/index.ts" "$pi_agent_dir/extensions/review-mode/index.ts"
 cmp "$repo_dir/pi/extensions/simple-english/index.ts" "$pi_agent_dir/extensions/simple-english/index.ts"
 cmp "$repo_dir/pi/extensions/skills-update/index.ts" "$pi_agent_dir/extensions/skills-update/index.ts"
+cmp "$repo_dir/pi/extensions/task-graph/index.ts" "$pi_agent_dir/extensions/task-graph/index.ts"
+cmp "$repo_dir/pi/extensions/task-graph/task-graph-core.ts" "$pi_agent_dir/extensions/task-graph/task-graph-core.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -230,6 +232,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-
 node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/tests/simple-english.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/skills-update/tests/skills-update.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/task-graph/tests/task-graph.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
@@ -248,6 +251,7 @@ grep -q '"name":"fast"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skills-update"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"graph"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
