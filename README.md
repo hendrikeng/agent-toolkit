@@ -238,11 +238,38 @@ The commands do not overwrite local safety changes with direct skills.sh copies.
 
 #### Task graphs
 
-Run `/graph <objective>` to plan work that can use parallel workers. The planner first inspects the repository.
+Run `./install.sh` before first use. Then restart Pi. Keep Orca running with its orchestration experimental feature enabled.
 
-The planner completes small or tightly coupled work directly. For suitable work, it proposes a bounded task DAG and asks for approval.
+Use a plain objective for new work:
 
-After approval, the planner uses Orca orchestration for task state, dispatch, worker messages, and completion tracking. It does not implement a second scheduler in Pi.
+```text
+/graph Add customer search to the API and Web app
+```
+
+Use a repository plan path for planned work:
+
+```text
+/graph docs/future/customer-search.md
+/graph docs/exec-plans/active/customer-search.md
+```
+
+The planner first inspects the repository and the referenced plan. The plan status, dependencies, checklist, approvals, and targets remain authoritative.
+
+The planner applies these modes:
+
+- `plan-only`: draft, ready-for-promotion, blocked, budget-exhausted, or completed plans.
+- `execute`: an active executable slice with satisfied dependencies and approvals.
+- `direct`: a recommendation to stop graph planning and run small or tightly coupled work normally.
+
+For local Markdown plans, the extension enforces statuses that cannot execute. If one future contains independent outcomes, create separate future files linked by `Dependencies`.
+
+For suitable work, the planner validates a DAG of two to six tasks. Each task includes dependencies, exclusive ownership, a specialty, completion criteria, and validation.
+
+Choose Approve, Revise, or Cancel in the interactive review. Plan-only approval and cancellation stop the agent run.
+
+The extension blocks Pi's bash, edit, and write tools until an executable graph is approved. Before approval, the planner uses read and search tools only.
+
+After approval, Orca stores task state, dispatches workers, routes messages, and tracks completion. The coordinator remains responsible for integration and final validation.
 
 #### User questions
 
