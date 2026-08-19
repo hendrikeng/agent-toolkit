@@ -226,7 +226,7 @@ Both update commands do these steps:
 2. They show the configured upstream, branch, and URL for approval.
 3. They fast-forward pull the approved upstream.
 4. They update global skills with pinned `skills@1.5.22`.
-5. They run `install.sh` last to restore all reviewed toolkit links.
+5. They run `install.sh` last to initialize the pinned blueprint submodule and restore all reviewed toolkit links.
 
 The Pi command reloads Pi. The standalone command tells you to restart active sessions after resource changes.
 
@@ -235,6 +235,34 @@ Toolkit-owned skills remain reviewed and pinned in this repository. The commands
 Both commands pull the toolkit before they update globally tracked skills. The installer also runs after a failed external skill update.
 
 The commands do not overwrite local safety changes with direct skills.sh copies. Nothing updates automatically at startup.
+
+#### Project blueprints
+
+The reviewed `agent-project-blueprint` revision is pinned at `vendor/agent-project-blueprint` as a Git submodule. Clone this toolkit with `--recurse-submodules`, or initialize an existing checkout with:
+
+```bash
+git submodule update --init --recursive
+```
+
+Set `AGENT_PROJECT_BLUEPRINT_DIR` only when testing a different reviewed blueprint checkout. Run `./install.sh`, then restart Pi.
+
+Use the interactive project workflow:
+
+```text
+/project audit /path/to/existing-project
+/project adopt /path/to/existing-project
+/project new /path/to/empty-project
+```
+
+Choose the mode by project state:
+
+- `audit`: inspect any existing project without changing it. Use this first when unsure, for non-Node projects, and for projects that already have a blueprint harness manifest.
+- `adopt`: add the blueprint to an existing project that has not been adopted. It preserves existing files and conflicting package scripts. It currently requires Node.js 24, `package.json`, and an npm, pnpm, or yarn lockfile.
+- `new`: initialize an empty project directory. New-project package initialization currently creates an npm `package-lock.json` or `npm-shrinkwrap.json`.
+
+The workflow reads the blueprint's machine-readable questionnaire, inspects the target, infers answers from repository evidence, and asks only for missing values. It then shows the blueprint comparison and complete decision packet. Choose Approve, Revise, Save Draft, or Cancel. Run the same command later to resume a saved draft.
+
+Bash, edit, and write stay blocked until approval. The workflow rejects likely secrets and stores only approved non-secret decisions. After approval, the blueprint-owned tools add missing files, preserve existing project files, replace governed placeholders, and merge non-conflicting package scripts. The agent reports preserved files and conflicts, reconciles only the approved changes, and runs the focused bootstrap checks.
 
 #### Task graphs
 
@@ -269,7 +297,7 @@ Choose Approve, Revise, or Cancel in the interactive review. Plan-only approval 
 
 The extension blocks Pi's bash, edit, and write tools until an executable graph is approved. Before approval, the planner uses read and search tools only.
 
-After approval, Orca stores task state, dispatches workers, routes messages, and tracks completion. The coordinator remains responsible for integration and final validation.
+After approval, Orca stores task state, dispatches workers, routes messages, and tracks completion. The coordinator explicitly launches every graph worker with `pi-yolo`; it does not rely on Orca's generic `--agent pi` launcher unless the launch receipt confirms `pi-yolo` as the effective executable. The coordinator remains responsible for integration and final validation.
 
 #### User questions
 

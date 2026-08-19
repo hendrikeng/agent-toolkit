@@ -111,5 +111,7 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(prompt, /approve, revise, or cancel/)
 	assert.match(prompt, /Do not dispatch workers until an execute-mode graph is approved/)
 	assert.match(prompt, /orca skills get orchestration/)
+	assert.match(prompt, /Every graph worker must run `pi-yolo`, not plain `pi`/)
+	assert.match(prompt, /Do not use Orca's generic `--agent pi` launcher/)
 	assert.match(prompt, /at most one replacement attempt/)
 })

@@ -20,6 +20,27 @@ else
   pi_web_config_dir=$HOME/.pi
 fi
 
+initialize_blueprint_submodule() {
+  local git_bin=
+  local blueprint_path=vendor/agent-project-blueprint
+  if [[ ! -e "$repo_dir/.git" ]]; then
+    [[ -f "$repo_dir/$blueprint_path/distribution/bootstrap-questionnaire.json" ]] || {
+      printf 'agent-project-blueprint submodule is missing; use a Git checkout with submodules initialized.\n' >&2
+      return 1
+    }
+    return
+  fi
+  for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
+    if [[ -x $candidate ]]; then
+      git_bin=$candidate
+      break
+    fi
+  done
+  [[ -n $git_bin ]] || { printf 'Git is required to initialize agent-project-blueprint.\n' >&2; return 1; }
+  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -C "$repo_dir" submodule sync --recursive -- "$blueprint_path"
+  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -C "$repo_dir" submodule update --init --recursive --depth 1 -- "$blueprint_path"
+}
+
 install_link() {
   local source=$1
   local target=$2
@@ -269,6 +290,8 @@ install_ponytail() {
   fi
 }
 
+initialize_blueprint_submodule
+
 if ! command -v npm >/dev/null 2>&1; then
   printf 'npm is required to install figma-mcp dependencies.\n' >&2
   exit 1
@@ -324,6 +347,7 @@ install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/code
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-push"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
+install_link "$repo_dir/pi/extensions/project-blueprint" "$pi_agent_dir/extensions/project-blueprint"
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
