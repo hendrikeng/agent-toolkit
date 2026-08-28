@@ -1,4 +1,4 @@
-import { posix } from "node:path"
+import { isAbsolute, posix, relative, sep } from "node:path"
 
 export const TASK_GRAPH_USAGE = "Usage: /graph <objective-or-plan-path>"
 
@@ -16,6 +16,23 @@ export interface TaskGraphPlan {
 	objective: string
 	mode: "plan-only" | "execute"
 	tasks: TaskGraphTask[]
+}
+
+export function normalizeTaskGraphOwnership(plan: TaskGraphPlan, repositoryRoot: string): TaskGraphPlan {
+	return {
+		...plan,
+		tasks: plan.tasks.map((task) => ({
+			...task,
+			owns: task.owns.map((owner) => {
+				const raw = owner.trim()
+				if (!isAbsolute(raw)) return owner
+				const local = relative(repositoryRoot, raw)
+				return local && local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local)
+					? local.split(sep).join("/")
+					: owner
+			}),
+		})),
+	}
 }
 
 export function validateTaskGraph(plan: TaskGraphPlan): void {

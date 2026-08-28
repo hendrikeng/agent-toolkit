@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { join, resolve } from "node:path"
 import {
 	formatTaskGraph,
+	normalizeTaskGraphOwnership,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
 	taskGraphPrompt,
@@ -73,6 +75,25 @@ test("validates and formats a bounded task graph", () => {
 	assert.throws(
 		() => validateTaskGraph({ ...plan, tasks: [{ ...plan.tasks[0], depends_on: ["web"] }, plan.tasks[1]] }),
 		/cycle/,
+	)
+})
+
+test("makes absolute ownership inside the repository relative", () => {
+	const root = resolve("tmp/repo")
+	const absolute = join(root, "src/api")
+	const normalized = normalizeTaskGraphOwnership({
+		...plan,
+		tasks: [{ ...plan.tasks[0], owns: [absolute] }, plan.tasks[1]],
+	}, root)
+
+	assert.equal(normalized.tasks[0].owns[0], "src/api")
+	assert.doesNotThrow(() => validateTaskGraph(normalized))
+	assert.throws(
+		() => validateTaskGraph(normalizeTaskGraphOwnership({
+			...plan,
+			tasks: [{ ...plan.tasks[0], owns: [resolve("tmp/outside")] }, plan.tasks[1]],
+		}, root)),
+		/repository-relative/,
 	)
 })
 

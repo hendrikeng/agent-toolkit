@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import {
 	formatTaskGraph,
+	normalizeTaskGraphOwnership,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
 	taskGraphPrompt,
@@ -65,29 +66,30 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (!planning) throw new Error("propose_task_graph requires an active /graph command.")
 			if (reviewClosed) throw new Error("This graph review is closed. Start another /graph command to propose a new graph.")
 			if (planOnlyRequired && params.mode !== "plan-only") throw new Error("This plan status permits a plan-only graph, not implementation dispatch.")
-			const graph = formatTaskGraph(params)
+			const plan = normalizeTaskGraphOwnership(params, repositoryRoot(ctx.cwd))
+			const graph = formatTaskGraph(plan)
 			if (!ctx.hasUI) {
-				validateTaskGraph(params)
+				validateTaskGraph(plan)
 				return {
 					content: [{ type: "text", text: `${graph}\n\nInteractive approval is unavailable. Show the plan and stop without dispatching.` }],
-					details: { status: "approval-required", plan: params },
+					details: { status: "approval-required", plan },
 				}
 			}
 
-			const review = await reviewTaskGraph(params, ctx.ui, signal)
+			const review = await reviewTaskGraph(plan, ctx.ui, signal)
 			approved = review.status === "approved"
 			reviewClosed = review.status !== "revise"
-			if (review.status === "cancelled" || review.status === "plan-approved") ctx.abort()
 			const text = review.status === "approved"
 				? "The user approved this task graph. Execute it through Orca orchestration."
 				: review.status === "plan-approved"
-					? "The user approved this plan-only graph. Update planning artifacts if requested, but do not dispatch implementation workers."
+					? "The user approved this plan-only graph. Stop without dispatching implementation workers."
 					: review.status === "revise"
 						? `Revise the graph and call propose_task_graph again. User feedback: ${review.feedback}`
 						: "The user cancelled task graph execution. Stop without dispatching."
 			return {
 				content: [{ type: "text", text }],
-				details: { ...review, plan: params },
+				details: { ...review, plan },
+				terminate: review.status === "cancelled" || review.status === "plan-approved",
 			}
 		},
 	})
