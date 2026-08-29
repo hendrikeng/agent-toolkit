@@ -9,6 +9,7 @@ import {
 	codexProfileHome,
 	fetchCodexUsage,
 	formatCodexUsage,
+	mergeCodexUsage,
 	reserveAccountProfile,
 	parseCodexUsage,
 	parseCodexUsagePayload,
@@ -33,7 +34,10 @@ test("formats Codex response limits and reset times compactly", () => {
 		primary: { remainingPercent: 72, windowMinutes: 300, resetsAt: now + 5_400_000 },
 		secondary: { remainingPercent: 39, windowMinutes: 10080, resetsAt: now + 259_200_000 },
 	})
-	assert.equal(formatCodexUsage(usage, now), "5h 72%↻2h · 7d 39%↻3d")
+	assert.equal(formatCodexUsage(usage, now), "5h 72% ↻ 2h · 7d 39% ↻ 3d")
+	assert.equal(formatCodexUsage({ ...usage, availableResets: 3 }, now), "5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3")
+	assert.equal(formatCodexUsage({ primary: { remainingPercent: 100, windowMinutes: 300, resetsAt: now }, availableResets: 0 }, now), "5h 100% ↻ now · ↻ 0")
+	assert.deepEqual(mergeCodexUsage({ ...usage, availableResets: 3 }, { primary: { remainingPercent: 70 } }), { primary: { remainingPercent: 70 }, availableResets: 3 })
 	assert.equal(parseCodexUsage({}), undefined)
 	assert.deepEqual(
 		parseCodexUsagePayload({
@@ -42,9 +46,10 @@ test("formats Codex response limits and reset times compactly", () => {
 					primary_window: { used_percent: 28.4, limit_window_seconds: 18_000, reset_after_seconds: 5400 },
 					secondary_window: { used_percent: 61, limit_window_seconds: 604_800, reset_at: now / 1000 + 259_200 },
 				},
+				rate_limit_reset_credits: { available_count: 3 },
 			},
 		}, now),
-		usage,
+		{ ...usage, availableResets: 3 },
 	)
 })
 

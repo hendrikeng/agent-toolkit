@@ -19,6 +19,7 @@ export interface CodexUsageWindow {
 export interface CodexUsage {
 	primary?: CodexUsageWindow
 	secondary?: CodexUsageWindow
+	availableResets?: number
 }
 
 function resetTimestamp(value: unknown, afterSeconds: unknown, now = Date.now()): number | undefined {
@@ -64,22 +65,30 @@ export function parseCodexUsagePayload(payload: unknown, now = Date.now()): Code
 			...(reset ? { resetsAt: reset } : {}),
 		}
 	}
-	const usage = { primary: window("primary_window"), secondary: window("secondary_window") }
-	return usage.primary || usage.secondary ? usage : undefined
+	const availableCount = Number((root as { rate_limit_reset_credits?: { available_count?: unknown } }).rate_limit_reset_credits?.available_count)
+	const availableResets = Number.isSafeInteger(availableCount) && availableCount >= 0 ? availableCount : undefined
+	const usage = { primary: window("primary_window"), secondary: window("secondary_window"), availableResets }
+	return usage.primary || usage.secondary || availableResets !== undefined ? usage : undefined
+}
+
+export function mergeCodexUsage(current: CodexUsage | undefined, latest: CodexUsage | undefined): CodexUsage | undefined {
+	if (!latest || current?.availableResets === undefined) return latest ?? current
+	return { ...latest, availableResets: current.availableResets }
 }
 
 export function formatCodexUsage(usage: CodexUsage | undefined, now = Date.now()): string | undefined {
 	if (!usage) return undefined
-	return [usage.primary, usage.secondary]
+	const parts = [usage.primary, usage.secondary]
 		.filter((window): window is CodexUsageWindow => Boolean(window))
 		.map((window) => {
 			const minutes = window.windowMinutes
 			const duration = !minutes ? "quota" : minutes % 1440 === 0 ? `${minutes / 1440}d` : minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`
-			const resetMinutes = window.resetsAt && window.resetsAt > now ? Math.ceil((window.resetsAt - now) / 60_000) : 0
-			const reset = !resetMinutes ? "" : resetMinutes < 60 ? `${resetMinutes}m` : resetMinutes < 2880 ? `${Math.ceil(resetMinutes / 60)}h` : `${Math.ceil(resetMinutes / 1440)}d`
-			return `${duration} ${window.remainingPercent}%${reset ? `↻${reset}` : ""}`
+			const resetMinutes = window.resetsAt ? Math.ceil((window.resetsAt - now) / 60_000) : undefined
+			const reset = resetMinutes === undefined ? "" : resetMinutes <= 0 ? "now" : resetMinutes < 60 ? `${resetMinutes}m` : resetMinutes < 2880 ? `${Math.ceil(resetMinutes / 60)}h` : `${Math.ceil(resetMinutes / 1440)}d`
+			return `${duration} ${window.remainingPercent}%${reset ? ` ↻ ${reset}` : ""}`
 		})
-		.join(" · ") || undefined
+	if (usage.availableResets !== undefined) parts.push(`↻ ${usage.availableResets}`)
+	return parts.join(" · ") || undefined
 }
 
 export function codexProfileHome(profile: string, root = join(homedir(), ".codex-accounts")): string {
@@ -649,7 +658,7 @@ export default function codexAccountExtension(pi: ExtensionAPI) {
 	pi.on("turn_end", (_event, ctx) => persistActiveAccount(ctx))
 	pi.on("after_provider_response", async (event, ctx) => {
 		if (ctx.model?.provider !== "openai-codex") return
-		usage = parseCodexUsage(event.headers) ?? usage
+		usage = mergeCodexUsage(usage, parseCodexUsage(event.headers))
 		updateStatus(ctx, usage)
 		void refreshUsage(ctx)
 	})

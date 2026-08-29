@@ -57,15 +57,15 @@ SH
 chmod +x "$tmp_dir/fake-bin/pi"
 cp "$repo_dir/shared/agent-safety/agent-yolo" "$tmp_dir/pi-yolo"
 chmod +x "$tmp_dir/pi-yolo"
-PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME= PI_CODING_AGENT_DIR="$pi_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/pi-yolo-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/pi-yolo-web-config.txt" "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME= PI_CODING_AGENT_DIR="$pi_agent_dir" AGENT_TOOLKIT_PI_WEB_CONFIG_DIR="$pi_web_config_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/pi-yolo-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/pi-yolo-web-config.txt" "$tmp_dir/pi-yolo"
 test "$(<"$tmp_dir/pi-yolo-source.txt")" = "$pi_agent_dir"
-test "$(<"$tmp_dir/pi-yolo-web-config.txt")" = "$pi_agent_dir"
+test "$(<"$tmp_dir/pi-yolo-web-config.txt")" = "$pi_web_config_dir"
 
 profile_agent_dir="$tmp_dir/profile-agent"
 mkdir -p "$profile_agent_dir/extensions/pi-permission-system"
 cp "$pi_agent_dir/extensions/pi-permission-system/config.json" "$profile_agent_dir/extensions/pi-permission-system/config.json"
 printf '%s\n' '{"openai-codex":{"type":"oauth","access":"old","refresh":"old","expires":1},"github-copilot":{"type":"oauth","access":"old","refresh":"old","expires":1},"anthropic":{"type":"api_key","key":"keep"}}' > "$profile_agent_dir/auth.json"
-PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$HOME/.codex-accounts/$codex_profile_name/../$codex_profile_name/" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_REAL_AGENT_DIR_CAPTURE="$tmp_dir/profile-real-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$profile_agent_dir/codex-runtimes/$codex_profile_name" AGENT_TOOLKIT_CODEX_ACCOUNT="$codex_profile_name" AGENT_TOOLKIT_CODEX_PROFILE_HOME="$HOME/.codex-accounts/$codex_profile_name/../$codex_profile_name/" AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_REAL_AGENT_DIR_CAPTURE="$tmp_dir/profile-real-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
 case "$(<"$tmp_dir/profile-agent-dir.txt")" in
   "${TMPDIR:-/tmp}"/agent-toolkit-pi-yolo.*) ;;
   *) printf 'pi-yolo did not use an isolated account runtime\n' >&2; exit 1 ;;

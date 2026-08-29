@@ -4,10 +4,11 @@ import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-codin
 import { Type } from "typebox"
 import {
 	formatTaskGraph,
-	isTaskGraphPromotionCommand,
 	normalizeTaskGraphOwnership,
+	planIsReadyForPromotion,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
+	taskGraphPromotionSource,
 	taskGraphPrompt,
 	TASK_GRAPH_USAGE,
 	validateTaskGraph,
@@ -51,12 +52,22 @@ function localPlanRequiresPlanOnly(cwd: string, objective: string): boolean {
 	return planRequiresPlanOnly(readFileSync(target, "utf8"))
 }
 
+function localFuturePromotionSource(cwd: string, objective: string): string | undefined {
+	const path = resolve(cwd, objective)
+	if (!existsSync(path)) return undefined
+	const target = realpathSync(path)
+	const local = relative(repositoryRoot(cwd), target).split(sep).join("/")
+	if (!/^docs\/future\/[a-z0-9][a-z0-9._-]*\.md$/.test(local)) return undefined
+	return planIsReadyForPromotion(readFileSync(target, "utf8")) ? local : undefined
+}
+
 export default function taskGraphExtension(pi: ExtensionAPI): void {
-	let pending: { prompt: string; planOnlyRequired: boolean } | null = null
+	let pending: { prompt: string; planOnlyRequired: boolean; promotionSource?: string } | null = null
 	let planning = false
 	let approved = false
 	let reviewClosed = false
 	let planOnlyRequired = false
+	let promotionSource: string | undefined
 
 	pi.registerTool({
 		name: "propose_task_graph",
@@ -113,7 +124,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 
 			const prompt = taskGraphPrompt(objective)
 			try {
-				pending = { prompt, planOnlyRequired: localPlanRequiresPlanOnly(ctx.cwd, objective) }
+				pending = {
+					prompt,
+					planOnlyRequired: localPlanRequiresPlanOnly(ctx.cwd, objective),
+					promotionSource: localFuturePromotionSource(ctx.cwd, objective),
+				}
 				pi.sendUserMessage(prompt)
 			} catch (error) {
 				pending = null
@@ -128,14 +143,15 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		approved = false
 		reviewClosed = false
 		planOnlyRequired = pending.planOnlyRequired
+		promotionSource = pending.promotionSource
 		pending = null
 	})
 
 	pi.on("tool_call", (event) => {
 		if (!planning || approved) return
-		if (isToolCallEventType("bash", event) && isTaskGraphPromotionCommand(event.input.command)) return
+		if (isToolCallEventType("bash", event) && promotionSource && taskGraphPromotionSource(event.input.command) === promotionSource) return
 		if (["bash", "edit", "write"].includes(event.toolName)) {
-			return { block: true, reason: "Mutation tools are disabled until the user approves an executable task graph. Use read and search tools while planning; plan verification and promotion are allowed." }
+			return { block: true, reason: "Mutation tools are disabled until the user approves an executable task graph. Use read and search tools while planning; promotion of the objective's ready plan is allowed." }
 		}
 	})
 
@@ -145,5 +161,6 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		approved = false
 		reviewClosed = false
 		planOnlyRequired = false
+		promotionSource = undefined
 	})
 }

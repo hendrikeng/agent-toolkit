@@ -3,10 +3,11 @@ import test from "node:test"
 import { join, resolve } from "node:path"
 import {
 	formatTaskGraph,
-	isTaskGraphPromotionCommand,
 	normalizeTaskGraphOwnership,
+	planIsReadyForPromotion,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
+	taskGraphPromotionSource,
 	taskGraphPrompt,
 	type TaskGraphPlan,
 	validateTaskGraph,
@@ -101,13 +102,11 @@ test("makes absolute ownership inside the repository relative", () => {
 	)
 })
 
-test("allows only plan verification and one safe promotion move before approval", () => {
-	assert.equal(isTaskGraphPromotionCommand("pnpm run plans:verify"), true)
-	assert.equal(isTaskGraphPromotionCommand("  pnpm run plans:verify\n"), true)
-	assert.equal(isTaskGraphPromotionCommand("mv docs/future/workspace-planner-provider-adapter.md docs/exec-plans/active/"), true)
-	assert.equal(isTaskGraphPromotionCommand("pnpm run plans:verify && rm -rf ."), false)
-	assert.equal(isTaskGraphPromotionCommand("mv docs/future/plan.md docs/exec-plans/active/ && echo moved"), false)
-	assert.equal(isTaskGraphPromotionCommand("mv other/plan.md docs/exec-plans/active/"), false)
+test("allows only one safe promotion move before approval", () => {
+	assert.equal(taskGraphPromotionSource("mv docs/future/workspace-planner-provider-adapter.md docs/exec-plans/active/"), "docs/future/workspace-planner-provider-adapter.md")
+	assert.equal(taskGraphPromotionSource("pnpm run plans:verify"), undefined)
+	assert.equal(taskGraphPromotionSource("mv docs/future/plan.md docs/exec-plans/active/ && echo moved"), undefined)
+	assert.equal(taskGraphPromotionSource("mv other/plan.md docs/exec-plans/active/"), undefined)
 })
 
 test("handles interactive graph review and plan status", async () => {
@@ -129,6 +128,9 @@ test("handles interactive graph review and plan status", async () => {
 	assert.deepEqual(await review("Cancel"), { status: "cancelled" })
 	assert.equal(planRequiresPlanOnly("## Metadata\n\n- Status: blocked\n"), true)
 	assert.equal(planRequiresPlanOnly("## Metadata\n\n- Status: ready-for-promotion\n"), true)
+	assert.equal(planIsReadyForPromotion("## Metadata\n\n- Status: ready-for-promotion\n"), true)
+	assert.equal(planIsReadyForPromotion("##  Metadata\n\n  - Status: ready-for-promotion\n"), true)
+	assert.equal(planIsReadyForPromotion("## Metadata\n\n- Status: draft\n"), false)
 	assert.equal(planRequiresPlanOnly("## Metadata\n\n- Status: paused\n"), true)
 	assert.equal(planRequiresPlanOnly("No metadata"), true)
 	assert.equal(planRequiresPlanOnly("- Status: queued\n\n## Metadata\n\n- Status: blocked\n"), true)
@@ -138,8 +140,8 @@ test("handles interactive graph review and plan status", async () => {
 test("builds the interactive Orca planning prompt", () => {
 	const prompt = taskGraphPrompt("Build search")
 	assert.match(prompt, /Build search/)
-	assert.match(prompt, /plans:verify/)
-	assert.match(prompt, /moving one Markdown plan/)
+	assert.match(prompt, /moving the objective's ready-for-promotion Markdown plan/)
+	assert.match(prompt, /status can transition to `queued`/)
 	assert.match(prompt, /propose_task_graph/)
 	assert.match(prompt, /draft or blocked plan permits planning.*only/)
 	assert.match(prompt, /one future file per executable slice/)
