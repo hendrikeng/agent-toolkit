@@ -3,7 +3,7 @@ import { calculateCost } from "@earendil-works/pi-ai"
 import { applyFastMode, fastModeCostMultiplier, readFastMode, supportsFastMode, writeFastMode } from "./fast-core.ts"
 
 function updateStatus(ctx: ExtensionContext, enabled: boolean): void {
-	ctx.ui.setStatus("02-fast", enabled ? "| FAST" : undefined)
+	ctx.ui.setStatus("02-fast", enabled ? ctx.ui.theme.fg("muted", "| FAST") : undefined)
 }
 
 export default function codexFastExtension(pi: ExtensionAPI) {

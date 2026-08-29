@@ -33,8 +33,8 @@ function sessionEntries(ctx: ExtensionContext): SessionEntry[] {
 function syncStatuses(ctx: ExtensionContext, mode: string): string {
 	ctx.ui.setStatus("pi-permission-system", undefined)
 	ctx.ui.setStatus("ponytail", undefined)
-	ctx.ui.setStatus("03-yolo", process.env.AGENT_TOOLKIT_PI_AGENT_DIR ? "| YOLO" : undefined)
-	ctx.ui.setStatus("04-ponytail", mode === "off" ? undefined : `| PONYTAIL ${mode.toUpperCase()}`)
+	ctx.ui.setStatus("03-yolo", process.env.AGENT_TOOLKIT_PI_AGENT_DIR ? ctx.ui.theme.fg("muted", "| YOLO") : undefined)
+	ctx.ui.setStatus("04-ponytail", mode === "off" ? undefined : ctx.ui.theme.fg("muted", `| PONYTAIL ${mode.toUpperCase()}`))
 	return mode
 }
 

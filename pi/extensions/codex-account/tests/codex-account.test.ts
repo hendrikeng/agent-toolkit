@@ -11,6 +11,7 @@ import {
 	formatCodexUsage,
 	mergeCodexUsage,
 	reserveAccountProfile,
+	parseCodexResetCreditsPayload,
 	parseCodexUsage,
 	parseCodexUsagePayload,
 	persistPiAccount,
@@ -36,8 +37,15 @@ test("formats Codex response limits and reset times compactly", () => {
 	})
 	assert.equal(formatCodexUsage(usage, now), "5h 72% ↻ 2h · 7d 39% ↻ 3d")
 	assert.equal(formatCodexUsage({ ...usage, availableResets: 3 }, now), "5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3")
+	assert.equal(formatCodexUsage({ ...usage, availableResets: 3, resetExpiresAt: now + 22 * 86_400_000 }, now), "5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3 · 22d")
+	assert.equal(formatCodexUsage({ ...usage, secondary: { remainingPercent: 100, resetsAt: now } }, now), "5h 72% ↻ 2h")
 	assert.equal(formatCodexUsage({ primary: { remainingPercent: 100, windowMinutes: 300, resetsAt: now }, availableResets: 0 }, now), "5h 100% ↻ now · ↻ 0")
-	assert.deepEqual(mergeCodexUsage({ ...usage, availableResets: 3 }, { primary: { remainingPercent: 70 } }), { primary: { remainingPercent: 70 }, availableResets: 3 })
+	assert.deepEqual(mergeCodexUsage({ ...usage, availableResets: 3, resetExpiresAt: now + 1 }, { primary: { remainingPercent: 70 } }), {
+		primary: { ...usage.primary, remainingPercent: 70 },
+		secondary: usage.secondary,
+		availableResets: 3,
+		resetExpiresAt: now + 1,
+	})
 	assert.equal(parseCodexUsage({}), undefined)
 	assert.deepEqual(
 		parseCodexUsagePayload({
@@ -51,6 +59,14 @@ test("formats Codex response limits and reset times compactly", () => {
 		}, now),
 		{ ...usage, availableResets: 3 },
 	)
+	assert.deepEqual(parseCodexResetCreditsPayload({
+		available_count: 3,
+		credits: [
+			{ status: "redeemed", expires_at: "2023-01-01T00:00:00Z" },
+			{ status: "available", expires_at: "2024-01-03T00:00:00Z" },
+			{ status: "available", expires_at: "2024-01-02T00:00:00Z" },
+		],
+	}), { availableResets: 3, resetExpiresAt: Date.parse("2024-01-02T00:00:00Z") })
 })
 
 test("fetches current Codex limits for the active Pi credential", async () => {
@@ -60,14 +76,22 @@ test("fetches current Codex limits for the active Pi credential", async () => {
 		await writeFile(join(root, "auth.json"), JSON.stringify({
 			"openai-codex": { type: "oauth", access: token, accountId: "account-123" },
 		}))
+		const expiresAt = Date.now() + 22 * 86_400_000
 		const usage = await fetchCodexUsage(root, async (input, init) => {
-			assert.equal(input, "https://chatgpt.com/backend-api/wham/usage")
 			assert.equal((init?.headers as Record<string, string>)["ChatGPT-Account-Id"], "account-123")
+			if (input.toString().endsWith("rate-limit-reset-credits")) {
+				return new Response(JSON.stringify({
+					available_count: 1,
+					credits: [{ status: "available", expires_at: new Date(expiresAt).toISOString() }],
+				}))
+			}
+			assert.equal(input, "https://chatgpt.com/backend-api/wham/usage")
 			return new Response(JSON.stringify({
 				rate_limit: { primary_window: { used_percent: 12, limit_window_seconds: 18_000 } },
+				rate_limit_reset_credits: { available_count: 1 },
 			}))
 		})
-		assert.equal(formatCodexUsage(usage), "5h 88%")
+		assert.equal(formatCodexUsage(usage, expiresAt - 22 * 86_400_000), "5h 88% · ↻ 1 · 22d")
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}

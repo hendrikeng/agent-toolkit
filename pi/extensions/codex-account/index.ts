@@ -20,6 +20,7 @@ export interface CodexUsage {
 	primary?: CodexUsageWindow
 	secondary?: CodexUsageWindow
 	availableResets?: number
+	resetExpiresAt?: number
 }
 
 function resetTimestamp(value: unknown, afterSeconds: unknown, now = Date.now()): number | undefined {
@@ -71,23 +72,50 @@ export function parseCodexUsagePayload(payload: unknown, now = Date.now()): Code
 	return usage.primary || usage.secondary || availableResets !== undefined ? usage : undefined
 }
 
+export function parseCodexResetCreditsPayload(payload: unknown): Pick<CodexUsage, "availableResets" | "resetExpiresAt"> | undefined {
+	if (!payload || typeof payload !== "object") return undefined
+	const root = payload as { available_count?: unknown; credits?: unknown }
+	const availableResets = Number(root.available_count)
+	if (!Number.isSafeInteger(availableResets) || availableResets < 0) return undefined
+	const expirations = Array.isArray(root.credits)
+		? root.credits.flatMap((credit) => {
+			if (!credit || typeof credit !== "object" || (credit as { status?: unknown }).status !== "available") return []
+			const expiresAt = Date.parse(String((credit as { expires_at?: unknown }).expires_at ?? ""))
+			return Number.isFinite(expiresAt) ? [expiresAt] : []
+		})
+		: []
+	return { availableResets, ...(expirations.length ? { resetExpiresAt: Math.min(...expirations) } : {}) }
+}
+
 export function mergeCodexUsage(current: CodexUsage | undefined, latest: CodexUsage | undefined): CodexUsage | undefined {
-	if (!latest || current?.availableResets === undefined) return latest ?? current
-	return { ...latest, availableResets: current.availableResets }
+	if (!latest) return current
+	return {
+		...current,
+		...latest,
+		primary: latest.primary ? { ...current?.primary, ...latest.primary } : current?.primary,
+		secondary: latest.secondary ? { ...current?.secondary, ...latest.secondary } : current?.secondary,
+		...(latest.availableResets === 0 ? { resetExpiresAt: undefined } : {}),
+	}
+}
+
+function formatRemainingTime(timestamp: number | undefined, now: number): string {
+	if (!timestamp) return ""
+	const minutes = Math.ceil((timestamp - now) / 60_000)
+	return minutes <= 0 ? "now" : minutes < 60 ? `${minutes}m` : minutes < 2880 ? `${Math.ceil(minutes / 60)}h` : `${Math.ceil(minutes / 1440)}d`
 }
 
 export function formatCodexUsage(usage: CodexUsage | undefined, now = Date.now()): string | undefined {
 	if (!usage) return undefined
 	const parts = [usage.primary, usage.secondary]
-		.filter((window): window is CodexUsageWindow => Boolean(window))
+		.filter((window): window is CodexUsageWindow & { windowMinutes: number } => Boolean(window?.windowMinutes))
 		.map((window) => {
 			const minutes = window.windowMinutes
-			const duration = !minutes ? "quota" : minutes % 1440 === 0 ? `${minutes / 1440}d` : minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`
-			const resetMinutes = window.resetsAt ? Math.ceil((window.resetsAt - now) / 60_000) : undefined
-			const reset = resetMinutes === undefined ? "" : resetMinutes <= 0 ? "now" : resetMinutes < 60 ? `${resetMinutes}m` : resetMinutes < 2880 ? `${Math.ceil(resetMinutes / 60)}h` : `${Math.ceil(resetMinutes / 1440)}d`
+			const duration = minutes % 1440 === 0 ? `${minutes / 1440}d` : minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`
+			const reset = formatRemainingTime(window.resetsAt, now)
 			return `${duration} ${window.remainingPercent}%${reset ? ` ↻ ${reset}` : ""}`
 		})
 	if (usage.availableResets !== undefined) parts.push(`↻ ${usage.availableResets}`)
+	if (usage.availableResets && usage.resetExpiresAt) parts.push(formatRemainingTime(usage.resetExpiresAt, now))
 	return parts.join(" · ") || undefined
 }
 
@@ -212,15 +240,22 @@ export async function fetchCodexUsage(
 		const claims = jwtClaims(credential.access)
 		const accountId = credential.accountId ?? claims?.["https://api.openai.com/auth"]?.chatgpt_account_id
 		if (typeof accountId !== "string" || !accountId) return undefined
-		const response = await fetcher("https://chatgpt.com/backend-api/wham/usage", {
-			headers: {
-				Authorization: `Bearer ${credential.access}`,
-				"ChatGPT-Account-Id": accountId,
-				Accept: "application/json",
-			},
-			signal: AbortSignal.timeout(5_000),
-		})
-		return response.ok ? parseCodexUsagePayload(await response.json()) : undefined
+		const headers = {
+			Authorization: `Bearer ${credential.access}`,
+			"ChatGPT-Account-Id": accountId,
+			Accept: "application/json",
+		}
+		const response = await fetcher("https://chatgpt.com/backend-api/wham/usage", { headers, signal: AbortSignal.timeout(5_000) })
+		if (!response.ok) return undefined
+		const usage = parseCodexUsagePayload(await response.json())
+		if (!usage?.availableResets) return usage
+		try {
+			const details = await fetcher("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", { headers, signal: AbortSignal.timeout(5_000) })
+			const resets = details.ok ? parseCodexResetCreditsPayload(await details.json()) : undefined
+			return resets ? { ...usage, ...resets } : usage
+		} catch {
+			return usage
+		}
 	} catch {
 		return undefined
 	}

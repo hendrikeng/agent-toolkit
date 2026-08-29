@@ -35,7 +35,7 @@ export function reviewModeInstructions(mode: ReviewMode): string {
 }
 
 function updateStatus(mode: ReviewMode, ctx: ExtensionContext): void {
-	ctx.ui.setStatus("review-mode", mode === "off" ? ctx.ui.theme.fg("warning", "| ⊘ REVIEWS") : undefined)
+	ctx.ui.setStatus("review-mode", ctx.ui.theme.fg(mode === "off" ? "warning" : "muted", `| REVIEWS ${mode.toUpperCase()}`))
 }
 
 export default function reviewModeExtension(pi: ExtensionAPI) {

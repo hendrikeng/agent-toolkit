@@ -121,7 +121,7 @@ After import, the toolkit removes the refresh token from the bootstrap Codex pro
 The footer shows the active email and current Codex limits:
 
 ```text
-first@example.com | 5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3 | FAST | YOLO | PONYTAIL FULL
+first@example.com | 5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3 · 22d | FAST | YOLO | PONYTAIL FULL | REVIEWS AUTO
 ```
 
 ## Pi commands
