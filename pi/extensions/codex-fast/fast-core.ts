@@ -29,6 +29,10 @@ export function supportsFastMode(model: unknown): model is string {
 	return model === "gpt-5.4" || model === "gpt-5.5" || (typeof model === "string" && model.startsWith("gpt-5.6-"))
 }
 
+export function fastModeCostMultiplier(model: string): number {
+	return model === "gpt-5.4" ? 2 : 2.5
+}
+
 export function applyFastMode(provider: string | undefined, enabled: boolean, payload: unknown): void {
 	if (provider !== "openai-codex" || !enabled || !payload || typeof payload !== "object") return
 	const body = payload as Record<string, unknown>

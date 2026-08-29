@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { calculateCost } from "@earendil-works/pi-ai"
-import { applyFastMode, readFastMode, supportsFastMode, writeFastMode } from "./fast-core.ts"
+import { applyFastMode, fastModeCostMultiplier, readFastMode, supportsFastMode, writeFastMode } from "./fast-core.ts"
 
 function updateStatus(ctx: ExtensionContext, enabled: boolean): void {
 	ctx.ui.setStatus("codex-fast", enabled ? "fast" : undefined)
@@ -41,7 +41,7 @@ export default function codexFastExtension(pi: ExtensionAPI) {
 		if (!model) return
 		const standard = calculateCost(model, event.message.usage)
 		if (event.message.usage.cost.total !== standard.total) return
-		const multiplier = model.id === "gpt-5.5" ? 2.5 : 2
+		const multiplier = fastModeCostMultiplier(model.id)
 		const cost = {
 			input: standard.input * multiplier,
 			output: standard.output * multiplier,

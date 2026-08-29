@@ -350,6 +350,7 @@ install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/exten
 install_link "$repo_dir/pi/extensions/project-blueprint" "$pi_agent_dir/extensions/project-blueprint"
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
+install_link "$repo_dir/pi/extensions/side-question" "$pi_agent_dir/extensions/side-question"
 install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
 install_link "$repo_dir/pi/extensions/task-graph" "$pi_agent_dir/extensions/task-graph"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"

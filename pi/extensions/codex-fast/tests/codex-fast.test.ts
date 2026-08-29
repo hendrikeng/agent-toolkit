@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { applyFastMode, readFastMode, writeFastMode } from "../fast-core.ts"
+import { applyFastMode, fastModeCostMultiplier, readFastMode, writeFastMode } from "../fast-core.ts"
 
 test("persists Fast mode", async () => {
 	const root = await mkdtemp(join(tmpdir(), "codex-fast-test-"))
@@ -25,6 +25,12 @@ test("persists Fast mode", async () => {
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}
+})
+
+test("uses OpenAI's Fast mode cost multipliers", () => {
+	assert.equal(fastModeCostMultiplier("gpt-5.4"), 2)
+	assert.equal(fastModeCostMultiplier("gpt-5.5"), 2.5)
+	assert.equal(fastModeCostMultiplier("gpt-5.6-sol"), 2.5)
 })
 
 test("adds the priority tier only to enabled OpenAI Codex requests", () => {

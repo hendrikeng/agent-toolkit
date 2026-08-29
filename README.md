@@ -16,6 +16,7 @@ Agent Toolkit provides version-controlled tools and shared configuration for Cla
 - `pi/extensions/orca-permission-bell` sends Pi permission notifications to Orca.
 - `pi/extensions/review-mode` provides the persistent `/reviews auto|off` session control.
 - `pi/extensions/simple-english` provides the `/simple-english` documentation command.
+- `pi/extensions/side-question` provides isolated `/side` questions and small explicit fixes without changes to the main conversation.
 - `pi/extensions/skills-update` provides the interactive `/skills-update` command.
 - `pi/extensions/task-graph` provides the `/graph` planner for supervised Orca task graphs.
 - `pi/extensions/web-access-gate` loads web tools only for necessary tasks.
@@ -63,12 +64,14 @@ The installer creates these symlinks:
 ~/.pi/agent/skills/handoff             -> codex/skills/handoff
 ~/.pi/agent/extensions/ask-user-question -> pi/extensions/ask-user-question
 ~/.pi/agent/extensions/codex-account   -> pi/extensions/codex-account
+~/.pi/agent/extensions/codex-fast      -> pi/extensions/codex-fast
 ~/.pi/agent/extensions/codex-goal      -> pi/extensions/codex-goal
 ~/.pi/agent/extensions/figma-mcp       -> pi/extensions/figma-mcp
 ~/.pi/agent/extensions/git-push        -> pi/extensions/git-push
 ~/.pi/agent/extensions/orca-permission-bell -> pi/extensions/orca-permission-bell
 ~/.pi/agent/extensions/review-mode     -> pi/extensions/review-mode
 ~/.pi/agent/extensions/simple-english  -> pi/extensions/simple-english
+~/.pi/agent/extensions/side-question   -> pi/extensions/side-question
 ~/.pi/agent/extensions/skills-update   -> pi/extensions/skills-update
 ~/.pi/agent/extensions/task-graph      -> pi/extensions/task-graph
 ~/.pi/agent/extensions/web-access-gate -> pi/extensions/web-access-gate
@@ -340,6 +343,23 @@ Enable Fast mode for supported OpenAI Codex models:
 Use `/fast off` to return to the standard service tier. Use `/fast status` to show the current selection.
 
 The selection persists for new Pi sessions. Fast mode reduces latency but uses more subscription quota.
+
+#### Side conversations
+
+Start an isolated side conversation with a question or small fix:
+
+```text
+/side Why did you choose this approach?
+/side Fix the typo in README.md
+```
+
+The first command copies the current main context into an ephemeral agent. Later `/side` commands continue that side conversation.
+
+The main agent continues its work. Side messages do not enter the main conversation.
+
+Explicit side edits remain in the workspace. Do not ask both agents to edit the same file at the same time.
+
+Press Escape to close the answer view. Run `/side close` to discard the side conversation.
 
 #### Risk-gated review closeout
 
