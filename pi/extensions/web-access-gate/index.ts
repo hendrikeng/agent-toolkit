@@ -13,7 +13,7 @@ export default function webAccessGate(pi: ExtensionAPI) {
   const setEnabled = (enabled: boolean, ctx?: ExtensionContext) => {
     const available = availableWebTools();
     pi.setActiveTools(webToolSet(pi.getActiveTools(), available, enabled));
-    ctx?.ui.setStatus("web-access", enabled ? "web:on" : undefined);
+    ctx?.ui.setStatus("web-access", enabled ? ctx.ui.theme.fg("accent", "| 🌐 WEB") : undefined);
     return available;
   };
 

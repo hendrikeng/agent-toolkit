@@ -22,6 +22,7 @@ const plan: TaskGraphPlan = {
 			depends_on: [],
 			owns: ["src/api"],
 			specialty: "backend",
+			thinking: "medium",
 			done_when: ["The endpoint returns results"],
 			validation: "npm test -- search-api",
 		},
@@ -31,6 +32,7 @@ const plan: TaskGraphPlan = {
 			depends_on: ["api"],
 			owns: ["src/web"],
 			specialty: "frontend",
+			thinking: "high",
 			done_when: ["Search results are accessible"],
 			validation: "npm test -- search-web",
 		},
@@ -40,7 +42,8 @@ const plan: TaskGraphPlan = {
 test("validates and formats a bounded task graph", () => {
 	assert.doesNotThrow(() => validateTaskGraph(plan))
 	assert.match(formatTaskGraph(plan), /mode: execute/)
-	assert.match(formatTaskGraph(plan), /web \[frontend\] ← api/)
+	assert.match(formatTaskGraph(plan), /api \[backend, medium\]/)
+	assert.match(formatTaskGraph(plan), /web \[frontend, high\] ← api/)
 	assert.throws(
 		() => validateTaskGraph({ ...plan, tasks: [plan.tasks[0], { ...plan.tasks[1], owns: ["src/api"] }] }),
 		/ownership.*disjoint/,
@@ -141,10 +144,14 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(prompt, /draft or blocked plan permits planning.*only/)
 	assert.match(prompt, /one future file per executable slice/)
 	assert.match(prompt, /plan-only or execute mode/)
+	assert.match(prompt, /Use medium thinking for bounded implementation work/)
+	assert.match(prompt, /Use high thinking for architecture/)
 	assert.match(prompt, /approve, revise, or cancel/)
 	assert.match(prompt, /Do not dispatch workers until an execute-mode graph is approved/)
 	assert.match(prompt, /orca skills get orchestration/)
 	assert.match(prompt, /Every graph worker must run `pi-yolo`, not plain `pi`/)
 	assert.match(prompt, /Do not use Orca's generic `--agent pi` launcher/)
+	assert.match(prompt, /pi-yolo --thinking <task-thinking>/)
+	assert.match(prompt, /medium worker fails or requests escalation/)
 	assert.match(prompt, /at most one replacement attempt/)
 })

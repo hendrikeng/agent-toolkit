@@ -19,6 +19,7 @@ const taskSchema = Type.Object({
 	depends_on: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5, description: "Hard prerequisite task IDs" }),
 	owns: Type.Array(Type.String({ minLength: 1 }), { maxItems: 20, description: "Exclusive repository-relative write paths or contract areas; empty for read-only work" }),
 	specialty: Type.String({ minLength: 1, description: "Worker expertise needed for this task" }),
+	thinking: Type.Union([Type.Literal("medium"), Type.Literal("high")], { description: "Worker thinking level" }),
 	done_when: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 10, description: "Observable completion criteria" }),
 	validation: Type.String({ minLength: 1, description: "Smallest focused validation command or manual check" }),
 }, { additionalProperties: false })

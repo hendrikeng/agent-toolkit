@@ -8,6 +8,7 @@ export interface TaskGraphTask {
 	depends_on: string[]
 	owns: string[]
 	specialty: string
+	thinking: "medium" | "high"
 	done_when: string[]
 	validation: string
 }
@@ -85,7 +86,7 @@ export function validateTaskGraph(plan: TaskGraphPlan): void {
 export function formatTaskGraph(plan: TaskGraphPlan): string {
 	return [
 		`${plan.objective}\nmode: ${plan.mode}`,
-		...plan.tasks.map((task) => `${task.id} [${task.specialty}]${task.depends_on.length ? ` ← ${task.depends_on.join(", ")}` : ""}\n  ${task.goal}\n  owns: ${task.owns.join(", ") || "read-only"}\n  done: ${task.done_when.join("; ")}\n  validate: ${task.validation}`),
+		...plan.tasks.map((task) => `${task.id} [${task.specialty}, ${task.thinking}]${task.depends_on.length ? ` ← ${task.depends_on.join(", ")}` : ""}\n  ${task.goal}\n  owns: ${task.owns.join(", ") || "read-only"}\n  done: ${task.done_when.join("; ")}\n  validate: ${task.validation}`),
 	].join("\n\n")
 }
 
@@ -141,11 +142,11 @@ Keep one future file per executable slice. If one future contains independent ou
 
 Then decide whether parallel workers provide a clear benefit. If the work is small or tightly coupled, explain that decision and stop. The user can run that work directly without graph overhead.
 
-If a graph helps, call propose_task_graph with plan-only or execute mode and a DAG of two to six bounded tasks. Give each task an id, goal, dependencies, owned files or areas, specialty, completion criteria, and validation. Keep dependency chains at most four tasks deep. Include integration and focused validation work when necessary.
+If a graph helps, call propose_task_graph with plan-only or execute mode and a DAG of two to six bounded tasks. Give each task an id, goal, dependencies, owned files or areas, specialty, thinking level, completion criteria, and validation. Use medium thinking for bounded implementation work. Use high thinking for architecture, authentication or security, concurrency, data migrations, public API contracts, or difficult debugging. Keep dependency chains at most four tasks deep. Include integration and focused validation work when necessary.
 
 The tool validates the graph and asks the user to approve, revise, or cancel it. If the user requests revisions, update the graph and call propose_task_graph again. Do not dispatch workers until an execute-mode graph is approved.
 
 After execute approval, run \`orca skills get orchestration\` and follow that version-matched guide. Confirm Orca is ready. Create or bind one Run, create the tasks with their dependencies, and start every ready independent worker before waiting. Every graph worker must run \`pi-yolo\`, not plain \`pi\`. Use an Orca launch path that explicitly starts the \`pi-yolo\` command, then attach the tracked dispatch as required by the current orchestration guide. Do not use Orca's generic \`--agent pi\` launcher unless its launch receipt confirms that the effective executable is \`pi-yolo\`. Use Orca for task state, dispatch, worker lifecycle, and messages. Do not recreate those features in Pi or in project files.
 
-Specialize workers through their task briefs and tools instead of permanent role classes. Keep work in the current worktree unless the user requested another worktree or a concrete file conflict requires isolation. Supervise until every dispatch settles. Release completed workers, integrate the results, and run the smallest focused checks. Replan only a failed or blocked task, and allow at most one replacement attempt unless the user approves more.`
+Launch each worker with \`pi-yolo --thinking <task-thinking>\`. Specialize workers through their task briefs and tools instead of permanent role classes. Keep work in the current worktree unless the user requested another worktree or a concrete file conflict requires isolation. Supervise until every dispatch settles. Release completed workers, integrate the results, and run the smallest focused checks. If a medium worker fails or requests escalation, use high thinking for its one replacement attempt. Replan only a failed or blocked task, and allow at most one replacement attempt unless the user approves more.`
 }

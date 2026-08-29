@@ -18,7 +18,17 @@ else
   pi_web_config_dir=$HOME/.pi
 fi
 tmp_dir=$(mktemp -d)
-trap 'rm -rf "$tmp_dir"' EXIT
+codex_profile_name=agent-toolkit-verify-$$
+codex_profile_link=$HOME/.codex-accounts/$codex_profile_name
+trap 'rm -f "$codex_profile_link"; rm -rf "$tmp_dir"' EXIT
+mkdir -p "$HOME/.codex-accounts" "$tmp_dir/codex-profile"
+ln -s "$tmp_dir/codex-profile" "$codex_profile_link"
+node - "$tmp_dir/codex-profile/auth.json" <<'NODE'
+const fs = require("node:fs");
+const claims = { email: "verify@example.com", exp: Math.floor(Date.now() / 1000) + 3600, "https://api.openai.com/auth": { chatgpt_account_id: "verify-account" } };
+const token = `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+fs.writeFileSync(process.argv[2], JSON.stringify({ tokens: { access_token: token, refresh_token: "verify-refresh", account_id: "verify-account" } }));
+NODE
 
 node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
 bash -n "$repo_dir/shared/agent-safety/agent-yolo"
@@ -36,8 +46,11 @@ cp "$PI_CODING_AGENT_DIR/extensions/pi-permission-system/config.json" "$PI_YOLO_
 printf '%s\n' "$AGENT_TOOLKIT_PI_AGENT_DIR" > "$PI_YOLO_SOURCE_CAPTURE"
 printf '%s\n' "$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR" > "$PI_YOLO_WEB_CONFIG_CAPTURE"
 if [[ -n ${PI_YOLO_AUTH_CAPTURE:-} ]]; then
-  readlink "$PI_CODING_AGENT_DIR/auth.json" > "$PI_YOLO_AUTH_CAPTURE"
+  cp "$PI_CODING_AGENT_DIR/auth.json" "$PI_YOLO_AUTH_CAPTURE"
   printf '%s\n' "$PI_CODING_AGENT_DIR" > "$PI_YOLO_AGENT_DIR_CAPTURE"
+  if [[ -n ${PI_YOLO_REAL_AGENT_DIR_CAPTURE:-} ]]; then
+    (cd "$PI_CODING_AGENT_DIR" && pwd -P) > "$PI_YOLO_REAL_AGENT_DIR_CAPTURE"
+  fi
   printf '%s\n' "$AGENT_TOOLKIT_CODEX_ACCOUNT" > "$PI_YOLO_ACCOUNT_CAPTURE"
 fi
 SH
@@ -52,17 +65,36 @@ profile_agent_dir="$tmp_dir/profile-agent"
 mkdir -p "$profile_agent_dir/extensions/pi-permission-system"
 cp "$pi_agent_dir/extensions/pi-permission-system/config.json" "$profile_agent_dir/extensions/pi-permission-system/config.json"
 printf '%s\n' '{"openai-codex":{"type":"oauth","access":"old","refresh":"old","expires":1},"github-copilot":{"type":"oauth","access":"old","refresh":"old","expires":1},"anthropic":{"type":"api_key","key":"keep"}}' > "$profile_agent_dir/auth.json"
-PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$HOME/.codex-accounts/business/../business/" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
-test "$(<"$tmp_dir/profile-auth-target.txt")" = "$profile_agent_dir/auth-profiles/business/auth.json"
-test "$(<"$tmp_dir/profile-agent-dir.txt")" = "$profile_agent_dir/auth-profiles/business/runtime"
-test "$(<"$tmp_dir/profile-account.txt")" = business
-node - "$profile_agent_dir/auth-profiles/business/auth.json" <<'NODE'
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$HOME/.codex-accounts/$codex_profile_name/../$codex_profile_name/" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_REAL_AGENT_DIR_CAPTURE="$tmp_dir/profile-real-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
+case "$(<"$tmp_dir/profile-agent-dir.txt")" in
+  "${TMPDIR:-/tmp}"/agent-toolkit-pi-yolo.*) ;;
+  *) printf 'pi-yolo did not use an isolated account runtime\n' >&2; exit 1 ;;
+esac
+test ! -e "$(<"$tmp_dir/profile-agent-dir.txt")"
+test "$(<"$tmp_dir/profile-account.txt")" = "$codex_profile_name"
+node - "$tmp_dir/profile-config.json" "$tmp_dir/profile-real-agent-dir.txt" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const auth = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-assert.equal(auth["openai-codex"], undefined);
-assert.equal(auth["github-copilot"], undefined);
-assert.deepEqual(auth.anthropic, { type: "api_key", key: "keep" });
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const runtimeDir = fs.readFileSync(process.argv[3], "utf8").trim();
+assert.equal(config.permission.path[path.join(runtimeDir, "auth.json")], "deny");
+assert.equal(config.permission.path[path.join(runtimeDir, "codex-runtimes", "*", "auth.json")], "deny");
+NODE
+node - "$profile_agent_dir/auth-profiles/$codex_profile_name/auth.json" "$tmp_dir/profile-auth-target.txt" "$tmp_dir/codex-profile/auth.json" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+for (const path of process.argv.slice(2, 4)) {
+  const auth = JSON.parse(fs.readFileSync(path, "utf8"));
+  assert.equal(auth["openai-codex"].access.includes("."), true);
+  assert.equal(auth["openai-codex"].refresh, "verify-refresh");
+  assert.equal(auth["openai-codex"].accountId, "verify-account");
+  assert.equal(auth["github-copilot"], undefined);
+  assert.deepEqual(auth.anthropic, { type: "api_key", key: "keep" });
+}
+const codex = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+assert.equal(codex.tokens.access_token, undefined);
+assert.equal(codex.tokens.refresh_token, undefined);
 NODE
 node - "$tmp_dir/pi-yolo-config.json" "$pi_agent_dir" <<'NODE'
 const assert = require("node:assert/strict");
@@ -124,6 +156,8 @@ cmp "$repo_dir/pi/extensions/ask-user-question/index.ts" "$pi_agent_dir/extensio
 cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
 cmp "$repo_dir/pi/extensions/codex-fast/index.ts" "$pi_agent_dir/extensions/codex-fast/index.ts"
 cmp "$repo_dir/pi/extensions/codex-fast/fast-core.ts" "$pi_agent_dir/extensions/codex-fast/fast-core.ts"
+cmp "$repo_dir/pi/extensions/status-format/index.ts" "$pi_agent_dir/integrations/status-format/index.ts"
+node -e 'const settings=require(process.argv[1]); if (!settings.extensions?.includes(process.argv[2])) process.exit(1)' "$pi_agent_dir/settings.json" "$pi_agent_dir/integrations/status-format"
 cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
 cmp "$repo_dir/pi/skills/deepsec/SKILL.md" "$pi_agent_dir/skills/deepsec/SKILL.md"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
@@ -232,6 +266,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/ask-user-questio
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-fast/tests/codex-fast.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/status-format/tests/status-format.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/project-blueprint/tests/project-blueprint.test.ts"
@@ -254,7 +289,7 @@ grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"fff-health"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"push"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
-grep -q '"name":"codex-account"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"account"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"fast"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"

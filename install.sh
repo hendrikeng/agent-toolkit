@@ -201,6 +201,37 @@ install_pi_web_config() {
   printf 'configured %s from safe defaults (existing API keys preserved)\n' "$target"
 }
 
+configure_status_format() {
+  local settings_path=$pi_agent_dir/settings.json
+  local target=$pi_agent_dir/integrations/status-format
+  node - "$settings_path" "$target" "$repo_dir/shared/pi-web-access/node_modules/proper-lockfile" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const lockfile = require(process.argv[4]);
+const settingsPath = process.argv[2];
+const target = process.argv[3];
+fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+if (!fs.existsSync(settingsPath)) fs.writeFileSync(settingsPath, "{}\n", { mode: 0o600 });
+let release;
+for (let attempt = 1; attempt <= 10; attempt++) {
+  try {
+    release = lockfile.lockSync(settingsPath, { realpath: false });
+    break;
+  } catch (error) {
+    if (error.code !== "ELOCKED" || attempt === 10) throw error;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
+}
+try {
+  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  settings.extensions = [...new Set([...(settings.extensions ?? []).filter((value) => value !== target), target])];
+  fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+} finally {
+  release();
+}
+NODE
+}
+
 install_pi_packages() {
   local web_source="npm:pi-web-access@0.13.0"
   if ! command -v pi >/dev/null 2>&1; then
@@ -351,6 +382,12 @@ install_link "$repo_dir/pi/extensions/project-blueprint" "$pi_agent_dir/extensio
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/side-question" "$pi_agent_dir/extensions/side-question"
+install_link "$repo_dir/pi/extensions/status-format" "$pi_agent_dir/integrations/status-format"
+for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_dir/extensions/00-status-format"; do
+  if [[ -L $legacy_status_format && $(readlink "$legacy_status_format") == "$repo_dir/pi/extensions/${legacy_status_format##*/}" ]]; then
+    rm "$legacy_status_format"
+  fi
+done
 install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
 install_link "$repo_dir/pi/extensions/task-graph" "$pi_agent_dir/extensions/task-graph"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
@@ -369,6 +406,7 @@ printf '\ninstalling agent safety boundaries…\n'
 install_agent_safety
 printf '\ninstalling Pi packages…\n'
 install_pi_packages
+configure_status_format
 
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
   printf '\nInstallation complete. Restart the current pi-yolo session to load newly installed resources.\n'

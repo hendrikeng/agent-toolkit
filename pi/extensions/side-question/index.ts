@@ -124,7 +124,7 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 			try {
 				if (!sideSession) {
 					sideSession = await startSideSession(ctx)
-					ctx.ui.setStatus("side-question", "side")
+					ctx.ui.setStatus("side-question", ctx.ui.theme.fg("accent", "| ↗ SIDE"))
 				}
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error")

@@ -73,16 +73,18 @@ NODE
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
 
     account_profile=
+    codex_accounts_root=$(node -p 'require("node:path").resolve(process.argv[1])' "$HOME/.codex-accounts")
     codex_home=$(node -p 'require("node:path").resolve(process.argv[1])' "${CODEX_HOME:-$HOME/.codex}")
     case $codex_home in
-      "$HOME/.codex-accounts/personal") account_profile=personal ;;
-      "$HOME/.codex-accounts/business") account_profile=business ;;
+      "$codex_accounts_root"/*)
+        candidate=${codex_home#"$codex_accounts_root"/}
+        [[ $candidate != */* && $candidate =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && account_profile=$candidate
+        ;;
     esac
     if [[ -n $account_profile ]]; then
       profile_dir=$source_agent_dir/auth-profiles/$account_profile
       profile_auth=$profile_dir/auth.json
-      agent_dir=$profile_dir/runtime
-      node - "$source_agent_dir/auth.json" "$profile_dir" "$profile_auth" "$agent_dir" <<'NODE'
+      node - "$source_agent_dir/auth.json" "$profile_dir" "$profile_auth" "$codex_home/auth.json" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 function ensurePrivateDirectory(directory) {
@@ -91,31 +93,78 @@ function ensurePrivateDirectory(directory) {
   if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`unsafe profile directory: ${directory}`);
   fs.chmodSync(directory, 0o700);
 }
-for (const directory of [path.dirname(process.argv[3]), process.argv[3], process.argv[5], path.join(process.argv[5], "extensions"), path.join(process.argv[5], "extensions/pi-permission-system")]) {
-  ensurePrivateDirectory(directory);
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return undefined; }
 }
-let auth = {};
-try { auth = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); } catch {}
-auth = Object.fromEntries(Object.entries(auth).filter(([, credential]) => credential?.type !== "oauth"));
-try { fs.writeFileSync(process.argv[4], `${JSON.stringify(auth, null, 2)}\n`, { flag: "wx", mode: 0o600 }); } catch (error) { if (error.code !== "EEXIST") throw error; }
+function jwtClaims(token) {
+  try { return JSON.parse(Buffer.from(token.split(".")[1] || "", "base64url").toString("utf8")); } catch { return {}; }
+}
+for (const directory of [path.dirname(process.argv[3]), process.argv[3]]) ensurePrivateDirectory(directory);
+if (fs.existsSync(process.argv[4])) {
+  const stat = fs.lstatSync(process.argv[4]);
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`unsafe profile auth path: ${process.argv[4]}`);
+}
+let auth = readJson(process.argv[4]);
+const existing = Boolean(auth);
+if (!auth) {
+  auth = readJson(process.argv[2]) || {};
+  auth = Object.fromEntries(Object.entries(auth).filter(([, credential]) => credential?.type !== "oauth"));
+}
+let changed = false;
+const codex = readJson(process.argv[5]);
+const access = codex?.tokens?.access_token;
+const refresh = codex?.tokens?.refresh_token;
+const claims = typeof access === "string" ? jwtClaims(access) : {};
+const accountId = codex?.tokens?.account_id || claims["https://api.openai.com/auth"]?.chatgpt_account_id;
+const credential = auth["openai-codex"];
+const codexExpires = Number(claims.exp) * 1000;
+const credentialExpires = Number(credential?.expires) || Number(jwtClaims(credential?.access).exp) * 1000 || 0;
+if (
+  typeof access === "string" && typeof refresh === "string" && typeof accountId === "string"
+  && (!credential?.access || codexExpires > credentialExpires)
+) {
+  auth["openai-codex"] = { type: "oauth", access, refresh, expires: Number.isFinite(codexExpires) && codexExpires > 0 ? codexExpires : Date.now() + 300000, accountId };
+  changed = true;
+}
+if (!existing) {
+  try { fs.writeFileSync(process.argv[4], `${JSON.stringify(auth, null, 2)}\n`, { flag: "wx", mode: 0o600 }); } catch (error) { if (error.code !== "EEXIST") throw error; }
+} else if (changed) {
+  const temporary = `${process.argv[4]}.${process.pid}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, process.argv[4]);
+}
 const authStat = fs.lstatSync(process.argv[4]);
 if (authStat.isSymbolicLink() || !authStat.isFile()) throw new Error(`unsafe profile auth path: ${process.argv[4]}`);
 fs.chmodSync(process.argv[4], 0o600);
+const stored = readJson(process.argv[4]);
+const storedCredential = stored?.["openai-codex"];
+if (typeof storedCredential?.access !== "string" || typeof storedCredential?.refresh !== "string" || typeof storedCredential?.accountId !== "string") {
+  throw new Error(`invalid profile auth: ${process.argv[4]}`);
+}
+if (codex?.tokens && typeof access === "string" && typeof refresh === "string") {
+  const storedExpires = Number(storedCredential.expires) || Number(jwtClaims(storedCredential.access).exp) * 1000 || 0;
+  if (storedCredential.access !== access && storedExpires < codexExpires) throw new Error("Codex login was not imported");
+  delete codex.tokens.access_token;
+  delete codex.tokens.refresh_token;
+  const temporary = `${process.argv[5]}.${process.pid}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(codex, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, process.argv[5]);
+}
 NODE
-      ensure_profile_link() {
-        local target=$1 link=$2
-        if [[ ! -e $link && ! -L $link ]]; then ln -s "$target" "$link" 2>/dev/null || :; fi
-        [[ -L $link && $(readlink "$link") == "$target" ]] || { printf 'pi-yolo: unexpected profile path at %s\n' "$link" >&2; exit 1; }
-      }
+      agent_dir=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-yolo.XXXXXX")
+      trap 'rm -rf "$agent_dir"' EXIT
+      cp "$profile_auth" "$agent_dir/auth.json"
+      chmod 600 "$agent_dir/auth.json"
       for source in "$source_agent_dir"/*; do
         name=${source##*/}
-        [[ $name == auth.json || $name == auth-profiles || $name == extensions ]] || ensure_profile_link "$source" "$agent_dir/$name"
+        [[ $name == auth.json || $name == auth-profiles || $name == extensions ]] || ln -s "$source" "$agent_dir/$name"
       done
-      ensure_profile_link "$profile_auth" "$agent_dir/auth.json"
+      mkdir "$agent_dir/extensions"
       for source in "$source_agent_dir/extensions"/*; do
         name=${source##*/}
-        [[ $name == pi-permission-system ]] || ensure_profile_link "$source" "$agent_dir/extensions/$name"
+        [[ $name == pi-permission-system ]] || ln -s "$source" "$agent_dir/extensions/$name"
       done
+      mkdir "$agent_dir/extensions/pi-permission-system"
     else
       agent_dir=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-yolo.XXXXXX")
       trap 'rm -rf "$agent_dir"' EXIT
@@ -140,6 +189,9 @@ for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
   config.permission.path[pattern] = "deny";
 }
 const managedAgentDir = fs.realpathSync(path.resolve(process.argv[2], "../../.."));
+const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
+config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
+config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";
 const temporaryDir = fs.realpathSync(os.tmpdir());
 config.piInfrastructureReadPaths = [...new Set([
   ...(config.piInfrastructureReadPaths ?? []),

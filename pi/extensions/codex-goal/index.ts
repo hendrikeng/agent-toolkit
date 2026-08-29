@@ -170,7 +170,7 @@ export default function codexGoalExtension(pi: ExtensionAPI): void {
 			case "budget_limited": text = theme.fg("warning", `Goal budget reached (${usage})`); break;
 			case "complete": text = theme.fg("success", `Goal achieved (${usage})`); break;
 		}
-		ctx.ui.setStatus(STATUS_KEY, text);
+		ctx.ui.setStatus(STATUS_KEY, `${theme.fg("dim", "|")} ${text}`);
 	}
 
 	function clearContinuation(): void {
