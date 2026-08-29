@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import {
 	formatTaskGraph,
+	isTaskGraphPromotionCommand,
 	normalizeTaskGraphOwnership,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
@@ -130,8 +131,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	})
 
 	pi.on("tool_call", (event) => {
-		if (planning && !approved && ["bash", "edit", "write"].includes(event.toolName)) {
-			return { block: true, reason: "Mutation tools are disabled until the user approves an executable task graph. Use read and search tools while planning." }
+		if (!planning || approved) return
+		if (isToolCallEventType("bash", event) && isTaskGraphPromotionCommand(event.input.command)) return
+		if (["bash", "edit", "write"].includes(event.toolName)) {
+			return { block: true, reason: "Mutation tools are disabled until the user approves an executable task graph. Use read and search tools while planning; plan verification and promotion are allowed." }
 		}
 	})
 

@@ -112,6 +112,12 @@ export async function reviewTaskGraph(plan: TaskGraphPlan, ui: TaskGraphReviewUi
 	return { status: "cancelled" }
 }
 
+export function isTaskGraphPromotionCommand(command: string): boolean {
+	const trimmed = command.trim()
+	return trimmed === "pnpm run plans:verify"
+		|| /^mv docs\/future\/[a-z0-9][a-z0-9._-]*\.md docs\/exec-plans\/active\/$/.test(trimmed)
+}
+
 export function planRequiresPlanOnly(markdown: string): boolean {
 	const start = markdown.search(/^## Metadata\s*$/im)
 	if (start < 0) return true
@@ -127,7 +133,7 @@ export function taskGraphPrompt(objective: string): string {
 
 ${objective}
 
-First inspect the repository and the real execution path with read and search tools. The bash tool stays blocked until an executable graph is approved. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
+First inspect the repository and the real execution path with read and search tools. The bash tool stays blocked until an executable graph is approved, except for \`pnpm run plans:verify\` and moving one Markdown plan from \`docs/future/\` to \`docs/exec-plans/active/\`. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
 
 A draft or blocked plan permits planning and blocker-resolution work only. Set graph mode to plan-only and do not dispatch implementation workers. A ready future must follow repository promotion rules before execution. Set mode to execute only for an active executable slice whose dependencies and approval gates are satisfied.
 

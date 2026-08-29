@@ -3,6 +3,7 @@ import test from "node:test"
 import { join, resolve } from "node:path"
 import {
 	formatTaskGraph,
+	isTaskGraphPromotionCommand,
 	normalizeTaskGraphOwnership,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
@@ -97,6 +98,15 @@ test("makes absolute ownership inside the repository relative", () => {
 	)
 })
 
+test("allows only plan verification and one safe promotion move before approval", () => {
+	assert.equal(isTaskGraphPromotionCommand("pnpm run plans:verify"), true)
+	assert.equal(isTaskGraphPromotionCommand("  pnpm run plans:verify\n"), true)
+	assert.equal(isTaskGraphPromotionCommand("mv docs/future/workspace-planner-provider-adapter.md docs/exec-plans/active/"), true)
+	assert.equal(isTaskGraphPromotionCommand("pnpm run plans:verify && rm -rf ."), false)
+	assert.equal(isTaskGraphPromotionCommand("mv docs/future/plan.md docs/exec-plans/active/ && echo moved"), false)
+	assert.equal(isTaskGraphPromotionCommand("mv other/plan.md docs/exec-plans/active/"), false)
+})
+
 test("handles interactive graph review and plan status", async () => {
 	const signal = new AbortController().signal
 	const review = (selection: string, feedback?: string, candidate = plan) => reviewTaskGraph(candidate, {
@@ -125,6 +135,8 @@ test("handles interactive graph review and plan status", async () => {
 test("builds the interactive Orca planning prompt", () => {
 	const prompt = taskGraphPrompt("Build search")
 	assert.match(prompt, /Build search/)
+	assert.match(prompt, /plans:verify/)
+	assert.match(prompt, /moving one Markdown plan/)
 	assert.match(prompt, /propose_task_graph/)
 	assert.match(prompt, /draft or blocked plan permits planning.*only/)
 	assert.match(prompt, /one future file per executable slice/)
