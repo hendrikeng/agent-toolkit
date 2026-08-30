@@ -1,4 +1,5 @@
-import { isAbsolute, posix, relative, sep } from "node:path"
+import { existsSync, realpathSync } from "node:fs"
+import { isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
 export const TASK_GRAPH_USAGE = "Usage: /graph <objective-or-plan-path>"
 
@@ -6,6 +7,7 @@ export interface TaskGraphTask {
 	id: string
 	goal: string
 	depends_on: string[]
+	repository?: string
 	owns: string[]
 	specialty: string
 	thinking: "medium" | "high"
@@ -22,17 +24,29 @@ export interface TaskGraphPlan {
 export function normalizeTaskGraphOwnership(plan: TaskGraphPlan, repositoryRoot: string): TaskGraphPlan {
 	return {
 		...plan,
-		tasks: plan.tasks.map((task) => ({
-			...task,
-			owns: task.owns.map((owner) => {
-				const raw = owner.trim()
-				if (!isAbsolute(raw)) return owner
-				const local = relative(repositoryRoot, raw)
-				return local && local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local)
-					? local.split(sep).join("/")
-					: owner
-			}),
-		})),
+		tasks: plan.tasks.map((task) => {
+			const requestedRoot = resolve(repositoryRoot, task.repository?.trim() || ".")
+			const taskRoot = existsSync(requestedRoot) ? realpathSync(requestedRoot) : requestedRoot
+			return {
+				...task,
+				repository: relative(repositoryRoot, taskRoot).split(sep).join("/") || ".",
+				owns: task.owns.map((owner) => {
+					const raw = owner.trim()
+					if (!isAbsolute(raw)) return owner
+					const local = relative(taskRoot, raw)
+					return local && local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local)
+						? local.split(sep).join("/")
+						: owner
+				}),
+			}
+		}),
+	}
+}
+
+export function validateTaskGraphRepositories(plan: TaskGraphPlan, repositoryRoot: string): void {
+	for (const task of plan.tasks) {
+		const repository = resolve(repositoryRoot, task.repository ?? ".")
+		if (!existsSync(join(repository, ".git"))) throw new Error(`Task ${task.id} repository is not a Git repository root: ${task.repository ?? "."}`)
 	}
 }
 
@@ -47,6 +61,8 @@ export function validateTaskGraph(plan: TaskGraphPlan): void {
 			throw new Error(`Task ${task.id} needs a goal, specialty, non-empty completion criteria, and validation.`)
 		}
 		ids.add(task.id)
+		const repository = posix.normalize((task.repository ?? ".").trim().replaceAll("\\", "/"))
+		if (!repository || posix.isAbsolute(repository)) throw new Error(`Task ${task.id} repository must be relative to the current repository: ${task.repository || "(empty)"}`)
 		for (const owner of task.owns) {
 			const raw = owner.trim()
 			if (!raw) throw new Error("Write ownership must be non-empty and disjoint: (empty)")
@@ -60,10 +76,11 @@ export function validateTaskGraph(plan: TaskGraphPlan): void {
 				normalized = slash >= 0 ? normalized.slice(0, slash) : "."
 			}
 			normalized = normalized.replace(/\/$/, "") || "."
-			if (!normalized || owners.some((current) => current === "." || normalized === "." || current === normalized || current.startsWith(`${normalized}/`) || normalized.startsWith(`${current}/`))) {
-				throw new Error(`Write ownership must be non-empty and disjoint: ${owner}`)
+			const ownership = posix.resolve("/workspace/current", repository, normalized)
+			if (!normalized || owners.some((current) => current === ownership || current.startsWith(`${ownership}/`) || ownership.startsWith(`${current}/`))) {
+				throw new Error(`Write ownership must be non-empty and disjoint across repositories: ${repository}/${owner}`)
 			}
-			owners.push(normalized)
+			owners.push(ownership)
 		}
 	}
 
@@ -86,7 +103,7 @@ export function validateTaskGraph(plan: TaskGraphPlan): void {
 export function formatTaskGraph(plan: TaskGraphPlan): string {
 	return [
 		`${plan.objective}\nmode: ${plan.mode}`,
-		...plan.tasks.map((task) => `${task.id} [${task.specialty}, ${task.thinking}]${task.depends_on.length ? ` ← ${task.depends_on.join(", ")}` : ""}\n  ${task.goal}\n  owns: ${task.owns.join(", ") || "read-only"}\n  done: ${task.done_when.join("; ")}\n  validate: ${task.validation}`),
+		...plan.tasks.map((task) => `${task.id} [${task.specialty}, ${task.thinking}]${task.depends_on.length ? ` ← ${task.depends_on.join(", ")}` : ""}\n  ${task.goal}\n  repo: ${task.repository ?? "."}\n  owns: ${task.owns.join(", ") || "read-only"}\n  done: ${task.done_when.join("; ")}\n  validate: ${task.validation}`),
 	].join("\n\n")
 }
 
@@ -114,7 +131,13 @@ export async function reviewTaskGraph(plan: TaskGraphPlan, ui: TaskGraphReviewUi
 }
 
 export function taskGraphPromotionSource(command: string): string | undefined {
-	return command.trim().match(/^mv (docs\/future\/[a-z0-9][a-z0-9._-]*\.md) docs\/exec-plans\/active\/$/)?.[1]
+	const match = command.trim().match(/^mv (((?:(?:\.\.|[a-zA-Z0-9._-]+)\/)*)docs\/future\/[a-z0-9][a-z0-9._-]*\.md) (((?:(?:\.\.|[a-zA-Z0-9._-]+)\/)*)docs\/exec-plans\/active\/$)/)
+	return match && match[2] === match[4] ? match[1] : undefined
+}
+
+export function taskGraphPromotionDestination(source: string): string | undefined {
+	const match = source.match(/^((?:(?:\.\.|[a-zA-Z0-9._-]+)\/)*)docs\/future\/([a-z0-9][a-z0-9._-]*\.md)$/)
+	return match ? `${match[1]}docs/exec-plans/active/${match[2]}` : undefined
 }
 
 export function isTaskGraphQueueEdit(path: string, edits: Array<{ oldText: string; newText: string }>): boolean {
@@ -142,6 +165,13 @@ export function planRequiresPlanOnly(markdown: string): boolean {
 	return !status || !["queued", "in-progress", "in-review", "validation"].includes(status)
 }
 
+export function planningDocumentRequiresPlanOnly(path: string, markdown: string): boolean {
+	const local = path.replaceAll("\\", "/")
+	if (/^docs\/future\/[^/]+\.md$/.test(local)) return true
+	if (/^docs\/exec-plans\/active\/[^/]+\.md$/.test(local)) return planRequiresPlanOnly(markdown)
+	return /^docs\/exec-plans\/.*\.md$/.test(local)
+}
+
 export function taskGraphPrompt(objective: string): string {
 	return `Coordinate this objective with a task graph:
 
@@ -155,13 +185,13 @@ Keep one future file per executable slice. If one future contains independent ou
 
 Then decide whether parallel workers provide a clear benefit. If the work is small or tightly coupled, explain that decision and stop. The user can run that work directly without graph overhead.
 
-If a graph helps, call propose_task_graph with plan-only or execute mode and a DAG of two to six bounded tasks. Give each task an id, goal, dependencies, owned files or areas, specialty, thinking level, completion criteria, and validation. Use medium thinking for bounded implementation work. Use high thinking for architecture, authentication or security, concurrency, data migrations, public API contracts, or difficult debugging. Keep dependency chains at most four tasks deep. Include integration and focused validation work when necessary.
+If a graph helps, call propose_task_graph with plan-only or execute mode and a DAG of two to six bounded tasks. A graph may span local Git repositories. For each task outside the current repository, set its repository to that Git root relative to the current repository (for example, \`../tracn-api\`), and keep its owned paths relative to that repository. Give each task an id, goal, dependencies, repository, owned files or areas, specialty, thinking level, completion criteria, and validation. Use medium thinking for bounded implementation work. Use high thinking for architecture, authentication or security, concurrency, data migrations, public API contracts, or difficult debugging. Keep dependency chains at most four tasks deep. Include integration and focused validation work when necessary.
 
 The tool validates the graph and asks the user to approve, revise, or cancel it. If the user requests revisions, update the graph and call propose_task_graph again. Do not dispatch workers until an execute-mode graph is approved.
 
 After execute approval, run \`orca skills get orchestration\` and follow that version-matched guide. Confirm Orca is ready. For active-plan execution, the coordinator owns plan lifecycle updates; set the plan's truthful execution status before dispatch instead of delegating that state to a worker. Create or bind one Run, create the tasks with their dependencies, and start every ready independent worker before waiting. Every graph worker must run \`pi-yolo\`, not plain \`pi\`. Use an Orca launch path that explicitly starts the \`pi-yolo\` command, then attach the tracked dispatch as required by the current orchestration guide. Do not use Orca's generic \`--agent pi\` launcher unless its launch receipt confirms that the effective executable is \`pi-yolo\`. Use Orca for task state, dispatch, worker lifecycle, and messages. Do not recreate those features in Pi or in project files.
 
-Launch each worker with \`pi-yolo --thinking <task-thinking>\`. Specialize workers through their task briefs and tools instead of permanent role classes. Keep work in the current worktree unless the user requested another worktree or a concrete file conflict requires isolation. Supervise until every dispatch settles. Release completed workers, integrate the results, and run the smallest focused checks. If a medium worker fails or requests escalation, use high thinking for its one replacement attempt. Replan only a failed or blocked task, and allow at most one replacement attempt unless the user approves more.
+Launch each worker with \`pi-yolo --thinking <task-thinking>\` in the task's repository. Resolve that repository's exact Orca selector and pass it when the worker is outside the current repository. Specialize workers through their task briefs and tools instead of permanent role classes. Keep work in each repository's current worktree unless the user requested another worktree or a concrete file conflict requires isolation. Supervise until every dispatch settles. Release completed workers, integrate the results, and run the smallest focused checks. If a medium worker fails or requests escalation, use high thinking for its one replacement attempt. Replan only a failed or blocked task, and allow at most one replacement attempt unless the user approves more.
 
 For active-plan execution, focused task checks do not replace plan closeout. After integration, re-read the active plan and repository planning rules. Complete every must-land item, satisfy review and approval gates, run the exact validation lanes and required full verification, record evidence, update Done-Evidence and status, move the plan from active to completed, update any required evidence index, and run the repository's plan-closeout check. Do not report completion unless all required checks pass and the plan is closed. If closeout cannot finish, leave the plan in a truthful active status and report the blocker. Never close or edit dependent future plans; they remain future work until separately promoted.`
 }

@@ -1,17 +1,22 @@
 import assert from "node:assert/strict"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import test from "node:test"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import {
 	formatTaskGraph,
 	isTaskGraphQueueEdit,
 	normalizeTaskGraphOwnership,
 	planIsReadyForPromotion,
+	planningDocumentRequiresPlanOnly,
 	planRequiresPlanOnly,
 	reviewTaskGraph,
+	taskGraphPromotionDestination,
 	taskGraphPromotionSource,
 	taskGraphPrompt,
 	type TaskGraphPlan,
 	validateTaskGraph,
+	validateTaskGraphRepositories,
 } from "../task-graph-core.ts"
 
 const plan: TaskGraphPlan = {
@@ -84,15 +89,22 @@ test("validates and formats a bounded task graph", () => {
 	)
 })
 
-test("makes absolute ownership inside the repository relative", () => {
+test("normalizes ownership relative to each repository", () => {
 	const root = resolve("tmp/repo")
 	const absolute = join(root, "src/api")
+	const siblingRoot = resolve(root, "../other")
 	const normalized = normalizeTaskGraphOwnership({
 		...plan,
-		tasks: [{ ...plan.tasks[0], owns: [absolute] }, plan.tasks[1]],
+		tasks: [
+			{ ...plan.tasks[0], owns: [absolute] },
+			{ ...plan.tasks[1], repository: "../other", owns: [join(siblingRoot, "src/web")] },
+		],
 	}, root)
 
+	assert.equal(normalized.tasks[0].repository, ".")
 	assert.equal(normalized.tasks[0].owns[0], "src/api")
+	assert.equal(normalized.tasks[1].repository, "../other")
+	assert.equal(normalized.tasks[1].owns[0], "src/web")
 	assert.doesNotThrow(() => validateTaskGraph(normalized))
 	assert.throws(
 		() => validateTaskGraph(normalizeTaskGraphOwnership({
@@ -103,8 +115,51 @@ test("makes absolute ownership inside the repository relative", () => {
 	)
 })
 
+test("allows disjoint ownership across local Git repositories", () => {
+	const workspace = mkdtempSync(join(tmpdir(), "task-graph-"))
+	const root = join(workspace, "app")
+	const sibling = join(workspace, "api")
+	mkdirSync(join(root, ".git"), { recursive: true })
+	mkdirSync(join(root, "packages/api/.git"), { recursive: true })
+	mkdirSync(join(sibling, ".git"), { recursive: true })
+	try {
+		const multiRepo = normalizeTaskGraphOwnership({
+			...plan,
+			tasks: [
+				{ ...plan.tasks[0], repository: ".", owns: ["src"] },
+				{ ...plan.tasks[1], repository: "../api", owns: ["src"] },
+			],
+		}, root)
+		assert.doesNotThrow(() => validateTaskGraph(multiRepo))
+		assert.doesNotThrow(() => validateTaskGraphRepositories(multiRepo, root))
+		assert.throws(
+			() => validateTaskGraph(normalizeTaskGraphOwnership({
+				...plan,
+				tasks: [
+					{ ...plan.tasks[0], repository: ".", owns: ["packages/api"] },
+					{ ...plan.tasks[1], repository: "packages/api", owns: ["src"] },
+				],
+			}, root)),
+			/ownership.*disjoint/,
+		)
+		assert.throws(
+			() => validateTaskGraphRepositories({ ...multiRepo, tasks: [multiRepo.tasks[0], { ...multiRepo.tasks[1], repository: "../missing" }] }, root),
+			/not a Git repository root/,
+		)
+	} finally {
+		rmSync(workspace, { recursive: true, force: true })
+	}
+})
+
 test("allows only one safe promotion move and status edit before approval", () => {
 	assert.equal(taskGraphPromotionSource("mv docs/future/workspace-planner-provider-adapter.md docs/exec-plans/active/"), "docs/future/workspace-planner-provider-adapter.md")
+	assert.equal(taskGraphPromotionSource("mv ../product/docs/future/plan.md ../product/docs/exec-plans/active/"), "../product/docs/future/plan.md")
+	assert.equal(taskGraphPromotionSource("mv ../product/docs/future/plan.md ../api/docs/exec-plans/active/"), undefined)
+	assert.equal(taskGraphPromotionSource("mv '../product name/docs/future/plan.md' '../product name/docs/exec-plans/active/'"), undefined)
+	assert.equal(taskGraphPromotionSource("mv ../product/;touch-pwn/docs/future/plan.md ../product/;touch-pwn/docs/exec-plans/active/"), undefined)
+	assert.equal(taskGraphPromotionDestination("../product/docs/future/plan.md"), "../product/docs/exec-plans/active/plan.md")
+	assert.equal(taskGraphPromotionDestination("docs/future/plan.md"), "docs/exec-plans/active/plan.md")
+	assert.equal(taskGraphPromotionDestination("docs/other/plan.md"), undefined)
 	assert.equal(taskGraphPromotionSource("pnpm run plans:verify"), undefined)
 	assert.equal(taskGraphPromotionSource("mv docs/future/plan.md docs/exec-plans/active/ && echo moved"), undefined)
 	assert.equal(taskGraphPromotionSource("mv other/plan.md docs/exec-plans/active/"), undefined)
@@ -142,6 +197,10 @@ test("handles interactive graph review and plan status", async () => {
 	assert.equal(planRequiresPlanOnly("No metadata"), true)
 	assert.equal(planRequiresPlanOnly("- Status: queued\n\n## Metadata\n\n- Status: blocked\n"), true)
 	assert.equal(planRequiresPlanOnly("## Metadata\n\n- Status: in-progress\n\n## Scope\n\n- Status: blocked\n"), false)
+	assert.equal(planningDocumentRequiresPlanOnly("decisions/decision.md", "No metadata"), false)
+	assert.equal(planningDocumentRequiresPlanOnly("docs/future/plan.md", "## Metadata\n\n- Status: queued\n"), true)
+	assert.equal(planningDocumentRequiresPlanOnly("docs/exec-plans/active/plan.md", "## Metadata\n\n- Status: queued\n"), false)
+	assert.equal(planningDocumentRequiresPlanOnly("docs/exec-plans/completed/plan.md", "## Metadata\n\n- Status: completed\n"), true)
 })
 
 test("builds the interactive Orca planning prompt", () => {
@@ -154,6 +213,9 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(prompt, /draft or blocked plan permits planning.*only/)
 	assert.match(prompt, /one future file per executable slice/)
 	assert.match(prompt, /plan-only or execute mode/)
+	assert.match(prompt, /graph may span local Git repositories/)
+	assert.match(prompt, /set its repository to that Git root/)
+	assert.match(prompt, /in the task's repository/)
 	assert.match(prompt, /Use medium thinking for bounded implementation work/)
 	assert.match(prompt, /Use high thinking for architecture/)
 	assert.match(prompt, /approve, revise, or cancel/)
