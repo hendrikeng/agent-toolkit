@@ -117,6 +117,13 @@ export function taskGraphPromotionSource(command: string): string | undefined {
 	return command.trim().match(/^mv (docs\/future\/[a-z0-9][a-z0-9._-]*\.md) docs\/exec-plans\/active\/$/)?.[1]
 }
 
+export function isTaskGraphQueueEdit(path: string, edits: Array<{ oldText: string; newText: string }>): boolean {
+	return /^docs\/exec-plans\/active\/[a-z0-9][a-z0-9._-]*\.md$/.test(path.replaceAll("\\", "/"))
+		&& edits.length === 1
+		&& edits[0].oldText.trim() === "- Status: ready-for-promotion"
+		&& edits[0].newText.trim() === "- Status: queued"
+}
+
 function planStatus(markdown: string): string | undefined {
 	const start = markdown.search(/^##\s+Metadata\s*$/im)
 	if (start < 0) return undefined
@@ -140,7 +147,7 @@ export function taskGraphPrompt(objective: string): string {
 
 ${objective}
 
-First inspect the repository and the real execution path with read and search tools. The bash tool stays blocked until an executable graph is approved, except for moving the objective's ready-for-promotion Markdown plan from \`docs/future/\` to \`docs/exec-plans/active/\`. That move does not make the plan executable; stop after promotion so its status can transition to \`queued\` before a new \`/graph\` run. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
+First inspect the repository and the real execution path with read and search tools. The bash tool stays blocked until an executable graph is approved, except for moving the objective's ready-for-promotion Markdown plan from \`docs/future/\` to \`docs/exec-plans/active/\`. After the move, change only that plan's \`Status\` from \`ready-for-promotion\` to \`queued\`, then stop. The plan becomes executable only on a new \`/graph\` run. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
 
 A draft or blocked plan permits planning and blocker-resolution work only. Set graph mode to plan-only and do not dispatch implementation workers. A ready future must follow repository promotion rules before execution. Set mode to execute only for an active executable slice whose dependencies and approval gates are satisfied.
 

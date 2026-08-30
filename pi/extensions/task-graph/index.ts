@@ -4,6 +4,7 @@ import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-codin
 import { Type } from "typebox"
 import {
 	formatTaskGraph,
+	isTaskGraphQueueEdit,
 	normalizeTaskGraphOwnership,
 	planIsReadyForPromotion,
 	planRequiresPlanOnly,
@@ -59,6 +60,14 @@ function localFuturePromotionSource(cwd: string, objective: string): string | un
 	const local = relative(repositoryRoot(cwd), target).split(sep).join("/")
 	if (!/^docs\/future\/[a-z0-9][a-z0-9._-]*\.md$/.test(local)) return undefined
 	return planIsReadyForPromotion(readFileSync(target, "utf8")) ? local : undefined
+}
+
+function localQueueEditAllowed(cwd: string, path: string, edits: Array<{ oldText: string; newText: string }>): boolean {
+	const candidate = resolve(cwd, path.replace(/^@/, ""))
+	if (!existsSync(candidate)) return false
+	const target = realpathSync(candidate)
+	const local = relative(repositoryRoot(cwd), target).split(sep).join("/")
+	return isTaskGraphQueueEdit(local, edits) && planIsReadyForPromotion(readFileSync(target, "utf8"))
 }
 
 export default function taskGraphExtension(pi: ExtensionAPI): void {
@@ -147,11 +156,12 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		pending = null
 	})
 
-	pi.on("tool_call", (event) => {
+	pi.on("tool_call", (event, ctx) => {
 		if (!planning || approved) return
 		if (isToolCallEventType("bash", event) && promotionSource && taskGraphPromotionSource(event.input.command) === promotionSource) return
+		if (isToolCallEventType("edit", event) && localQueueEditAllowed(ctx.cwd, event.input.path, event.input.edits)) return
 		if (["bash", "edit", "write"].includes(event.toolName)) {
-			return { block: true, reason: "Mutation tools are disabled until the user approves an executable task graph. Use read and search tools while planning; promotion of the objective's ready plan is allowed." }
+			return { block: true, reason: "Mutation tools are disabled until the user approves an executable task graph. Use read and search tools while planning; moving a ready plan and changing only its active status to queued are allowed." }
 		}
 	})
 

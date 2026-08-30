@@ -3,6 +3,7 @@ import test from "node:test"
 import { join, resolve } from "node:path"
 import {
 	formatTaskGraph,
+	isTaskGraphQueueEdit,
 	normalizeTaskGraphOwnership,
 	planIsReadyForPromotion,
 	planRequiresPlanOnly,
@@ -102,11 +103,17 @@ test("makes absolute ownership inside the repository relative", () => {
 	)
 })
 
-test("allows only one safe promotion move before approval", () => {
+test("allows only one safe promotion move and status edit before approval", () => {
 	assert.equal(taskGraphPromotionSource("mv docs/future/workspace-planner-provider-adapter.md docs/exec-plans/active/"), "docs/future/workspace-planner-provider-adapter.md")
 	assert.equal(taskGraphPromotionSource("pnpm run plans:verify"), undefined)
 	assert.equal(taskGraphPromotionSource("mv docs/future/plan.md docs/exec-plans/active/ && echo moved"), undefined)
 	assert.equal(taskGraphPromotionSource("mv other/plan.md docs/exec-plans/active/"), undefined)
+
+	const queueEdit = [{ oldText: "- Status: ready-for-promotion", newText: "- Status: queued" }]
+	assert.equal(isTaskGraphQueueEdit("docs/exec-plans/active/plan.md", queueEdit), true)
+	assert.equal(isTaskGraphQueueEdit("docs/future/plan.md", queueEdit), false)
+	assert.equal(isTaskGraphQueueEdit("docs/exec-plans/active/plan.md", [{ ...queueEdit[0], newText: "- Status: in-progress" }]), false)
+	assert.equal(isTaskGraphQueueEdit("docs/exec-plans/active/plan.md", [...queueEdit, ...queueEdit]), false)
 })
 
 test("handles interactive graph review and plan status", async () => {
@@ -141,7 +148,8 @@ test("builds the interactive Orca planning prompt", () => {
 	const prompt = taskGraphPrompt("Build search")
 	assert.match(prompt, /Build search/)
 	assert.match(prompt, /moving the objective's ready-for-promotion Markdown plan/)
-	assert.match(prompt, /status can transition to `queued`/)
+	assert.match(prompt, /change only that plan's `Status` from `ready-for-promotion` to `queued`/)
+	assert.match(prompt, /executable only on a new `\/graph` run/)
 	assert.match(prompt, /propose_task_graph/)
 	assert.match(prompt, /draft or blocked plan permits planning.*only/)
 	assert.match(prompt, /one future file per executable slice/)
