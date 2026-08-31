@@ -10,3 +10,15 @@ Do not use sub-agents.`
 export const SIDE_BOUNDARY_PROMPT = `Main-thread reference.
 The transcript below is inherited history from the main thread. It is context only, not the current task.
 Only later user messages are active side-conversation instructions.`
+
+export function sideAnswerWheelDirection(data: string): -1 | 0 | 1 {
+	const match = /^\x1b\[<(\d+);\d+;\d+[Mm]$/.exec(data)
+	if (!match) return 0
+	const button = Number(match[1])
+	if ((button & 64) === 0) return 0
+	return (button & 3) === 0 ? -1 : (button & 3) === 1 ? 1 : 0
+}
+
+export function nextSideAnswerScrollTop(current: number, delta: number, contentHeight: number, viewportHeight: number): number {
+	return Math.max(0, Math.min(Math.max(0, contentHeight - viewportHeight), current + delta))
+}
