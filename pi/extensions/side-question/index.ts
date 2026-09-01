@@ -5,6 +5,7 @@ import {
 	BorderedLoader,
 	buildSessionContext,
 	convertToLlm,
+	copyToClipboard,
 	createAgentSession,
 	DefaultPackageManager,
 	DefaultResourceLoader,
@@ -23,6 +24,8 @@ import {
 	Key,
 	Markdown,
 	matchesKey,
+	sliceByColumn,
+	stripTerminalSequences,
 	truncateToWidth,
 	type TUI,
 	visibleWidth,
@@ -35,6 +38,7 @@ import {
 } from "./side-core.ts"
 
 const SIDE_TOOLS = ["read", "grep", "find", "ls", "bash", "edit", "write"]
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
 function finalAnswer(messages: AgentMessage[]): string {
 	for (let index = messages.length - 1; index >= 0; index--) {
@@ -49,6 +53,7 @@ function finalAnswer(messages: AgentMessage[]): string {
 }
 
 type SideViewResult = { type: "follow-up"; question: string } | { type: "close" }
+type SelectionPoint = { row: number; col: number }
 
 class SideAnswerView implements Component, Focusable {
 	private readonly tui: TUI
@@ -62,6 +67,12 @@ class SideAnswerView implements Component, Focusable {
 	private scrollTop = 0
 	private contentHeight = 0
 	private viewportHeight = 1
+	private panelTop = 0
+	private contentLines: string[] = []
+	private selectionAnchor?: SelectionPoint
+	private selectionFocus?: SelectionPoint
+	private selecting = false
+	private copyStatus?: "copied" | "copy failed"
 
 	constructor(
 		tui: TUI,
@@ -105,7 +116,113 @@ class SideAnswerView implements Component, Focusable {
 		this.tui.requestRender()
 	}
 
+	private selectionPoint(x: number, y: number, clamp: boolean): SelectionPoint | undefined {
+		if (this.viewportHeight <= 0) return undefined
+		const pointerRow = y - this.panelTop - 1
+		if (!clamp && (pointerRow < 0 || pointerRow >= this.viewportHeight)) return undefined
+		const localRow = Math.max(0, Math.min(this.viewportHeight - 1, pointerRow))
+		const row = this.scrollTop + localRow
+		const width = visibleWidth(stripTerminalSequences(this.contentLines[row] ?? ""))
+		return { row, col: Math.max(0, Math.min(width, x)) }
+	}
+
+	private graphemeRange(point: SelectionPoint): { start: number; end: number } | undefined {
+		const line = stripTerminalSequences(this.contentLines[point.row] ?? "")
+		let start = 0
+		for (const { segment } of graphemeSegmenter.segment(line)) {
+			const end = start + visibleWidth(segment)
+			if (point.col < end) return { start, end }
+			start = end
+		}
+		return undefined
+	}
+
+	private selectionBounds(): { start: SelectionPoint; end: SelectionPoint } | undefined {
+		const anchor = this.selectionAnchor
+		const focus = this.selectionFocus
+		if (!anchor || !focus || (anchor.row === focus.row && anchor.col === focus.col)) return undefined
+		const ordered = anchor.row < focus.row || (anchor.row === focus.row && anchor.col < focus.col)
+			? { start: anchor, end: focus }
+			: { start: focus, end: anchor }
+		const startRange = this.graphemeRange(ordered.start)
+		const endRange = this.graphemeRange(ordered.end)
+		return {
+			start: { ...ordered.start, col: startRange?.start ?? ordered.start.col },
+			end: { ...ordered.end, col: endRange ? endRange.end - 1 : ordered.end.col },
+		}
+	}
+
+	private async copySelection(): Promise<void> {
+		const selection = this.selectionBounds()
+		if (!selection) return
+		const lines: string[] = []
+		for (let row = selection.start.row; row <= selection.end.row; row++) {
+			const line = stripTerminalSequences(this.contentLines[row] ?? "")
+			const start = row === selection.start.row ? selection.start.col : 0
+			const end = row === selection.end.row ? Math.min(visibleWidth(line), selection.end.col + 1) : visibleWidth(line)
+			lines.push(sliceByColumn(line, start, Math.max(0, end - start), true).trimEnd())
+		}
+		const text = lines.join("\n")
+		if (!text) return
+		await copyToClipboard(text)
+		this.copyStatus = "copied"
+		this.tui.requestRender()
+	}
+
+	private handleMouse(data: string): boolean {
+		if (!this.mouseTrackingActive) return false
+		const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(data)
+		if (!match || (Number(match[1]) & 64) !== 0) return false
+		const button = Number(match[1])
+		const x = Number(match[2]) - 1
+		const y = Number(match[3]) - 1
+		if (match[4] === "m") {
+			if (this.selecting) {
+				this.selecting = false
+				this.selectionFocus = this.selectionPoint(x, y, true)
+				void this.copySelection().catch(() => {
+					this.copyStatus = "copy failed"
+					this.tui.requestRender()
+				})
+				this.tui.requestRender()
+			}
+			return true
+		}
+		if ((button & 32) !== 0) {
+			if (this.selecting) {
+				this.selectionFocus = this.selectionPoint(x, y, true)
+				this.tui.requestRender()
+			}
+			return true
+		}
+		if ((button & 3) === 0) {
+			const point = this.selectionPoint(x, y, false)
+			if (!point) return true
+			this.selecting = true
+			this.selectionAnchor = point
+			this.selectionFocus = point
+			this.copyStatus = undefined
+			this.tui.requestRender()
+			return true
+		}
+		return false
+	}
+
+	private highlightSelection(line: string, row: number): string {
+		const selection = this.selectionBounds()
+		if (!selection || row < selection.start.row || row > selection.end.row) return line
+		const lineWidth = visibleWidth(line)
+		const start = row === selection.start.row ? selection.start.col : 0
+		const end = row === selection.end.row ? Math.min(lineWidth, selection.end.col + 1) : lineWidth
+		if (end <= start) return line
+		const before = sliceByColumn(line, 0, start, true)
+		const selected = sliceByColumn(line, start, end - start, true).replace(/\x1b\[[0-?]*[ -/]*m/g, "$&\x1b[7m")
+		const after = sliceByColumn(line, end, Math.max(0, lineWidth - end), true)
+		return `${before}\x1b[7m${selected}\x1b[27m${after}`
+	}
+
 	handleInput(data: string): void {
+		if (this.handleMouse(data)) return
 		const wheel = sideAnswerWheelDirection(data)
 		if (wheel !== 0) {
 			this.scrollBy(wheel * 3)
@@ -122,24 +239,27 @@ class SideAnswerView implements Component, Focusable {
 	render(width: number): string[] {
 		const contentWidth = Math.max(1, width)
 		const content = this.markdown.render(contentWidth)
+		this.contentLines = content
 		this.contentHeight = content.length
 		const availableHeight = Math.max(5, this.tui.terminal.rows - this.footerHeight - 1)
 		this.viewportHeight = Math.max(1, Math.min(content.length, availableHeight - 4))
 		this.scrollTop = nextSideAnswerScrollTop(this.scrollTop, 0, this.contentHeight, this.viewportHeight)
-		const visible = content.slice(this.scrollTop, this.scrollTop + this.viewportHeight).map((line) => {
-			const clipped = truncateToWidth(line, contentWidth, "")
+		const visible = content.slice(this.scrollTop, this.scrollTop + this.viewportHeight).map((line, index) => {
+			const clipped = truncateToWidth(this.highlightSelection(line, this.scrollTop + index), contentWidth, "")
 			return `${clipped}${" ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)))}`
 		})
 		const position = this.contentHeight > this.viewportHeight
 			? `${this.scrollTop + 1}–${Math.min(this.contentHeight, this.scrollTop + this.viewportHeight)}/${this.contentHeight} · `
 			: ""
-		return [
+		const lines = [
 			this.styledLine("↗ Side", width, this.title),
 			...visible,
 			this.hint("─".repeat(width)),
 			...this.input.render(contentWidth),
-			this.styledLine(`${position}enter ask · esc close · wheel/↑↓ scroll`, width, this.hint),
+			this.styledLine(`${this.copyStatus ? `${this.copyStatus} · ` : ""}${position}enter ask · esc close · drag copy · wheel/↑↓ scroll`, width, this.hint),
 		]
+		this.panelTop = Math.max(0, this.tui.terminal.rows - this.footerHeight - lines.length)
+		return lines
 	}
 
 	invalidate(): void {
