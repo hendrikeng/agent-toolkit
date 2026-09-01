@@ -18,6 +18,8 @@ import {
 } from "@earendil-works/pi-coding-agent"
 import {
 	type Component,
+	type Focusable,
+	Input,
 	Key,
 	Markdown,
 	matchesKey,
@@ -46,14 +48,17 @@ function finalAnswer(messages: AgentMessage[]): string {
 	return ""
 }
 
-class SideAnswerView implements Component {
+type SideViewResult = { type: "follow-up"; question: string } | { type: "close" }
+
+class SideAnswerView implements Component, Focusable {
 	private readonly tui: TUI
 	private readonly markdown: Markdown
 	private readonly title: (text: string) => string
 	private readonly hint: (text: string) => string
-	private readonly onClose: () => void
+	private readonly input = new Input()
 	private readonly footerHeight: number
 	private mouseTrackingActive: boolean
+	private _focused = false
 	private scrollTop = 0
 	private contentHeight = 0
 	private viewportHeight = 1
@@ -63,22 +68,34 @@ class SideAnswerView implements Component {
 		answer: string,
 		styles: { title: (text: string) => string; hint: (text: string) => string },
 		footerHeight: number,
-		onClose: () => void,
+		onSubmit: (result: SideViewResult) => void,
 	) {
 		this.tui = tui
 		this.markdown = new Markdown(answer, 1, 0, getMarkdownTheme())
 		this.title = styles.title
 		this.hint = styles.hint
 		this.footerHeight = footerHeight
-		this.onClose = onClose
+		this.input.onSubmit = (question) => {
+			if (question.trim()) onSubmit({ type: "follow-up", question: question.trim() })
+		}
+		this.input.onEscape = () => onSubmit({ type: "close" })
+		this.scrollTop = Number.MAX_SAFE_INTEGER
 		this.mouseTrackingActive = tui.mode === "regular"
 		if (this.mouseTrackingActive) tui.terminal.write("\x1b[?1000h\x1b[?1002h\x1b[?1006h")
 	}
 
-	private frame(label: string, width: number, top: boolean): string {
-		const text = truncateToWidth(`─ ${label} `, width, "")
-		const line = `${text}${"─".repeat(Math.max(0, width - visibleWidth(text)))}`
-		return top ? this.title(line) : this.hint(line)
+	get focused(): boolean {
+		return this._focused
+	}
+
+	set focused(value: boolean) {
+		this._focused = value
+		this.input.focused = value
+	}
+
+	private styledLine(text: string, width: number, style: (value: string) => string): string {
+		const clipped = truncateToWidth(text, width, "")
+		return style(`${clipped}${" ".repeat(Math.max(0, width - visibleWidth(clipped)))}`)
 	}
 
 	private scrollBy(lines: number): void {
@@ -98,17 +115,16 @@ class SideAnswerView implements Component {
 		else if (matchesKey(data, Key.down)) this.scrollBy(1)
 		else if (matchesKey(data, Key.pageUp)) this.scrollBy(-this.viewportHeight)
 		else if (matchesKey(data, Key.pageDown)) this.scrollBy(this.viewportHeight)
-		else if (matchesKey(data, Key.home)) this.scrollBy(-this.contentHeight)
-		else if (matchesKey(data, Key.end)) this.scrollBy(this.contentHeight)
-		else if (matchesKey(data, Key.enter) || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) this.onClose()
+		else if (matchesKey(data, Key.ctrl("c"))) this.input.onEscape?.()
+		else this.input.handleInput(data)
 	}
 
 	render(width: number): string[] {
 		const contentWidth = Math.max(1, width)
 		const content = this.markdown.render(contentWidth)
 		this.contentHeight = content.length
-		const availableHeight = Math.max(3, this.tui.terminal.rows - this.footerHeight - 1)
-		this.viewportHeight = Math.max(1, Math.min(content.length, availableHeight - 2))
+		const availableHeight = Math.max(5, this.tui.terminal.rows - this.footerHeight - 1)
+		this.viewportHeight = Math.max(1, Math.min(content.length, availableHeight - 4))
 		this.scrollTop = nextSideAnswerScrollTop(this.scrollTop, 0, this.contentHeight, this.viewportHeight)
 		const visible = content.slice(this.scrollTop, this.scrollTop + this.viewportHeight).map((line) => {
 			const clipped = truncateToWidth(line, contentWidth, "")
@@ -118,14 +134,17 @@ class SideAnswerView implements Component {
 			? `${this.scrollTop + 1}–${Math.min(this.contentHeight, this.scrollTop + this.viewportHeight)}/${this.contentHeight} · `
 			: ""
 		return [
-			this.frame("Side answer", width, true),
+			this.styledLine("↗ Side", width, this.title),
 			...visible,
-			this.frame(`${position}wheel/↑↓ scroll · enter/esc close`, width, false),
+			this.hint("─".repeat(width)),
+			...this.input.render(contentWidth),
+			this.styledLine(`${position}enter ask · esc close · wheel/↑↓ scroll`, width, this.hint),
 		]
 	}
 
 	invalidate(): void {
 		this.markdown.invalidate()
+		this.input.invalidate()
 	}
 
 	dispose(): void {
@@ -137,6 +156,7 @@ class SideAnswerView implements Component {
 
 export default function sideQuestionExtension(pi: ExtensionAPI): void {
 	let sideSession: AgentSession | null = null
+	let sideTurns: Array<{ question: string; answer: string }> = []
 	let activeAnswerView: SideAnswerView | null = null
 
 	async function startSideSession(ctx: ExtensionCommandContext): Promise<AgentSession> {
@@ -193,10 +213,10 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 	}
 
 	async function closeSideSession(): Promise<void> {
-		if (!sideSession) return
-		if (sideSession.isStreaming) await sideSession.abort()
-		sideSession.dispose()
+		if (sideSession?.isStreaming) await sideSession.abort()
+		sideSession?.dispose()
 		sideSession = null
+		sideTurns = []
 	}
 
 	pi.registerCommand("side", {
@@ -229,6 +249,7 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 			try {
 				if (!sideSession) {
 					sideSession = await startSideSession(ctx)
+					sideTurns = []
 					ctx.ui.setStatus("side-question", ctx.ui.theme.fg("accent", "| ↗ SIDE"))
 				}
 			} catch (error) {
@@ -236,59 +257,74 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 				return
 			}
 
-			let failure: string | undefined
-			let aborted = false
-			const answer = await ctx.ui.custom<string | null>((tui, theme, _keybindings, done) => {
-				const loader = new BorderedLoader(tui, theme, `Side agent using ${sideSession!.model?.id ?? ctx.model!.id}...`)
-				loader.onAbort = () => {
-					aborted = true
-					void sideSession!.abort()
-				}
-				sideSession!
-					.prompt(question)
-					.then(() => done(aborted ? null : finalAnswer(sideSession!.messages)))
-					.catch((error) => {
-						failure = error instanceof Error ? error.message : String(error)
-						done(null)
-					})
-				return loader
-			})
-
-			if (answer === null) {
-				ctx.ui.notify(failure ?? "Side request cancelled", failure ? "error" : "info")
-				return
-			}
-			if (!answer.trim()) {
-				ctx.ui.notify("The side agent returned no answer", "warning")
-				return
-			}
-			let footerHeight = 1
-			try {
-				await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-					footerHeight = Math.max(1, tui.children.at(-1)?.render(tui.terminal.columns).length ?? 1)
-					activeAnswerView = new SideAnswerView(
-						tui,
-						answer,
-						{
-							title: (text) => theme.fg("accent", theme.bold(text)),
-							hint: (text) => theme.fg("dim", text),
-						},
-						footerHeight,
-						() => done(undefined),
-					)
-					return activeAnswerView
-				}, {
-					overlay: true,
-					overlayOptions: () => ({
-						width: "100%",
-						maxHeight: "100%",
-						anchor: "bottom-left",
-						margin: { top: 1, bottom: footerHeight },
-					}),
+			let nextQuestion = question
+			while (true) {
+				let failure: string | undefined
+				let aborted = false
+				const answer = await ctx.ui.custom<string | null>((tui, theme, _keybindings, done) => {
+					const loader = new BorderedLoader(tui, theme, `Side agent using ${sideSession!.model?.id ?? ctx.model!.id}...`)
+					loader.onAbort = () => {
+						aborted = true
+						void sideSession!.abort()
+					}
+					sideSession!
+						.prompt(nextQuestion)
+						.then(() => done(aborted ? null : finalAnswer(sideSession!.messages)))
+						.catch((error) => {
+							failure = error instanceof Error ? error.message : String(error)
+							done(null)
+						})
+					return loader
 				})
-			} finally {
-				activeAnswerView?.dispose()
-				activeAnswerView = null
+
+				if (answer === null) {
+					ctx.ui.notify(failure ?? "Side request cancelled", failure ? "error" : "info")
+					return
+				}
+				if (!answer.trim()) {
+					ctx.ui.notify("The side agent returned no answer", "warning")
+					return
+				}
+				sideTurns.push({ question: nextQuestion, answer })
+				const conversation = sideTurns
+					.map((turn) => `> ${turn.question.replaceAll("\n", "\n> ")}\n\n${turn.answer}`)
+					.join("\n\n---\n\n")
+				let footerHeight = 1
+				let result: SideViewResult
+				try {
+					result = await ctx.ui.custom<SideViewResult>((tui, theme, _keybindings, done) => {
+						footerHeight = Math.max(1, tui.children.at(-1)?.render(tui.terminal.columns).length ?? 1)
+						activeAnswerView = new SideAnswerView(
+							tui,
+							conversation,
+							{
+								title: (text) => theme.fg("accent", theme.bold(text)),
+								hint: (text) => theme.fg("dim", text),
+							},
+							footerHeight,
+							done,
+						)
+						return activeAnswerView
+					}, {
+						overlay: true,
+						overlayOptions: () => ({
+							width: "100%",
+							maxHeight: "100%",
+							anchor: "bottom-left",
+							margin: { top: 1, bottom: footerHeight },
+						}),
+					})
+				} finally {
+					activeAnswerView?.dispose()
+					activeAnswerView = null
+				}
+				if (result.type === "close") {
+					await closeSideSession()
+					ctx.ui.setStatus("side-question", undefined)
+					ctx.ui.notify("Side conversation closed", "info")
+					return
+				}
+				nextQuestion = result.question
 			}
 		},
 	})
