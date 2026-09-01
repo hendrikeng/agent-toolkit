@@ -23,6 +23,7 @@ import {
 	Input,
 	Key,
 	Markdown,
+	type OverlayHandle,
 	matchesKey,
 	sliceByColumn,
 	stripTerminalSequences,
@@ -278,6 +279,7 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 	let sideSession: AgentSession | null = null
 	let sideTurns: Array<{ question: string; answer: string }> = []
 	let activeAnswerView: SideAnswerView | null = null
+	let activeAnswerHandle: OverlayHandle | null = null
 
 	async function startSideSession(ctx: ExtensionCommandContext): Promise<AgentSession> {
 		const agentDir = getAgentDir()
@@ -433,8 +435,12 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 							anchor: "bottom-left",
 							margin: { top: 1, bottom: footerHeight },
 						}),
+						onHandle: (handle) => {
+							activeAnswerHandle = handle
+						},
 					})
 				} finally {
+					activeAnswerHandle = null
 					activeAnswerView?.dispose()
 					activeAnswerView = null
 				}
@@ -449,7 +455,10 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 		},
 	})
 
+	pi.on("agent_start", () => activeAnswerHandle?.focus())
+
 	pi.on("session_shutdown", async (_event, ctx) => {
+		activeAnswerHandle = null
 		activeAnswerView?.dispose()
 		activeAnswerView = null
 		await closeSideSession()
