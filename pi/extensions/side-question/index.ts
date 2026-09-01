@@ -82,7 +82,7 @@ class SideAnswerView implements Component, Focusable {
 		onSubmit: (result: SideViewResult) => void,
 	) {
 		this.tui = tui
-		this.markdown = new Markdown(answer, 1, 0, getMarkdownTheme())
+		this.markdown = new Markdown(answer, 0, 0, getMarkdownTheme())
 		this.title = styles.title
 		this.hint = styles.hint
 		this.footerHeight = footerHeight
