@@ -268,6 +268,30 @@ export function piProfileAuthPath(
 	return join(agentDir, "auth-profiles", profile, "auth.json")
 }
 
+export function defaultPiAccount(
+	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+): string | undefined {
+	try {
+		const profile = JSON.parse(readFileSync(join(agentDir, "active-codex-account.json"), "utf8"))?.profile
+		return typeof profile === "string" && PROFILE_NAME.test(profile) ? profile : undefined
+	} catch {
+		return undefined
+	}
+}
+
+export function persistDefaultPiAccount(
+	profile: string,
+	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+): boolean {
+	if (!PROFILE_NAME.test(profile)) return false
+	try {
+		writePrivateJson(join(agentDir, "active-codex-account.json"), { profile })
+		return true
+	} catch {
+		return false
+	}
+}
+
 function retireCodexAccount(profile: string, codexRoot = join(homedir(), ".codex-accounts")): boolean {
 	const path = join(codexProfileHome(profile, codexRoot), "auth.json")
 	try {
@@ -437,7 +461,7 @@ export function switchPiAccount(
 	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
 	runtimeDir = process.env.PI_CODING_AGENT_DIR,
 	codexRoot = join(homedir(), ".codex-accounts"),
-): { profile: string } | { error: "codex-login-required" | "runtime-unavailable" | "persist-failed" } {
+): { profile: string; defaultPersisted: boolean } | { error: "codex-login-required" | "runtime-unavailable" | "persist-failed" } {
 	if (!runtimeDir) return { error: "runtime-unavailable" }
 	if (!ensurePiAccount(profile, agentDir, codexRoot)) return { error: "codex-login-required" }
 	const active = piProfile()
@@ -453,7 +477,7 @@ export function switchPiAccount(
 	}
 	process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = profile
 	process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME = codexProfileHome(profile, codexRoot)
-	return { profile }
+	return { profile, defaultPersisted: persistDefaultPiAccount(profile, agentDir) }
 }
 
 export function activateCodexProfile(
@@ -594,8 +618,10 @@ export default function codexAccountExtension(pi: ExtensionAPI) {
 		ctx.ui.notify(
 			refreshError
 				? `Switched to ${activeEmail ?? profile}. Model refresh failed: ${refreshError.message}`
-				: `Account is now ${activeEmail ?? profile}`,
-			refreshError ? "warning" : "info",
+				: !switched.defaultPersisted
+					? `Switched to ${activeEmail ?? profile}, but the default for new Pi sessions could not be saved.`
+					: `Account is now ${activeEmail ?? profile}`,
+			refreshError || !switched.defaultPersisted ? "warning" : "info",
 		)
 	}
 	const addAccount = async (ctx: ExtensionContext) => {

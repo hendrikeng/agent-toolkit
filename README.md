@@ -110,6 +110,8 @@ Switch one running Pi instance by email:
 
 Run `/account` without an argument to select, type, or add an account.
 
+An account change becomes the default for new `pi-yolo` instances. It does not change Pi instances that are already running.
+
 Pi imports existing Codex logins automatically. A separate Pi `/login` is not required for OpenAI Codex.
 
 Use Pi `/login` only for other subscription providers. Refreshed Pi credentials persist in the selected Pi profile.

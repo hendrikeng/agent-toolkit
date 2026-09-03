@@ -7,6 +7,7 @@ import {
 	activateCodexProfile,
 	codexProfileEmail,
 	codexProfileHome,
+	defaultPiAccount,
 	fetchCodexUsage,
 	formatCodexUsage,
 	mergeCodexUsage,
@@ -14,6 +15,7 @@ import {
 	parseCodexResetCreditsPayload,
 	parseCodexUsage,
 	parseCodexUsagePayload,
+	persistDefaultPiAccount,
 	persistPiAccount,
 	piAccountEmail,
 	piAccounts,
@@ -152,7 +154,7 @@ test("imports a Codex login when Pi switches the active profile", async () => {
 		}))
 		process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = "personal"
 
-		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal" })
+		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal", defaultPersisted: true })
 		const runtime = JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))
 		assert.equal(runtime["openai-codex"].access, access)
 		assert.equal(runtime["openai-codex"].refresh, "refresh-123")
@@ -166,7 +168,7 @@ test("imports a Codex login when Pi switches the active profile", async () => {
 		await writeFile(join(codexRoot, "personal", "auth.json"), JSON.stringify({
 			tokens: { access_token: replacementAccess, refresh_token: "replacement-refresh", id_token: idToken, account_id: "account-123" },
 		}))
-		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal" })
+		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal", defaultPersisted: true })
 		assert.equal(JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))["openai-codex"].access, replacementAccess)
 
 		runtime["openai-codex"].access = "refreshed-access"
@@ -183,7 +185,7 @@ test("imports a Codex login when Pi switches the active profile", async () => {
 		later["openai-codex"] = { ...later["openai-codex"], access: laterAccess, expires: Date.now() + 10_800_000 }
 		await writeFile(join(runtimeDir, "auth.json"), JSON.stringify(later))
 		assert.equal(persistPiAccount("personal", agentDir, runtimeDir), true)
-		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal" })
+		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal", defaultPersisted: true })
 		assert.equal(JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))["openai-codex"].access, laterAccess)
 
 		const codex = JSON.parse(await readFile(join(codexRoot, "personal", "auth.json"), "utf8"))
@@ -238,7 +240,9 @@ test("switches one Pi runtime without changing another instance", async () => {
 		process.env.PI_CODING_AGENT_DIR = firstRuntime
 		process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = "personal"
 
-		assert.deepEqual(switchPiAccount("business", agentDir, firstRuntime, join(root, "codex-accounts")), { profile: "business" })
+		assert.deepEqual(switchPiAccount("business", agentDir, firstRuntime, join(root, "codex-accounts")), { profile: "business", defaultPersisted: true })
+		assert.equal(defaultPiAccount(agentDir), "business")
+		assert.equal(persistDefaultPiAccount("../invalid", agentDir), false)
 		assert.deepEqual(JSON.parse(await readFile(join(firstRuntime, "auth.json"), "utf8")), business)
 		assert.deepEqual(JSON.parse(await readFile(join(secondRuntime, "auth.json"), "utf8")), personal)
 		assert.deepEqual(

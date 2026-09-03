@@ -96,6 +96,15 @@ const codex = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
 assert.equal(codex.tokens.access_token, undefined);
 assert.equal(codex.tokens.refresh_token, undefined);
 NODE
+printf '{"profile":"%s"}\n' "$codex_profile_name" > "$profile_agent_dir/active-codex-account.json"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$tmp_dir/orca-codex-home" AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/default-profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/default-profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/default-profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/default-profile-auth.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/default-profile-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/default-profile-account.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/default-profile-account.txt")" = "$codex_profile_name"
+node - "$tmp_dir/default-profile-auth.txt" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const auth = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+assert.equal(auth["openai-codex"].accountId, "verify-account");
+NODE
 node - "$tmp_dir/pi-yolo-config.json" "$pi_agent_dir" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

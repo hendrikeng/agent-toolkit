@@ -85,6 +85,20 @@ NODE
         fi
         ;;
     esac
+    if [[ -z $account_profile && -f $source_agent_dir/active-codex-account.json ]]; then
+      candidate=$(node - "$source_agent_dir/active-codex-account.json" <<'NODE'
+const fs = require("node:fs");
+try {
+  const profile = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))?.profile;
+  if (typeof profile === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(profile)) process.stdout.write(profile);
+} catch {}
+NODE
+      )
+      if [[ -n $candidate && -f $source_agent_dir/auth-profiles/$candidate/auth.json && -f $codex_accounts_root/$candidate/auth.json ]]; then
+        account_profile=$candidate
+        codex_home=$codex_accounts_root/$candidate
+      fi
+    fi
     if [[ -n $account_profile ]]; then
       profile_dir=$source_agent_dir/auth-profiles/$account_profile
       profile_auth=$profile_dir/auth.json
