@@ -160,6 +160,10 @@ export function planIsReadyForPromotion(markdown: string): boolean {
 	return planStatus(markdown) === "ready-for-promotion"
 }
 
+export function planIsQueued(markdown: string): boolean {
+	return planStatus(markdown) === "queued"
+}
+
 export function planRequiresPlanOnly(markdown: string): boolean {
 	const status = planStatus(markdown)
 	return !status || !["queued", "in-progress", "in-review", "validation"].includes(status)
@@ -177,9 +181,9 @@ export function taskGraphPrompt(objective: string): string {
 
 ${objective}
 
-First inspect the repository and the real execution path with read and search tools. The bash tool stays blocked until an executable graph is approved, except for moving the objective's ready-for-promotion Markdown plan from \`docs/future/\` to \`docs/exec-plans/active/\`. After the move, change only that plan's \`Status\` from \`ready-for-promotion\` to \`queued\`, then stop. The plan becomes executable only on a new \`/graph\` run. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
+First inspect the repository and the real execution path with read and search tools. The bash tool stays blocked until an executable graph is approved, except for moving the objective's ready-for-promotion Markdown plan from \`docs/future/\` to \`docs/exec-plans/active/\`. After the move, change only that plan's \`Status\` from \`ready-for-promotion\` to \`queued\`. Continue the same \`/graph\` run, propose an executable graph, and start the workers as soon as the user approves it. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
 
-A draft or blocked plan permits planning and blocker-resolution work only. Set graph mode to plan-only and do not dispatch implementation workers. A ready future must follow repository promotion rules before execution. Set mode to execute only for an active executable slice whose dependencies and approval gates are satisfied.
+A draft or blocked plan permits planning and blocker-resolution work only. Set graph mode to plan-only and do not dispatch implementation workers. Promote a ready future before proposing its executable graph. Set mode to execute only for an active executable slice whose dependencies and approval gates are satisfied.
 
 Keep one future file per executable slice. If one future contains independent outcomes, propose separate future files linked by Dependencies. Use graph tasks only for parallel work inside one executable slice; do not use them to hide multiple durable slices in one plan.
 

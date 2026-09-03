@@ -7,6 +7,7 @@ import {
 	formatTaskGraph,
 	isTaskGraphQueueEdit,
 	normalizeTaskGraphOwnership,
+	planIsQueued,
 	planIsReadyForPromotion,
 	planningDocumentRequiresPlanOnly,
 	planRequiresPlanOnly,
@@ -158,6 +159,7 @@ test("allows only one safe promotion move and status edit before approval", () =
 	assert.equal(taskGraphPromotionSource("mv '../product name/docs/future/plan.md' '../product name/docs/exec-plans/active/'"), undefined)
 	assert.equal(taskGraphPromotionSource("mv ../product/;touch-pwn/docs/future/plan.md ../product/;touch-pwn/docs/exec-plans/active/"), undefined)
 	assert.equal(taskGraphPromotionDestination("../product/docs/future/plan.md"), "../product/docs/exec-plans/active/plan.md")
+	assert.equal(taskGraphPromotionDestination("../product name/docs/future/plan.md"), undefined)
 	assert.equal(taskGraphPromotionDestination("docs/future/plan.md"), "docs/exec-plans/active/plan.md")
 	assert.equal(taskGraphPromotionDestination("docs/other/plan.md"), undefined)
 	assert.equal(taskGraphPromotionSource("pnpm run plans:verify"), undefined)
@@ -193,6 +195,8 @@ test("handles interactive graph review and plan status", async () => {
 	assert.equal(planIsReadyForPromotion("## Metadata\n\n- Status: ready-for-promotion\n"), true)
 	assert.equal(planIsReadyForPromotion("##  Metadata\n\n  - Status: ready-for-promotion\n"), true)
 	assert.equal(planIsReadyForPromotion("## Metadata\n\n- Status: draft\n"), false)
+	assert.equal(planIsQueued("## Metadata\n\n- Status: queued\n"), true)
+	assert.equal(planIsQueued("## Metadata\n\n- Status: in-progress\n"), false)
 	assert.equal(planRequiresPlanOnly("## Metadata\n\n- Status: paused\n"), true)
 	assert.equal(planRequiresPlanOnly("No metadata"), true)
 	assert.equal(planRequiresPlanOnly("- Status: queued\n\n## Metadata\n\n- Status: blocked\n"), true)
@@ -208,7 +212,8 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(prompt, /Build search/)
 	assert.match(prompt, /moving the objective's ready-for-promotion Markdown plan/)
 	assert.match(prompt, /change only that plan's `Status` from `ready-for-promotion` to `queued`/)
-	assert.match(prompt, /executable only on a new `\/graph` run/)
+	assert.match(prompt, /Continue the same `\/graph` run/)
+	assert.match(prompt, /start the workers as soon as the user approves/)
 	assert.match(prompt, /propose_task_graph/)
 	assert.match(prompt, /draft or blocked plan permits planning.*only/)
 	assert.match(prompt, /one future file per executable slice/)

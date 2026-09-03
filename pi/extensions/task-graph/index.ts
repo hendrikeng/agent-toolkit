@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs"
 import { dirname, extname, join, relative, resolve, sep } from "node:path"
 import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
@@ -6,6 +6,7 @@ import {
 	formatTaskGraph,
 	isTaskGraphQueueEdit,
 	normalizeTaskGraphOwnership,
+	planIsQueued,
 	planIsReadyForPromotion,
 	planningDocumentRequiresPlanOnly,
 	reviewTaskGraph,
@@ -81,6 +82,20 @@ function localQueueEditAllowed(cwd: string, path: string, edits: Array<{ oldText
 	return isTaskGraphQueueEdit(local, edits) && planIsReadyForPromotion(readFileSync(target, "utf8"))
 }
 
+function localPromotionCompleted(cwd: string, promotionSource?: string): boolean {
+	if (!promotionSource) return true
+	const destination = taskGraphPromotionDestination(promotionSource)
+	if (!destination) return false
+	if (existsSync(resolve(cwd, promotionSource!))) return false
+	const path = resolve(cwd, destination)
+	if (!existsSync(path) || lstatSync(path).isSymbolicLink()) return false
+	const target = realpathSync(path)
+	const root = repositoryRoot(dirname(target))
+	if (!existsSync(join(root, ".git"))) return false
+	const local = relative(root, target).split(sep).join("/")
+	return /^docs\/exec-plans\/active\/[a-z0-9][a-z0-9._-]*\.md$/.test(local) && planIsQueued(readFileSync(target, "utf8"))
+}
+
 export default function taskGraphExtension(pi: ExtensionAPI): void {
 	let pending: { prompt: string; planOnlyRequired: boolean; promotionSource?: string } | null = null
 	let planning = false
@@ -99,6 +114,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (!planning) throw new Error("propose_task_graph requires an active /graph command.")
 			if (reviewClosed) throw new Error("This graph review is closed. Start another /graph command to propose a new graph.")
 			if (planOnlyRequired && params.mode !== "plan-only") throw new Error("This plan status permits a plan-only graph, not implementation dispatch.")
+			if (params.mode === "execute" && !localPromotionCompleted(ctx.cwd, promotionSource)) {
+				throw new Error("Promote the ready future plan and change its status to queued before proposing an executable graph.")
+			}
 			const root = repositoryRoot(ctx.cwd)
 			const plan = normalizeTaskGraphOwnership(params, root)
 			validateTaskGraphRepositories(plan, root)
@@ -146,10 +164,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 
 			const prompt = taskGraphPrompt(objective)
 			try {
+				const promotionSource = localFuturePromotionSource(ctx.cwd, objective)
 				pending = {
 					prompt,
-					planOnlyRequired: localPlanRequiresPlanOnly(ctx.cwd, objective),
-					promotionSource: localFuturePromotionSource(ctx.cwd, objective),
+					planOnlyRequired: !promotionSource && localPlanRequiresPlanOnly(ctx.cwd, objective),
+					promotionSource,
 				}
 				pi.sendUserMessage(prompt)
 			} catch (error) {
