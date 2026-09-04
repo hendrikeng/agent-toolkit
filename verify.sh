@@ -148,11 +148,13 @@ if "$repo_dir/shared/agent-safety/git-yolo-guard" -C "$repo_dir" clean -nd >/dev
 fi
 "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
+cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$HOME/.codex/skills/explore-design/SKILL.md"
 cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$HOME/.codex/skills/fastapi/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.codex/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/python/SKILL.md" "$HOME/.codex/skills/python/SKILL.md"
 cmp "$repo_dir/pi/extensions/simple-english/SKILL.md" "$HOME/.codex/skills/simple-english/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.codex/skills/vue/SKILL.md"
+cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$HOME/.claude/skills/explore-design/SKILL.md"
 cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$HOME/.claude/skills/fastapi/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.claude/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/python/SKILL.md" "$HOME/.claude/skills/python/SKILL.md"
@@ -170,6 +172,7 @@ node -e 'const settings=require(process.argv[1]); if (!settings.extensions?.incl
 cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
 cmp "$repo_dir/pi/skills/deepsec/SKILL.md" "$pi_agent_dir/skills/deepsec/SKILL.md"
 cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
+cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$pi_agent_dir/skills/explore-design/SKILL.md"
 cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$pi_agent_dir/skills/fastapi/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.md"
 cmp "$repo_dir/pi/skills/python/SKILL.md" "$pi_agent_dir/skills/python/SKILL.md"
@@ -271,6 +274,24 @@ if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" sandbox proc
 fi
 grep -q -- 'npx --yes deepsec@2.3.5' "$repo_dir/pi/skills/deepsec/scripts/deepsec"
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
+bash -n "$repo_dir/pi/skills/explore-design/scripts/scan-brand.sh"
+brand_fixture="$tmp_dir/explore-design-brand"
+mkdir -p "$brand_fixture/explorations" "$brand_fixture/node_modules/pkg" "$brand_fixture/build" "$brand_fixture/vendor" "$brand_fixture/src/explore-design"
+: > "$brand_fixture/explorations/_template.html"
+for i in {1..65}; do printf '.x {}\n' > "$brand_fixture/src/$i.css"; done
+printf ":root { --brand: red; } body { font-family: 'Product Font'; }\n" > "$brand_fixture/src/theme with spaces.css"
+printf ':root { --ignored: red; }\n' > "$brand_fixture/node_modules/pkg/ignored.css"
+printf "body { font-family: 'Generated Font'; }\n" > "$brand_fixture/build/generated.css"
+printf "body { font-family: 'Vendored Font'; }\n" > "$brand_fixture/vendor/vendored.css"
+printf "body { font-family: 'Skill Font'; }\n" > "$brand_fixture/src/explore-design/template.css"
+"$repo_dir/pi/skills/explore-design/scripts/scan-brand.sh" "$brand_fixture" > "$tmp_dir/explore-design-brand.txt"
+grep -q 'STATUS: TEMPLATE_FOUND' "$tmp_dir/explore-design-brand.txt"
+grep -q './src/theme with spaces.css' "$tmp_dir/explore-design-brand.txt"
+grep -q "font-family: 'Product Font'" "$tmp_dir/explore-design-brand.txt"
+if grep -Eq 'ignored.css|Generated Font|Vendored Font|Skill Font' "$tmp_dir/explore-design-brand.txt"; then
+  printf 'Explore Design brand scan included an excluded directory\n' >&2
+  exit 1
+fi
 node --experimental-strip-types --test "$repo_dir/pi/extensions/ask-user-question/tests/ask-user-question.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-fast/tests/codex-fast.test.ts"
@@ -309,6 +330,7 @@ grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:deepsec"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:react-doctor"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:explore-design"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:fastapi"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:fastify"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:python"' "$tmp_dir/rpc.jsonl"

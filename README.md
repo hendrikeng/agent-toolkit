@@ -50,7 +50,7 @@ Run `/reload` after an extension change. Restart Pi after a launcher or account-
 | Web access | Load web tools only when external information is necessary. |
 | Figma MCP | Load local Figma Desktop tools only for Figma tasks. |
 
-The toolkit also includes guidance for FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
+The toolkit also includes guidance for design exploration, FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
 
 ## Safety
 
@@ -246,6 +246,7 @@ The coordinator resolves mechanical merge conflicts. It asks the user only when 
 | `fastify` | Automatic for matching work |
 | `python` | Automatic for matching work |
 | `vue` | Automatic for matching work |
+| `explore-design` | Automatic for visual exploration and chosen-mock implementation |
 | `autoreview` | Explicit or risk-gated |
 | `handoff` | Explicit |
 | `simple-english` | Explicit |

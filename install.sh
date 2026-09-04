@@ -44,16 +44,17 @@ initialize_blueprint_submodule() {
 install_link() {
   local source=$1
   local target=$2
+  local preserve_unmanaged_symlink=${3:-false}
 
   mkdir -p "$(dirname "$target")"
 
-  if [[ -L "$target" ]]; then
+  if [[ -L "$target" && ( $preserve_unmanaged_symlink != true || $(readlink "$target") == "$source" ) ]]; then
     ln -sfn "$source" "$target"
     printf 'updated %s -> %s\n' "$target" "$source"
     return
   fi
 
-  if [[ -e "$target" ]]; then
+  if [[ -e "$target" || -L "$target" ]]; then
     local relative_target=${target#"$HOME"/}
     local backup="$backup_root/$relative_target"
     mkdir -p "$(dirname "$backup")"
@@ -354,11 +355,13 @@ elif [[ -e "$legacy_simple_english" || -L "$legacy_simple_english" ]]; then
 fi
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
+install_link "$repo_dir/pi/skills/explore-design" "$HOME/.codex/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.codex/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
+install_link "$repo_dir/pi/skills/explore-design" "$HOME/.claude/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.claude/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.claude/skills/python"
@@ -393,6 +396,7 @@ install_link "$repo_dir/pi/extensions/task-graph" "$pi_agent_dir/extensions/task
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/deepsec" "$pi_agent_dir/skills/deepsec"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
+install_link "$repo_dir/pi/skills/explore-design" "$pi_agent_dir/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$pi_agent_dir/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$pi_agent_dir/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$pi_agent_dir/skills/python"
