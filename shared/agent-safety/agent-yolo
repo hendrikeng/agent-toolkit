@@ -75,34 +75,57 @@ NODE
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
 
     account_profile=
+    pinned_account=false
     codex_accounts_root=$(node -p 'require("node:path").resolve(process.argv[1])' "$HOME/.codex-accounts")
     codex_home=$(node -p 'require("node:path").resolve(process.argv[1])' "${AGENT_TOOLKIT_CODEX_PROFILE_HOME:-${CODEX_HOME:-$HOME/.codex}}")
-    case $codex_home in
-      "$codex_accounts_root"/*)
-        candidate=${codex_home#"$codex_accounts_root"/}
-        if [[ $candidate != */* && $candidate =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && ${AGENT_TOOLKIT_CODEX_ACCOUNT:-$candidate} == "$candidate" ]]; then
-          account_profile=$candidate
-        fi
-        ;;
-    esac
-    if [[ -z $account_profile && -f $source_agent_dir/active-codex-account.json ]]; then
-      candidate=$(node - "$source_agent_dir/active-codex-account.json" <<'NODE'
+    if [[ -n ${AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64:-} ]]; then
+      [[ -n ${AGENT_TOOLKIT_CODEX_ACCOUNT_ID:-} && ${AGENT_TOOLKIT_CODEX_PROFILE_SHA256:-} =~ ^[a-f0-9]{64}$ ]] || { printf 'pi-yolo: incomplete selected account identity\n' >&2; exit 1; }
+      account_profile=$(node --experimental-strip-types --input-type=module - "$source_agent_dir/extensions/codex-account/index.ts" "$source_agent_dir" "$codex_accounts_root" "$AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64" "${AGENT_TOOLKIT_CODEX_ACCOUNT_ID:-}" "${AGENT_TOOLKIT_CODEX_PROFILE_SHA256:-}" <<'NODE'
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const { piAccountEmail, piAccounts, piProfileAccountId } = await import(pathToFileURL(process.argv[2]).href);
+const email = Buffer.from(process.argv[5], "base64url").toString("utf8");
+const matches = piAccounts(process.argv[3], process.argv[4]).filter(({ profile }) =>
+  piAccountEmail(join(process.argv[3], "auth-profiles", profile))?.toLowerCase() === email.toLowerCase()
+  && piProfileAccountId(profile, process.argv[3]) === process.argv[6]
+  && createHash("sha256").update(profile).digest("hex") === process.argv[7]
+).sort((a, b) => a.profile.localeCompare(b.profile));
+if (!matches.length) process.exit(1);
+process.stdout.write(matches[0].profile);
+NODE
+      ) || { printf 'pi-yolo: no unique login found for selected email\n' >&2; exit 1; }
+      codex_home=$codex_accounts_root/$account_profile
+      pinned_account=true
+    else
+      case $codex_home in
+        "$codex_accounts_root"/*)
+          candidate=${codex_home#"$codex_accounts_root"/}
+          if [[ $candidate != */* && $candidate =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && ${AGENT_TOOLKIT_CODEX_ACCOUNT:-$candidate} == "$candidate" ]]; then
+            account_profile=$candidate
+          fi
+          ;;
+      esac
+      if [[ -z $account_profile && -f $source_agent_dir/active-codex-account.json ]]; then
+        candidate=$(node - "$source_agent_dir/active-codex-account.json" <<'NODE'
 const fs = require("node:fs");
 try {
   const profile = JSON.parse(fs.readFileSync(process.argv[2], "utf8"))?.profile;
   if (typeof profile === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(profile)) process.stdout.write(profile);
 } catch {}
 NODE
-      )
-      if [[ -n $candidate && -f $source_agent_dir/auth-profiles/$candidate/auth.json && -f $codex_accounts_root/$candidate/auth.json ]]; then
-        account_profile=$candidate
-        codex_home=$codex_accounts_root/$candidate
+        )
+        if [[ -n $candidate && -f $source_agent_dir/auth-profiles/$candidate/auth.json && -f $codex_accounts_root/$candidate/auth.json ]]; then
+          account_profile=$candidate
+          codex_home=$codex_accounts_root/$candidate
+        fi
       fi
     fi
+    unset AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64 AGENT_TOOLKIT_CODEX_ACCOUNT_ID AGENT_TOOLKIT_CODEX_PROFILE_SHA256
     if [[ -n $account_profile ]]; then
       profile_dir=$source_agent_dir/auth-profiles/$account_profile
       profile_auth=$profile_dir/auth.json
-      node - "$source_agent_dir/auth.json" "$profile_dir" "$profile_auth" "$codex_home/auth.json" <<'NODE'
+      node - "$source_agent_dir/auth.json" "$profile_dir" "$profile_auth" "$codex_home/auth.json" "$pinned_account" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 function ensurePrivateDirectory(directory) {
@@ -129,7 +152,7 @@ if (!auth) {
   auth = Object.fromEntries(Object.entries(auth).filter(([, credential]) => credential?.type !== "oauth"));
 }
 let changed = false;
-const codex = readJson(process.argv[5]);
+const codex = process.argv[6] === "true" ? undefined : readJson(process.argv[5]);
 const access = codex?.tokens?.access_token;
 const refresh = codex?.tokens?.refresh_token;
 const claims = typeof access === "string" ? jwtClaims(access) : {};

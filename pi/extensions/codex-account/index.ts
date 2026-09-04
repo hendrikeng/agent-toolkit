@@ -157,6 +157,19 @@ export function codexProfileEmail(profile: string, root?: string): string | unde
 	}
 }
 
+export function piProfileAccountId(
+	profile: string,
+	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+): string | undefined {
+	try {
+		const credential = readPiAuth(piProfileAuthPath(profile, agentDir))["openai-codex"]
+		const id = credential?.accountId ?? jwtClaims(credential?.access)?.["https://api.openai.com/auth"]?.chatgpt_account_id
+		return typeof id === "string" && id ? id : undefined
+	} catch {
+		return undefined
+	}
+}
+
 type PiCredential = {
 	type?: string
 	access?: string

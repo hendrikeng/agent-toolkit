@@ -377,14 +377,19 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(prompt, /Every graph worker must run `pi-yolo --model provider\/model --thinking <task-thinking>`, not plain `pi`/)
 	assert.match(prompt, /Do not use `worker-start` or Orca's generic `--agent pi` launcher/)
 	assert.match(prompt, /pi-yolo --model provider\/model --thinking <task-thinking>/)
+	const accountPrompt = taskGraphPrompt("Build search", false, "Build search", "openai-codex/gpt-5", false, [], { profileHash: "07e998012c1137decdf3efbbb1c3ee6d79b015638cbc197bdbcce1875de4faad", email: "user@example.com", accountId: "acct-1", agentDir: "/agent" })
+	assert.match(accountPrompt, /Graph workers are pinned to the selected Codex account user@example\.com/)
+	assert.match(accountPrompt, /AGENT_TOOLKIT_CODEX_PROFILE_SHA256=07e998012c1137decdf3efbbb1c3ee6d79b015638cbc197bdbcce1875de4faad AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=dXNlckBleGFtcGxlLmNvbQ AGENT_TOOLKIT_CODEX_ACCOUNT_ID="acct-1"/)
+	assert.doesNotMatch(accountPrompt, /account-1/)
 	assert.equal(taskGraphWorkerModel("orca terminal create --command 'pi-yolo --model openai-codex/gpt-5 --thinking high'"), "openai-codex/gpt-5")
 	assert.equal(taskGraphWorkerModel("orca terminal create --command 'pi-yolo --model openrouter/anthropic/claude-sonnet-4'"), "openrouter/anthropic/claude-sonnet-4")
-	assert.deepEqual(taskGraphWorkerAccount(`orca terminal create --command 'AGENT_TOOLKIT_CODEX_ACCOUNT=work AGENT_TOOLKIT_CODEX_PROFILE_HOME=/accounts/work AGENT_TOOLKIT_PI_AGENT_DIR=/agent pi-yolo --model openai-codex/gpt-5'`), {
-		profile: "work",
-		profileHome: "/accounts/work",
+	assert.deepEqual(taskGraphWorkerAccount(`orca terminal create --command 'AGENT_TOOLKIT_CODEX_PROFILE_SHA256=07e998012c1137decdf3efbbb1c3ee6d79b015638cbc197bdbcce1875de4faad AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=dXNlckBleGFtcGxlLmNvbQ AGENT_TOOLKIT_CODEX_ACCOUNT_ID=acct-1 AGENT_TOOLKIT_PI_AGENT_DIR=/agent pi-yolo --model openai-codex/gpt-5'`), {
+		profileHash: "07e998012c1137decdf3efbbb1c3ee6d79b015638cbc197bdbcce1875de4faad",
+		email: "user@example.com",
+		accountId: "acct-1",
 		agentDir: "/agent",
 	})
-	assert.equal(taskGraphWorkerAccount(`orca terminal create --command 'pi-yolo --model openai-codex/gpt-5 AGENT_TOOLKIT_CODEX_ACCOUNT=work AGENT_TOOLKIT_CODEX_PROFILE_HOME=/accounts/work AGENT_TOOLKIT_PI_AGENT_DIR=/agent'`), undefined)
+	assert.equal(taskGraphWorkerAccount(`orca terminal create --command 'pi-yolo --model openai-codex/gpt-5 AGENT_TOOLKIT_CODEX_PROFILE_SHA256=07e998012c1137decdf3efbbb1c3ee6d79b015638cbc197bdbcce1875de4faad AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=dXNlckBleGFtcGxlLmNvbQ AGENT_TOOLKIT_CODEX_ACCOUNT_ID=acct-1 AGENT_TOOLKIT_PI_AGENT_DIR=/agent'`), undefined)
 	assert.equal(taskGraphWorkerModel("orca terminal create --title '--model openai-codex/approved' --command 'pi-yolo --model other/provider'"), "other/provider")
 	assert.equal(taskGraphWorkerModel("orca terminal create --command 'pi-yolo --model openai-codex/gpt-5' --command 'codex'"), undefined)
 	assert.equal(taskGraphWorkerModel("orca orchestration worker-start --task task_1 --worktree current --agent pi --model openai-codex/gpt-5"), undefined)

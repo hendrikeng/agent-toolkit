@@ -173,7 +173,7 @@ export function taskGraphWorkerModel(command: string): string | undefined {
 	return models.length === 1 && models[0] ? models[0].toLowerCase() : undefined
 }
 
-export function taskGraphWorkerAccount(command: string): { profile: string; profileHome: string; agentDir: string } | undefined {
+export function taskGraphWorkerAccount(command: string): { profileHash: string; email: string; accountId: string; agentDir: string } | undefined {
 	const argv = taskGraphWorkerArgv(command)
 	if (!argv) return undefined
 	const executable = argv.findIndex((argument) => ["pi-yolo", "agent-yolo"].includes(basename(argument).toLowerCase()))
@@ -183,9 +183,12 @@ export function taskGraphWorkerAccount(command: string): { profile: string; prof
 	})
 	if (new Set(entries.map(([name]) => name)).size !== entries.length) return undefined
 	const values = Object.fromEntries(entries)
-	return values.AGENT_TOOLKIT_CODEX_ACCOUNT && values.AGENT_TOOLKIT_CODEX_PROFILE_HOME && values.AGENT_TOOLKIT_PI_AGENT_DIR
-		? { profile: values.AGENT_TOOLKIT_CODEX_ACCOUNT, profileHome: values.AGENT_TOOLKIT_CODEX_PROFILE_HOME, agentDir: values.AGENT_TOOLKIT_PI_AGENT_DIR }
-		: undefined
+	if (!/^[a-f0-9]{64}$/.test(values.AGENT_TOOLKIT_CODEX_PROFILE_SHA256 ?? "") || !values.AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64 || !values.AGENT_TOOLKIT_CODEX_ACCOUNT_ID || !values.AGENT_TOOLKIT_PI_AGENT_DIR) return undefined
+	try {
+		return { profileHash: values.AGENT_TOOLKIT_CODEX_PROFILE_SHA256, email: Buffer.from(values.AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64, "base64url").toString("utf8"), accountId: values.AGENT_TOOLKIT_CODEX_ACCOUNT_ID, agentDir: values.AGENT_TOOLKIT_PI_AGENT_DIR }
+	} catch {
+		return undefined
+	}
 }
 
 export function isTaskGraphRecoveryCommand(command: string): boolean {
@@ -644,12 +647,13 @@ export function taskGraphPrompt(
 	workerModel = "provider/model",
 	recoveryOnly = false,
 	repositoryRoots: string[] = [],
-	workerAccount?: { profile: string; profileHome: string; agentDir: string },
+	workerAccount?: { profileHash: string; email: string; accountId: string; agentDir: string },
 ): string {
 	const runObjective = `${planChain ? "Pi plan chain" : "Pi task graph"}: ${runKey}`
 	const terminalTitle = taskGraphTerminalTitle(runObjective)
 	const quotaPolicy = `Before each new worker launch, obey the Codex quota gate. Reserve ${TASK_GRAPH_WEEKLY_QUOTA_RESERVE}% of the long window and ${TASK_GRAPH_SHORT_QUOTA_RESERVE}% of the short window. Long-window data is required. Check the short-window reserve only when Codex reports that window. If the gate blocks a launch, do not treat it as a task failure. Mark the active plan budget-exhausted, preserve the Run and task state, and stop. The same /graph command resumes after quota resets.`
-	const workerCommand = `${workerAccount ? `AGENT_TOOLKIT_CODEX_ACCOUNT=${JSON.stringify(workerAccount.profile)} AGENT_TOOLKIT_CODEX_PROFILE_HOME=${JSON.stringify(workerAccount.profileHome)} AGENT_TOOLKIT_PI_AGENT_DIR=${JSON.stringify(workerAccount.agentDir)} ` : ""}pi-yolo --model ${workerModel} --thinking <task-thinking>`
+	const workerCommand = `${workerAccount ? `AGENT_TOOLKIT_CODEX_PROFILE_SHA256=${workerAccount.profileHash} AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=${Buffer.from(workerAccount.email).toString("base64url")} AGENT_TOOLKIT_CODEX_ACCOUNT_ID=${JSON.stringify(workerAccount.accountId)} AGENT_TOOLKIT_PI_AGENT_DIR=${JSON.stringify(workerAccount.agentDir)} ` : ""}pi-yolo --model ${workerModel} --thinking <task-thinking>`
+	const workerAccountNote = workerAccount ? `Graph workers are pinned to the selected Codex account ${workerAccount.email}. ` : ""
 	if (planChain) return `Coordinate this objective as an unattended plan chain:
 
 ${objective}
@@ -670,7 +674,7 @@ Reconcile the approved plan chain with the bound Run before implementation. Star
 
 Use Orca's ready-task state to find eligible plans. Select the first unfinished ready plan in the approved order. Immediately before that plan starts, re-read its status, dependencies, approval gates, and repository rules. If a lifecycle move was interrupted, reconcile its existing Run and finish only the missing status or move step without implementation workers. Promote a ready future plan into \`docs/exec-plans/active/\` only when its dependencies are complete, then change its status to \`queued\` and \`in-progress\`. Never promote later plans early.
 
-For each active plan, derive the smallest internal DAG of one to six worker tasks from its must-land checklist and targets. Create these internal tasks as children of the plan task directly in Orca without another propose_task_graph approval. ${quotaPolicy} Start every ready independent task before waiting. Every task gets a fresh worker terminal in that plan repository's current worktree; never reuse a completed worker. Resolve and use the repository's exact Orca selector. Start the quoted \`${workerCommand}\` command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\`, because it cannot prove the required wrapper before launch. Use medium thinking for bounded work and high thinking for architecture, authentication or security, concurrency, data migrations, public API contracts, or difficult debugging. Specialize each worker through its task brief.
+For each active plan, derive the smallest internal DAG of one to six worker tasks from its must-land checklist and targets. Create these internal tasks as children of the plan task directly in Orca without another propose_task_graph approval. ${quotaPolicy} Start every ready independent task before waiting. Every task gets a fresh worker terminal in that plan repository's current worktree; never reuse a completed worker. Resolve and use the repository's exact Orca selector. ${workerAccountNote}Start the quoted \`${workerCommand}\` command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\`, because it cannot prove the required wrapper before launch. Use medium thinking for bounded work and high thinking for architecture, authentication or security, concurrency, data migrations, public API contracts, or difficult debugging. Specialize each worker through its task brief.
 
 Supervise every dispatch until it settles. Release each completed worker before continuing. Workers must not commit or push. If a medium worker fails or escalates, make one replacement attempt with a fresh high-thinking worker. Stop the plan chain after any unresolved failure, blocker, required external decision, or failed validation. Leave every affected plan in a truthful status.
 
@@ -696,7 +700,7 @@ If a graph helps, call propose_task_graph with plan-only or execute mode and a D
 
 The tool validates the graph and asks the user to approve, revise, or cancel it. If the user requests revisions, update the graph and call propose_task_graph again. Do not dispatch workers until an execute-mode graph is approved.
 
-After execute approval, run \`orca skills get orchestration\` and follow that version-matched guide. Confirm Orca is ready. Use the exact Run objective ${JSON.stringify(runObjective)}. List Runs with that exact objective before creation. Bind and reconcile one unfinished match, stop on multiple unfinished matches, and create a Run only when none exists. Call bind_task_graph_run with the selected Run ID before creating or updating tasks. Preserve matching task IDs and settled or live dispatches during recovery. For active-plan execution, the coordinator owns plan lifecycle updates; set the plan's truthful execution status before dispatch instead of delegating that state to a worker. Create missing tasks with their dependencies, start every top-level task spec with its \`[graph-task:<task-id>]\` marker, and start every ready independent worker before waiting. Every graph worker must run \`${workerCommand}\`, not plain \`pi\`. Start this quoted command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\` or Orca's generic \`--agent pi\` launcher, because neither proves the required wrapper before launch. Use Orca for task state, dispatch, worker lifecycle, and messages. Do not recreate those features in Pi or in project files.
+After execute approval, run \`orca skills get orchestration\` and follow that version-matched guide. Confirm Orca is ready. Use the exact Run objective ${JSON.stringify(runObjective)}. List Runs with that exact objective before creation. Bind and reconcile one unfinished match, stop on multiple unfinished matches, and create a Run only when none exists. Call bind_task_graph_run with the selected Run ID before creating or updating tasks. Preserve matching task IDs and settled or live dispatches during recovery. For active-plan execution, the coordinator owns plan lifecycle updates; set the plan's truthful execution status before dispatch instead of delegating that state to a worker. Create missing tasks with their dependencies, start every top-level task spec with its \`[graph-task:<task-id>]\` marker, and start every ready independent worker before waiting. ${workerAccountNote}Every graph worker must run \`${workerCommand}\`, not plain \`pi\`. Start this quoted command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\` or Orca's generic \`--agent pi\` launcher, because neither proves the required wrapper before launch. Use Orca for task state, dispatch, worker lifecycle, and messages. Do not recreate those features in Pi or in project files.
 
 ${quotaPolicy}
 

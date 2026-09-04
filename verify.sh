@@ -42,6 +42,7 @@ mkdir "$tmp_dir/fake-bin"
 cat >"$tmp_dir/fake-bin/pi" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ -z ${AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64:-}${AGENT_TOOLKIT_CODEX_ACCOUNT_ID:-}${AGENT_TOOLKIT_CODEX_PROFILE_SHA256:-} ]]
 cp "$PI_CODING_AGENT_DIR/extensions/pi-permission-system/config.json" "$PI_YOLO_CAPTURE"
 printf '%s\n' "$AGENT_TOOLKIT_PI_AGENT_DIR" > "$PI_YOLO_SOURCE_CAPTURE"
 printf '%s\n' "$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR" > "$PI_YOLO_WEB_CONFIG_CAPTURE"
@@ -63,6 +64,7 @@ test "$(<"$tmp_dir/pi-yolo-web-config.txt")" = "$pi_web_config_dir"
 
 profile_agent_dir="$tmp_dir/profile-agent"
 mkdir -p "$profile_agent_dir/extensions/pi-permission-system"
+ln -s "$repo_dir/pi/extensions/codex-account" "$profile_agent_dir/extensions/codex-account"
 cp "$pi_agent_dir/extensions/pi-permission-system/config.json" "$profile_agent_dir/extensions/pi-permission-system/config.json"
 printf '%s\n' '{"openai-codex":{"type":"oauth","access":"old","refresh":"old","expires":1},"github-copilot":{"type":"oauth","access":"old","refresh":"old","expires":1},"anthropic":{"type":"api_key","key":"keep"}}' > "$profile_agent_dir/auth.json"
 PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$profile_agent_dir/codex-runtimes/$codex_profile_name" AGENT_TOOLKIT_CODEX_ACCOUNT="$codex_profile_name" AGENT_TOOLKIT_CODEX_PROFILE_HOME="$HOME/.codex-accounts/$codex_profile_name/../$codex_profile_name/" AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_REAL_AGENT_DIR_CAPTURE="$tmp_dir/profile-real-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
@@ -96,8 +98,20 @@ const codex = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
 assert.equal(codex.tokens.access_token, undefined);
 assert.equal(codex.tokens.refresh_token, undefined);
 NODE
+node - "$tmp_dir/codex-profile/auth.json" <<'NODE'
+const fs = require("node:fs");
+const claims = { email: "other@example.com", exp: Math.floor(Date.now() / 1000) + 7200, "https://api.openai.com/auth": { chatgpt_account_id: "other-account" } };
+const token = `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+fs.writeFileSync(process.argv[2], JSON.stringify({ tokens: { access_token: token, refresh_token: "other-refresh", account_id: "other-account" } }));
+NODE
+mkdir -p "$profile_agent_dir/auth-profiles/000-duplicate"
+cp "$profile_agent_dir/auth-profiles/$codex_profile_name/auth.json" "$profile_agent_dir/auth-profiles/000-duplicate/auth.json"
+codex_profile_hash=$(node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex"))' "$codex_profile_name")
+PATH="$tmp_dir/fake-bin:$PATH" AGENT_TOOLKIT_CODEX_PROFILE_SHA256="$codex_profile_hash" AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=dmVyaWZ5QGV4YW1wbGUuY29t AGENT_TOOLKIT_CODEX_ACCOUNT_ID=verify-account AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/email-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/email-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/email-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/email-auth.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/email-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/email-account.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/email-account.txt")" = "$codex_profile_name"
+node -e 'const fs=require("node:fs"); const auth=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (auth["openai-codex"].accountId !== "verify-account") process.exit(1); const codex=JSON.parse(fs.readFileSync(process.argv[2], "utf8")); delete codex.tokens.access_token; delete codex.tokens.refresh_token; fs.writeFileSync(process.argv[2], JSON.stringify(codex))' "$tmp_dir/email-auth.txt" "$tmp_dir/codex-profile/auth.json"
 printf '{"profile":"%s"}\n' "$codex_profile_name" > "$profile_agent_dir/active-codex-account.json"
-PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$tmp_dir/orca-codex-home" AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/default-profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/default-profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/default-profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/default-profile-auth.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/default-profile-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/default-profile-account.txt" "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$tmp_dir/orca-codex-home" AGENT_TOOLKIT_CODEX_ACCOUNT= AGENT_TOOLKIT_CODEX_PROFILE_HOME= AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/default-profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/default-profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/default-profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/default-profile-auth.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/default-profile-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/default-profile-account.txt" "$tmp_dir/pi-yolo"
 test "$(<"$tmp_dir/default-profile-account.txt")" = "$codex_profile_name"
 node - "$tmp_dir/default-profile-auth.txt" <<'NODE'
 const assert = require("node:assert/strict");

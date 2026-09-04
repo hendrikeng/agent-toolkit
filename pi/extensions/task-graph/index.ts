@@ -1,12 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import { getAgentDir, isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
-import { defaultPiAccount, fetchCodexUsage } from "../codex-account/index.ts"
+import { defaultPiAccount, fetchCodexUsage, piAccountEmail, piProfileAccountId } from "../codex-account/index.ts"
 import {
 	abandonTaskGraphLock,
 	acquireTaskGraphLock,
@@ -81,7 +80,9 @@ function repositoryRoot(cwd: string): string {
 
 interface WorkerAccount {
 	profile: string
-	profileHome: string
+	profileHash: string
+	email: string
+	accountId: string
 	agentDir: string
 }
 
@@ -640,13 +641,16 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("Cannot pin the Codex account for graph workers.", "error")
 				return
 			}
-			const selectedWorkerAccount = profile ? {
-				profile,
-				profileHome: process.env.AGENT_TOOLKIT_CODEX_ACCOUNT === profile && process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME
-					? process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME
-					: join(homedir(), ".codex-accounts", profile),
-				agentDir: sourceAgentDir,
-			} : undefined
+			const email = profile ? piAccountEmail(join(sourceAgentDir, "auth-profiles", profile)) : undefined
+			const accountId = profile ? piProfileAccountId(profile, sourceAgentDir) : undefined
+			if (profile && (!email || !accountId)) {
+				for (const lock of activeLocks.reverse()) resumingRun ? abandonTaskGraphLock(lock) : releaseTaskGraphLock(lock)
+				activeLocks = []
+				activeRunKey = undefined
+				ctx.ui.notify("Cannot resolve the selected Codex account email for graph workers.", "error")
+				return
+			}
+			const selectedWorkerAccount = profile && email && accountId ? { profile, profileHash: createHash("sha256").update(profile).digest("hex"), email, accountId, agentDir: sourceAgentDir } : undefined
 			const prompt = taskGraphPrompt(promptObjective, planChain, runKey, selectedWorkerModel, recoveryOnly, registeredRepositories, selectedWorkerAccount)
 				+ (recoveredOrcaRunId ? `\n\nCrash recovery is pinned to Orca Run ${recoveredOrcaRunId}. Bind it even when every existing task is completed; do not create another Run.` : "")
 				+ (recoveredPlanContract ? `\n\nPropose exactly this previously approved normalized graph contract for recovery: ${recoveredPlanContract}` : "")
@@ -809,8 +813,8 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (requestedModel !== workerModel) return { block: true, reason: `Graph workers must use the approved model ${workerModel}.` }
 			if (requestedModel.startsWith("openai-codex/")) {
 				const requestedAccount = taskGraphWorkerAccount(command)
-				if (!workerAccount || !requestedAccount || requestedAccount.profile !== workerAccount.profile || requestedAccount.profileHome !== workerAccount.profileHome || requestedAccount.agentDir !== workerAccount.agentDir) {
-					return { block: true, reason: `Codex graph workers must use the approved account ${workerAccount?.profile ?? "unknown"}.` }
+				if (!workerAccount || !requestedAccount || requestedAccount.profileHash !== workerAccount.profileHash || requestedAccount.email !== workerAccount.email || requestedAccount.accountId !== workerAccount.accountId || requestedAccount.agentDir !== workerAccount.agentDir) {
+					return { block: true, reason: `Codex graph workers must use the approved account ${workerAccount?.email ?? "unknown"}.` }
 				}
 				const quotaPauseReason = taskGraphQuotaPauseReason(await fetchCodexUsage(join(workerAccount.agentDir, "auth-profiles", workerAccount.profile)), TASK_GRAPH_WEEKLY_QUOTA_RESERVE, TASK_GRAPH_SHORT_QUOTA_RESERVE)
 				if (quotaPauseReason) return { block: true, reason: `${quotaPauseReason} Do not start more workers. Mark the active plan budget-exhausted and stop; resume with the same /graph command after quota resets.` }

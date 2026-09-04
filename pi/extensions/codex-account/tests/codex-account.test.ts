@@ -19,6 +19,7 @@ import {
 	persistPiAccount,
 	piAccountEmail,
 	piAccounts,
+	piProfileAccountId,
 	prepareCodexRuntime,
 	switchPiAccount,
 } from "../index.ts"
@@ -124,6 +125,18 @@ test("discovers account profiles by email", async () => {
 			{ profile: "account-11", email: "eleven@example.com" },
 			{ profile: "account-10", email: "ten@example.com" },
 		])
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test("reads a Pi profile account ID", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-account-id-test-"))
+	const profile = "account-1"
+	try {
+		await mkdir(join(root, "auth-profiles", profile), { recursive: true })
+		await writeFile(join(root, "auth-profiles", profile, "auth.json"), JSON.stringify({ "openai-codex": { accountId: "pi-account" } }))
+		assert.equal(piProfileAccountId(profile, root), "pi-account")
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}
