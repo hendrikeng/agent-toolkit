@@ -222,21 +222,110 @@ The workflow infers values from repository evidence. It asks only for missing de
 
 ### Task graphs
 
-Keep Orca open and enable its orchestration experimental feature.
+Keep Orca open. Enable its orchestration experimental feature.
+
+`/graph` has one command form:
+
+```text
+/graph <objective-or-plan-path>
+```
+
+Examples:
 
 ```text
 /graph Add customer search
 /graph docs/future/customer-search.md
 /graph docs/exec-plans/active/customer-search.md
+/graph docs/future/final-plan.md
 ```
 
-The planner validates task dependencies, ownership, completion criteria, and focused checks. Execution starts only after approval.
+#### Scope selection
 
-Workers use medium thinking by default. High-risk or difficult tasks use high thinking. A failed medium worker gets one high-thinking retry.
+A plain-text objective produces one bounded task graph. Its Git repository and exact objective form a stable Run identity for recovery.
 
-Each worker owns separate files or contract areas. The coordinator owns integration, conflict resolution, validation, and closeout.
+The planner can stop when parallel workers provide no clear benefit.
 
-The coordinator resolves mechanical merge conflicts. It asks the user only when the intended behavior is ambiguous.
+An existing future, active, or completed plan path selects a target plan. The target is the requested endpoint.
+
+`/graph` follows `Dependencies` backward from the target. It includes unfinished prerequisites, but it does not include later plans that depend on the target.
+
+A target without unfinished dependencies produces a plan chain of one. Completed dependencies do not run again.
+
+Dependencies can span local Git repositories available to Orca. Each Plan-ID must match exactly one plan across those repositories. Every execution plan must declare a Plan-ID.
+
+Missing or duplicate Plan-IDs stop planning. Draft plans, blocked plans, ambiguous scope, and unresolved external approvals also stop planning.
+
+#### Planning and approval
+
+The extension takes a host-local target lock before planning. For a plan path, the lock key uses the repository and Plan-ID.
+
+After proposal validation, it locks every plan in the chain before approval. An overlapping chain cannot execute the same prerequisite at the same time.
+
+The Plan-ID keeps each lock identity stable when a plan moves between `future`, `active`, and `completed` directories.
+
+The planner reads every plan, its repository rules, acceptance criteria, targets, gates, and required validation. Mutation tools remain blocked during this work.
+
+The planner orders prerequisites before dependent plans. If several plans are ready, it uses priority first and Plan-ID second.
+
+The approval screen shows the complete top-to-bottom execution order. One approval authorizes the displayed plan chain and its required local commits.
+
+#### Execution
+
+After approval, `/graph` uses one stable Orca Run objective. It resumes one unfinished matching Run or creates a Run when none exists.
+
+The coordinator creates one non-dispatched Orca task for each plan. These tasks store the approved dependencies and provide the durable execution ledger.
+
+The coordinator selects the first unfinished ready plan in the approved order. It rechecks the plan before it changes any files.
+
+A ready future plan moves to `docs/exec-plans/active/` immediately before execution. Its status changes to `queued`, then to `in-progress` when work starts.
+
+The coordinator splits the active plan into one to six internal worker tasks. Independent tasks start together after ownership validation.
+
+Each task gets a fresh `pi-yolo` worker in that plan repository's current worktree. Completed workers never receive another task.
+
+Every worker launch pins the coordinator's selected provider and model. Codex launches also pin its selected account, so the quota gate checks the worker's subscription.
+
+Workers use medium thinking for bounded work. Architecture, security, concurrency, migration, API-contract, and difficult debugging work uses high thinking.
+
+The coordinator supervises every dispatch and releases every completed worker. One failed medium worker can receive one fresh high-thinking replacement.
+
+Workers do not commit or push. The coordinator integrates results, resolves mechanical conflicts, and runs the plan's complete validation and closeout.
+
+The coordinator moves a plan to `completed` only after all requirements pass. It records evidence, completes the plan task, and selects the next ready plan.
+
+A blocker, failed validation, unresolved decision, or trusted external boundary stops the plan chain. The current Orca state remains available for recovery.
+
+#### Quota control
+
+For Codex subscriptions, `/graph` checks quota before each worker launch.
+
+It reserves 15% of the long quota window. If Codex reports a short window, it also reserves 5% of that window.
+
+Missing long-window data stops new workers. Missing short-window data does not stop them.
+
+Existing workers finish their current wave. The coordinator marks the active plan `budget-exhausted` and preserves the Run state.
+
+After the quota resets, run the same `/graph` command to continue. Usage reports can lag, so the reserve is not an exact guarantee.
+
+#### Duplicate protection and recovery
+
+Only one coordinator can run a target on one host. A second coordinator receives an active-run error instead of creating duplicate work.
+
+If the coordinator process crashes, its PID lock becomes stale. Only the same target may replace locks for its unfinished plan chain.
+
+Other targets cannot take those plan locks while crash-surviving workers may still exist. Run the same target plan after a crash. Approve the recovered schedule, and `/graph` binds to the unfinished Orca Run.
+
+Successful closeout explicitly releases every lock. If a coordinator turn ends without closeout, `/graph` abandons the locks but preserves their target identity for recovery.
+
+Recovery preserves completed tasks and existing task IDs. It continues live dispatches, processes settled results, and creates only missing tasks.
+
+Completed-plan recovery can only bind an existing Run and reconcile its ledger. It cannot create a Run, edit files, or launch workers.
+
+Orca does not provide cross-host Run leases, event triggers for stopped coordinators, or scoped CLI credentials. The command guards assume a trusted coordinator and are not a sandbox against an agent that deliberately wraps Orca calls in another interpreter. When Orca provides these APIs, `/graph` will add cross-host locking, automatic restart, and Orca-side mutation scopes.
+
+The toolkit does not use scheduled polling. Polling consumes quota and can race with a live coordinator.
+
+Trusted push, pull-request, merge, release, credential, and permission boundaries remain interactive. The plan chain stops with completed local work at these boundaries.
 
 ## Skills
 
