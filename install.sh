@@ -233,6 +233,15 @@ try {
 NODE
 }
 
+install_pi_package() {
+  local source=$1
+  if pi list --no-approve | awk -v source="$source" '$1 == source { found = 1; next } found && /^    / { installed = 1; exit } found { exit } END { exit !installed }'; then
+    printf 'Pi package already installed: %s\n' "$source"
+  else
+    pi install "$source" --no-approve
+  fi
+}
+
 install_pi_packages() {
   local web_source="npm:pi-web-access@0.13.0"
   if ! command -v pi >/dev/null 2>&1; then
@@ -240,8 +249,8 @@ install_pi_packages() {
     return
   fi
 
-  pi install "npm:@ff-labs/pi-fff@0.10.3"
-  pi install "$web_source"
+  install_pi_package "npm:@ff-labs/pi-fff@0.10.3"
+  install_pi_package "$web_source"
 
   local settings_path=$pi_agent_dir/settings.json
   node "$repo_dir/shared/pi-web-access/configure-package.cjs" "$settings_path" "$web_source"
@@ -265,7 +274,7 @@ install_agent_safety() {
 
   if command -v pi >/dev/null 2>&1; then
     version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
-    pi install "npm:@gotgenes/pi-permission-system@$version"
+    install_pi_package "npm:@gotgenes/pi-permission-system@$version"
     policy_temp=$(mktemp "${TMPDIR:-/tmp}/agent-toolkit-pi-policy.XXXXXX")
     cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$policy_temp"
     node "$repo_dir/shared/agent-safety/configure.cjs" pi "$policy_temp" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
@@ -316,7 +325,7 @@ install_ponytail() {
   fi
 
   if command -v pi >/dev/null 2>&1; then
-    pi install "$pi_source"
+    install_pi_package "$pi_source"
   else
     printf 'skipped Pi Ponytail package (pi not found)\n'
   fi

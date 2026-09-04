@@ -36,16 +36,15 @@ Two phases:
    - `STATUS: TEMPLATE_FOUND` → tell the user you're reusing their branded template; continue to step 2.
    - `STATUS: NO_TEMPLATE` → read `references/brand-init.md` and complete brand init BEFORE writing any exploration HTML. **No exceptions.** The source mock/wireframe being styled differently is never a reason to skip init — init styles the document chrome only; the mock contributes content, not brand. Init must end with `design-explorations/_template.html` and `_brand.md` on disk.
 2. Read the source spec/brief. Identify the **specific surface** being explored (a hero, a card, a page, a flow). If the spec is large, narrow to the highest-leverage surface and say what you scoped to.
-3. **Optional — Landingfolio inspiration.** If the Landingfolio MCP is connected (tools named `mcp__landingfolio__*`), pull 3–5 real examples of the surface type being explored (hero, pricing, testimonials, …) and let them inform the variant theses in the next step. If it is NOT installed, never block and never ask — tell the user in one line that you're passing on it, e.g. "Landingfolio MCP not installed — skipping the inspiration pull. Install it at landingfolio.com/mcp if you want reference designs informing the variants." Then continue as normal.
-4. Brainstorm 4 distinctly different directions (range 3–6), each with a one-sentence thesis. **Announce them before writing** — "Building 4 directions: A) social-proof-led, B) calculator-led, …" — this is the last message before the longest silent stretch.
-5. If the surface renders a data record, sample a real record first (see "Ground variants in real data").
-6. Copy the template path reported by the scan to `<template-directory>/<short-name>.html` and fill in the page header + variant sections. Use real copy from the spec/codebase.
-7. If a data record is involved, emit `<short-name>.manifest.md` (see below).
-8. Open the file in a browser:
+3. Brainstorm 4 distinctly different directions (range 3–6), each with a one-sentence thesis. **Announce them before writing** — "Building 4 directions: A) social-proof-led, B) calculator-led, …" — this is the last message before the longest silent stretch.
+4. If the surface renders a data record, sample a real record first (see "Ground variants in real data").
+5. Copy the template path reported by the scan to `<template-directory>/<short-name>.html` and fill in the page header + variant sections. Use real copy from the spec/codebase.
+6. If a data record is involved, emit `<short-name>.manifest.md` (see below).
+7. Open the file in a browser:
    - When Pi runs in Orca, read the installed `orca-cli` skill, load its version-matched guide, and use Orca's embedded browser to open the absolute `file://` URL.
    - Otherwise, use `open` (macOS), `xdg-open` (Linux), or `start` (Windows). If the environment is headless, skip this step and report the path.
-9. Report: the variants with their one-line tradeoffs, the file path, the manifest path if emitted, and any Aspirational elements to flag.
-10. When the user picks a variant (now or later), read `references/implement.md` and follow it.
+8. Report: the variants with their one-line tradeoffs, the file path, the manifest path if emitted, and any Aspirational elements to flag.
+9. When the user picks a variant (now or later), read `references/implement.md` and follow it.
 
 **Narrate as you go:** the generation stretch runs minutes with no visible output. One-line status at each checkpoint — after the scan (what it found), after scoping, before writing (the variant theses), after writing (the path). A 3-minute silence must never be the first sign of progress.
 
