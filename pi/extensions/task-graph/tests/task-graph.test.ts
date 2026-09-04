@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import test from "node:test"
 import { tmpdir } from "node:os"
@@ -21,6 +22,7 @@ import {
 	planningDocumentRequiresPlanOnly,
 	planRequiresPlanOnly,
 	releaseTaskGraphLock,
+	repositoryIdentity,
 	resolvePlanLifecyclePath,
 	replacePlanStatus,
 	reviewTaskGraph,
@@ -122,6 +124,25 @@ test("pauses new graph workers at the subscription quota reserve", () => {
 	} finally {
 		if (configured === undefined) delete process.env.ORCA_CLI_COMMAND
 		else process.env.ORCA_CLI_COMMAND = configured
+	}
+})
+
+test("uses one repository identity across linked worktrees", () => {
+	const root = mkdtempSync(join(tmpdir(), "task-graph-repository-"))
+	const main = join(root, "main")
+	const linked = join(root, "linked")
+	try {
+		execFileSync("git", ["init", "--quiet", "--initial-branch=main", main])
+		mkdirSync(linked)
+		const worktreeAdmin = join(main, ".git", "worktrees", "linked")
+		mkdirSync(worktreeAdmin, { recursive: true })
+		writeFileSync(join(linked, ".git"), `gitdir: ${worktreeAdmin}\n`)
+		writeFileSync(join(worktreeAdmin, "commondir"), "../..\n")
+		writeFileSync(join(worktreeAdmin, "gitdir"), `${join(linked, ".git")}\n`)
+		writeFileSync(join(worktreeAdmin, "HEAD"), "ref: refs/heads/linked\n")
+		assert.equal(repositoryIdentity(main), repositoryIdentity(linked))
+	} finally {
+		rmSync(root, { recursive: true, force: true })
 	}
 })
 

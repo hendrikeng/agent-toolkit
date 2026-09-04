@@ -7,6 +7,11 @@ export const TASK_GRAPH_USAGE = "Usage: /graph <objective-or-plan-path>"
 export const TASK_GRAPH_WEEKLY_QUOTA_RESERVE = 15
 export const TASK_GRAPH_SHORT_QUOTA_RESERVE = 5
 
+export function repositoryIdentity(root: string): string {
+	const common = execFileSync("git", ["-C", root, "rev-parse", "--git-common-dir"], { encoding: "utf8", timeout: 10_000 }).trim()
+	return realpathSync(resolve(root, common))
+}
+
 export function taskGraphTerminalTitle(runObjective: string): string {
 	return `pi-graph-${createHash("sha256").update(runObjective).digest("hex")}`
 }

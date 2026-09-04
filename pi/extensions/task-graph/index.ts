@@ -25,6 +25,7 @@ import {
 	planningDocumentNeedsRecovery,
 	planningDocumentRequiresPlanOnly,
 	releaseTaskGraphLock,
+	repositoryIdentity,
 	replacePlanStatus,
 	resolvePlanLifecyclePath,
 	reviewTaskGraph,
@@ -106,11 +107,6 @@ export function resolveLocalPlan(cwd: string, objective: string): LocalPlan | un
 	}
 }
 
-export function repositoryIdentity(root: string): string {
-	const common = execFileSync("git", ["-C", root, "rev-parse", "--git-common-dir"], { encoding: "utf8", timeout: 10_000 }).trim()
-	return realpathSync(resolve(root, common))
-}
-
 function orcaExecutable(): string {
 	return process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : process.platform === "linux" ? "orca-ide" : "orca")
 }
@@ -136,7 +132,7 @@ function terminalReceiptFromOutput(output: string): { handle: string; repository
 				const response = JSON.parse(output.slice(start, end + 1))
 				const terminal = response?.result?.terminal ?? response?.result?.split
 				const repository = String(terminal?.worktreePath || terminal?.worktreeId || "").split("::").at(-1)
-				if (typeof terminal?.handle === "string" && repository && existsSync(repository)) return { handle: terminal.handle, repository: realpathSync(repository) }
+				if (typeof terminal?.handle === "string" && repository && existsSync(repository)) return { handle: terminal.handle, repository: repositoryIdentity(repository) }
 			} catch {}
 		}
 	}
@@ -374,7 +370,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				if (typeof terminal.handle === "string" && repository && existsSync(repository)) {
 					graphWorkerTerminals.add(terminal.handle)
 					if (!dispatchedTerminals.has(terminal.handle)) approvedWorkerTerminals.add(terminal.handle)
-					terminalRepositories.set(terminal.handle, realpathSync(repository))
+					terminalRepositories.set(terminal.handle, repositoryIdentity(repository))
 				}
 			}
 			activeOrcaRunId = params.run_id
@@ -539,7 +535,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			approvedTaskRepositories.clear()
 			approvedTaskDependencies.clear()
 			if (approved) for (const task of plan.tasks) {
-				approvedTaskRepositories.set(task.id, realpathSync(resolve(root, task.repository ?? ".")))
+				approvedTaskRepositories.set(task.id, repositoryIdentity(resolve(root, task.repository ?? ".")))
 				approvedTaskDependencies.set(task.id, task.depends_on)
 			}
 			if (!approved) releaseChainLocks()
