@@ -26,11 +26,11 @@ export function writeFastMode(enabled: boolean, path = configPath()): void {
 }
 
 export function supportsFastMode(model: unknown): model is string {
-	return model === "gpt-5.4" || model === "gpt-5.5" || (typeof model === "string" && model.startsWith("gpt-5.6-"))
+	return model === "gpt-5.4" || model === "gpt-5.5" || model === "gpt-6-astra" || (typeof model === "string" && model.startsWith("gpt-5.6-"))
 }
 
 export function fastModeCostMultiplier(model: string): number {
-	return model === "gpt-5.4" ? 2 : 2.5
+	return model === "gpt-5.4" || model === "gpt-6-astra" ? 2 : 2.5
 }
 
 export function applyFastMode(provider: string | undefined, enabled: boolean, payload: unknown): void {
