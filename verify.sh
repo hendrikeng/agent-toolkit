@@ -317,7 +317,7 @@ fi
 node --experimental-strip-types --test "$repo_dir/pi/extensions/ask-user-question/tests/ask-user-question.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-fast/tests/codex-fast.test.ts"
-node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/goal-core.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/context-filter.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/status-format/tests/status-format.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
@@ -331,12 +331,11 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
 pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/ask-user-question/index.ts" --list-models >"$tmp_dir/question-models.txt"
-pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/codex-goal/index.ts" --list-models >"$tmp_dir/goal-models.txt"
+pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/codex-goal/index.ts" --list-models >"$tmp_dir/retired-extension-models.txt"
 pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/side-question/index.ts" --list-models >"$tmp_dir/side-models.txt"
 pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/figma-mcp/index.ts" --list-models >"$tmp_dir/figma-models.txt"
 printf '%s\n' '{"id":"commands","type":"get_commands"}' \
   | pi --offline --mode rpc --no-session >"$tmp_dir/rpc.jsonl" 2>"$tmp_dir/rpc.err"
-grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"fff-health"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"push"' "$tmp_dir/rpc.jsonl"
@@ -348,6 +347,10 @@ grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skills-update"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"graph"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
+if grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"; then
+  printf 'The retired goal command is still available\n' >&2
+  exit 1
+fi
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:deepsec"' "$tmp_dir/rpc.jsonl"

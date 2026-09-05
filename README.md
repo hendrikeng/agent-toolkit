@@ -42,7 +42,6 @@ Run `/reload` after an extension change. Restart Pi after a launcher or account-
 | `/graph` | Plan and supervise an Orca task graph. |
 | `/account` | Switch the active Pi and Codex account by email. |
 | `/fast` | Control the OpenAI Codex Fast service tier. |
-| `/goal` | Track a persistent Pi objective. |
 | `/side` | Run an isolated side conversation. |
 | `/push` | Perform one reviewed, non-force Git push. |
 | `/reviews` | Control automatic risk-gated AI reviews. |
@@ -152,19 +151,6 @@ A successful update preserves earlier decision packets and writes a new update p
 ```
 
 Fast mode reduces latency and uses more subscription quota.
-
-### Goals
-
-```text
-/goal <objective>
-/goal
-/goal edit
-/goal pause
-/goal resume
-/goal clear
-```
-
-Goal state remains in the current Pi session.
 
 ### Side conversations
 
