@@ -128,6 +128,21 @@ first@example.com | 5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3 · 22d | FAST | YOLO
 
 ## Pi commands
 
+### Project blueprint
+
+```text
+/project audit .
+/project adopt .
+/project update .
+/project new ../new-project
+```
+
+`update` uses the local blueprint checkout, not the latest upstream revision. It shows the installed and source revisions and managed-file differences before approval.
+
+The guarded updater compares managed files with their configured baseline. It stops if these files contain local changes. Never force an update to bypass conflicts.
+
+A successful update preserves earlier decision packets and writes a new update packet. It applies the approved values to incoming templates and preserves project-owned files. Pi then runs focused checks and reports unresolved conflicts or unavailable checks. Sync success alone does not prove application correctness.
+
 ### Fast mode
 
 ```text

@@ -160,7 +160,14 @@ if "$repo_dir/shared/agent-safety/git-yolo-guard" -C "$repo_dir" clean -nd >/dev
   printf 'git yolo guard allowed git clean\n' >&2
   exit 1
 fi
-"$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
+system_git=
+for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
+  if [[ -x $candidate ]]; then system_git=$candidate; break; fi
+done
+[[ -n $system_git ]]
+mkdir "$tmp_dir/system-git"
+ln -s "$system_git" "$tmp_dir/system-git/git"
+PATH="$tmp_dir/system-git:$PATH" "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
 cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
 cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$HOME/.codex/skills/explore-design/SKILL.md"
 cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$HOME/.codex/skills/fastapi/SKILL.md"
@@ -218,10 +225,11 @@ if command -v claude >/dev/null 2>&1; then
     const plugins = JSON.parse(require("fs").readFileSync(0, "utf8"));
     process.exit(plugins.some(plugin =>
       plugin.id === "ponytail@ponytail" &&
+      plugin.version === process.argv[1] &&
       plugin.scope === "user" &&
       plugin.enabled === true
     ) ? 0 : 1);
-  '
+  ' "$ponytail_version"
   node -e '
     const settings = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
     const deny = settings.permissions?.deny ?? [];
@@ -231,7 +239,7 @@ if command -v claude >/dev/null 2>&1; then
 fi
 if command -v codex >/dev/null 2>&1; then
   "$HOME/.local/bin/codex-yolo" --help >/dev/null
-  codex plugin list | grep '^ponytail@ponytail[[:space:]].*installed, enabled' >/dev/null
+  codex plugin list | grep "^ponytail@ponytail[[:space:]].*installed, enabled[[:space:]]*$ponytail_version[[:space:]]" >/dev/null
   test ! -L "$HOME/.codex/rules/agent-safety.rules"
   cmp "$repo_dir/shared/agent-safety/codex.rules" "$HOME/.codex/rules/agent-safety.rules"
   test "$(<"$HOME/.codex/rules/agent-safety.rules.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.codex/rules/agent-safety.rules" | awk '{print $1}')"
@@ -286,7 +294,7 @@ if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" sandbox proc
   printf 'DeepSec wrapper allowed sandbox use without Vercel approval\n' >&2
   exit 1
 fi
-grep -q -- 'npx --yes deepsec@2.3.5' "$repo_dir/pi/skills/deepsec/scripts/deepsec"
+grep -q -- 'npx --yes deepsec@2.3.9' "$repo_dir/pi/skills/deepsec/scripts/deepsec"
 "$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
 bash -n "$repo_dir/pi/skills/explore-design/scripts/scan-brand.sh"
 brand_fixture="$tmp_dir/explore-design-brand"
@@ -313,7 +321,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests
 node --experimental-strip-types --test "$repo_dir/pi/extensions/status-format/tests/status-format.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
-node --experimental-strip-types --test "$repo_dir/pi/extensions/project-blueprint/tests/project-blueprint.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/project-blueprint/tests/"*.test.ts
 node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/tests/simple-english.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/side-question/tests/side-question.test.ts"

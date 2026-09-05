@@ -162,12 +162,14 @@ claude_has_user_ponytail() {
   claude plugin list --json 2>/dev/null | node -e '
     const plugins = JSON.parse(require("fs").readFileSync(0, "utf8"));
     const requireEnabled = process.argv[1] === "enabled";
+    const version = process.argv[2];
     process.exit(plugins.some(plugin =>
       plugin.id === "ponytail@ponytail" &&
       plugin.scope === "user" &&
-      (!requireEnabled || plugin.enabled === true)
+      (!requireEnabled || plugin.enabled === true) &&
+      (!version || plugin.version === version)
     ) ? 0 : 1);
-  ' "$1"
+  ' "$1" "${2:-}"
 }
 
 install_pi_web_config() {
@@ -233,13 +235,26 @@ try {
 NODE
 }
 
+run_with_system_git() {
+  local git_bin= git_shim_dir status candidate
+  for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
+    if [[ -x $candidate ]]; then git_bin=$candidate; break; fi
+  done
+  [[ -n $git_bin ]] || { printf 'Git is required to install agent packages.\n' >&2; return 1; }
+  git_shim_dir=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-git.XXXXXX")
+  ln -s "$git_bin" "$git_shim_dir/git"
+  if PATH="$git_shim_dir:$PATH" "$@"; then status=0; else status=$?; fi
+  rm -rf "$git_shim_dir"
+  return "$status"
+}
+
 install_pi_package() {
   local source=$1
   if pi list --no-approve | awk -v source="$source" '$1 == source { found = 1; next } found && /^    / { installed = 1; exit } found { exit } END { exit !installed }'; then
     printf 'Pi package already installed: %s\n' "$source"
-  else
-    pi install "$source" --no-approve
+    return
   fi
+  run_with_system_git pi install "$source" --no-approve
 }
 
 install_pi_packages() {
@@ -293,16 +308,23 @@ install_ponytail() {
   if command -v claude >/dev/null 2>&1; then
     marketplace_source=$(claude_ponytail_marketplace_source)
     case "$marketplace_source" in
-      '') claude plugin marketplace add DietrichGebert/ponytail ;;
+      '') run_with_system_git claude plugin marketplace add DietrichGebert/ponytail ;;
       github:DietrichGebert/ponytail) ;;
       *) printf 'refusing unexpected Claude Ponytail marketplace: %s\n' "$marketplace_source" >&2; return 1 ;;
     esac
-    if claude_has_user_ponytail enabled; then
+    if ! claude_has_user_ponytail any; then
+      run_with_system_git claude plugin install ponytail@ponytail --scope user
+    elif ! claude_has_user_ponytail any "$version"; then
+      run_with_system_git claude plugin update ponytail@ponytail --scope user -y
+    fi
+    if ! claude_has_user_ponytail any "$version"; then
+      printf 'Claude Ponytail plugin did not update to %s\n' "$version" >&2
+      return 1
+    fi
+    if claude_has_user_ponytail enabled "$version"; then
       printf 'Claude Ponytail plugin already installed and enabled at user scope\n'
-    elif claude_has_user_ponytail any; then
-      claude plugin enable ponytail@ponytail --scope user
     else
-      claude plugin install ponytail@ponytail --scope user
+      claude plugin enable ponytail@ponytail --scope user
     fi
   else
     printf 'skipped Claude Ponytail plugin (claude not found)\n'
@@ -311,14 +333,14 @@ install_ponytail() {
   if command -v codex >/dev/null 2>&1; then
     marketplace_source=$(codex_ponytail_marketplace_source)
     case "$marketplace_source" in
-      '') codex plugin marketplace add DietrichGebert/ponytail ;;
+      '') run_with_system_git codex plugin marketplace add DietrichGebert/ponytail ;;
       git:https://github.com/DietrichGebert/ponytail.git) ;;
       *) printf 'refusing unexpected Codex Ponytail marketplace: %s\n' "$marketplace_source" >&2; return 1 ;;
     esac
-    if codex plugin list 2>/dev/null | grep '^ponytail@ponytail[[:space:]].*installed, enabled' >/dev/null; then
+    if codex plugin list 2>/dev/null | grep "^ponytail@ponytail[[:space:]].*installed, enabled[[:space:]]*$version[[:space:]]" >/dev/null; then
       printf 'Codex Ponytail plugin already installed and enabled\n'
     else
-      codex plugin add ponytail@ponytail
+      run_with_system_git codex plugin add ponytail@ponytail
     fi
   else
     printf 'skipped Codex Ponytail plugin (codex not found)\n'

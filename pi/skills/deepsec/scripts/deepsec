@@ -16,7 +16,7 @@ if [[ -z $command ]]; then
 fi
 shift
 
-deepsec=(npx --yes deepsec@2.3.5)
+deepsec=(npx --yes deepsec@2.3.9)
 project_root=${DEEPSEC_PROJECT_DIR:-$PWD}
 
 has_option() {

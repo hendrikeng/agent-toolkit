@@ -103,8 +103,13 @@ async function assertModeCompatibility(mode: ProjectMode, target: string): Promi
 	}
 	if (!(await stat(target)).isDirectory()) throw new Error("The project target must be a directory.")
 	if (mode === "audit") return
-	if (existsSync(join(target, "docs", "ops", "automation", "harness-manifest.json"))) {
-		throw new Error("This project already has a blueprint harness manifest. Use audit mode, or run the blueprint update workflow directly.")
+	const hasManifest = existsSync(join(target, "docs", "ops", "automation", "harness-manifest.json"))
+	if (mode === "update") {
+		if (!hasManifest) throw new Error("Update requires an existing blueprint harness manifest. Use adopt for first-time setup.")
+		return // The updater validates ownership, paths, and local modifications before writing.
+	}
+	if (hasManifest) {
+		throw new Error("This project already has a blueprint harness manifest. Use /project update or /project audit.")
 	}
 	const packagePath = join(target, "package.json")
 	if (!existsSync(packagePath)) {
@@ -132,10 +137,26 @@ async function assertNoTargetSymlink(target: string, filePath: string): Promise<
 	}
 }
 
+async function updateDecisionsPath(target: string): Promise<string> {
+	const manifestPath = join(target, "docs", "ops", "automation", "harness-manifest.json")
+	await assertNoTargetSymlink(target, manifestPath)
+	const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+	if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("The harness manifest must contain an object.")
+	if (manifest.decisionsPath !== undefined && (typeof manifest.decisionsPath !== "string" || !manifest.decisionsPath.trim())) {
+		throw new Error("The harness manifest decisionsPath must be a non-empty string.")
+	}
+	const path = resolve(target, manifest.decisionsPath ?? "docs/ops/automation/bootstrap-decisions.json")
+	await assertNoTargetSymlink(target, path)
+	if (!(await lstat(path)).isFile()) throw new Error("The harness decision packet must be a regular file.")
+	const canonical = realpathSync(path)
+	if (!isWithin(target, canonical)) throw new Error("The harness decision packet must stay inside the project.")
+	return relative(target, canonical)
+}
+
 async function assertApprovedConfiguration(active: ActiveProject, values: Record<string, string>, comparison: Record<string, unknown>): Promise<void> {
 	if (active.mode === "audit") return
 	const packetPath = join(active.target, "docs", "ops", "automation", "bootstrap-decisions.json")
-	if (existsSync(packetPath)) throw new Error(`Adoption preserves the existing decision packet: ${relative(active.target, packetPath)}. Move or review it before retrying.`)
+	if (active.mode !== "update" && existsSync(packetPath)) throw new Error(`Adoption preserves the existing decision packet: ${relative(active.target, packetPath)}. Move or review it before retrying.`)
 	if (active.mode === "new") {
 		const name = values.PRODUCT.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "")
 		if (!name || name.length > 214 || ["node_modules", "favicon.ico"].includes(name)) {
@@ -146,12 +167,14 @@ async function assertApprovedConfiguration(active: ActiveProject, values: Record
 		}
 		return
 	}
-	const governed = new Set(questionnairePlaceholders(active.questionnaire))
-	for (const targetPath of Array.isArray(comparison.modified) ? comparison.modified : []) {
-		if (typeof targetPath !== "string") continue
-		const content = await readFile(join(active.target, targetPath), "utf8")
-		const conflict = [...content.matchAll(/\{\{([A-Z0-9_]+)\}\}/g)].find((match) => governed.has(match[1]))
-		if (conflict) throw new Error(`Existing blueprint path ${targetPath} contains governed placeholder ${conflict[0]}; resolve it before adoption.`)
+	if (active.mode !== "update") {
+		const governed = new Set(questionnairePlaceholders(active.questionnaire))
+		for (const targetPath of Array.isArray(comparison.modified) ? comparison.modified : []) {
+			if (typeof targetPath !== "string") continue
+			const content = await readFile(join(active.target, targetPath), "utf8")
+			const conflict = [...content.matchAll(/\{\{([A-Z0-9_]+)\}\}/g)].find((match) => governed.has(match[1]))
+			if (conflict) throw new Error(`Existing blueprint path ${targetPath} contains governed placeholder ${conflict[0]}; resolve it before adoption.`)
+		}
 	}
 	const packagePath = join(active.target, "package.json")
 	await assertNoTargetSymlink(active.target, packagePath)
@@ -199,7 +222,8 @@ async function writeDecisionPacket(
 	evidence: Record<string, string>,
 	comparison: Record<string, unknown>,
 ): Promise<string> {
-	const packetPath = join(active.target, "docs", "ops", "automation", "bootstrap-decisions.json")
+	const packetName = active.mode === "update" ? `blueprint-update-decisions-${Date.now()}.json` : "bootstrap-decisions.json"
+	const packetPath = join(active.target, "docs", "ops", "automation", packetName)
 	await assertNoTargetSymlink(active.target, packetPath)
 	await mkdir(dirname(packetPath), { recursive: true })
 	await writeFile(packetPath, `${JSON.stringify({
@@ -240,12 +264,13 @@ function summarizeComparison(comparison: Record<string, unknown>): Record<string
 	}
 }
 
-function runHarnessCommand(active: ActiveProject, command: "install" | "adopt" | "drift"): Record<string, unknown> {
+function runHarnessCommand(active: ActiveProject, command: "install" | "adopt" | "update" | "drift", decisionsPath?: string): Record<string, unknown> {
 	const result = spawnSync(process.execPath, [
 		join(active.blueprintRoot, "scripts", "harness-sync.mjs"),
 		command,
 		"--target", active.target,
 		"--json", "true",
+		...(decisionsPath ? ["--decisions", decisionsPath] : []),
 	], { cwd: active.blueprintRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 	if (result.status !== 0 && !(command === "drift" && result.status === 2)) {
 		throw new Error(result.stderr.trim() || `Blueprint ${command} failed.`)
@@ -290,11 +315,24 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 				evidence[placeholder] = "user-provided during interactive review"
 			}
 
-			const comparison = {
+			const comparison: Record<string, unknown> = {
 				...summarizeComparison(runHarnessCommand(active, "drift")),
 				decisionPacketExists: existsSync(join(active.target, "docs", "ops", "automation", "bootstrap-decisions.json")),
 			}
-			let edited = await ctx.ui.editor("Review project bootstrap decision packet", JSON.stringify({
+			if (active.mode === "update") {
+				if (comparison.manifestStatus !== "valid") throw new Error("Update requires a valid harness manifest. Run /project audit and resolve the manifest issue first.")
+				const manifestPath = join(active.target, "docs", "ops", "automation", "harness-manifest.json")
+				await assertNoTargetSymlink(active.target, manifestPath)
+				const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+				Object.assign(comparison, {
+					installedRevision: manifest.sourceRevision,
+					decisionsPath: manifest.decisionsPath ?? null,
+					configuredBaseline: Boolean(manifest.decisionsPath && manifest.managedFiles?.every((entry: { configuredSha256?: string }) => /^[a-f0-9]{64}$/.test(entry.configuredSha256 ?? ""))),
+					sourceRevision: blueprintRevision(active.blueprintRoot),
+					updatePolicy: "Guarded update only. Locally modified managed files block the entire update. Project-owned files and the original decision packet are preserved. Required checks run afterward.",
+				})
+			}
+			let edited = await ctx.ui.editor("Review project blueprint decision packet", JSON.stringify({
 				mode: active.mode,
 				target: active.target,
 				blueprintComparison: comparison,
@@ -340,9 +378,13 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 				return { content: [{ type: "text", text: "The user cancelled. No files changed." }], details: { status: "cancelled" } }
 			}
 
+			signal?.throwIfAborted()
+			if (active.mode === "update" && blueprintRevision(active.blueprintRoot) !== comparison.sourceRevision) {
+				throw new Error("The blueprint revision changed during review. Start /project update again.")
+			}
 			await assertModeCompatibility(active.mode, active.target)
 			await assertApprovedConfiguration(active, reviewed.values, comparison)
-			approved = active.mode !== "audit"
+			approved = active.mode !== "audit" && active.mode !== "update"
 			reviewClosed = true
 			if (active.mode === "audit") {
 				await rm(draftPath(active.target), { force: true })
@@ -350,6 +392,23 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 				return {
 					content: [{ type: "text", text: `The user approved this read-only audit packet. Report alignment gaps, adoption classifications, and validation evidence without changing files:\n${JSON.stringify(auditPacket, null, 2)}` }],
 					details: { status: "audit-approved", ...auditPacket },
+				}
+			}
+
+			if (active.mode === "update") {
+				const packetPath = await writeDecisionPacket(active, reviewed.values, reviewed.evidence ?? {}, comparison)
+				let sync: Record<string, unknown>
+				try {
+					sync = runHarnessCommand(active, "update", join(active.target, packetPath))
+				} catch (error) {
+					throw new Error(`${error instanceof Error ? error.message : String(error)} Approved decisions retained at ${packetPath}. Stop and report the blocker; do not bypass the updater.`)
+				}
+				approved = true
+				await rm(draftPath(active.target), { force: true })
+				const drift = runHarnessCommand(active, "drift")
+				return {
+					content: [{ type: "text", text: `Configured blueprint update applied. Decision packet: ${packetPath}. Drift remaining: ${drift.driftDetected === true}. The updater preserves project-owned files, package scripts, and the original decision packet. It does not restore bootstrap-only helpers. Inspect changed instructions and scripts, run the focused blueprint and repository checks, and report failed or unavailable checks. Do not claim application correctness from sync success.` }],
+					details: { status: "approved", sync, packetPath, drift },
 				}
 			}
 
@@ -361,14 +420,14 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 			const changedFiles = Array.isArray(configured.changedFiles) ? configured.changedFiles : []
 			const scriptConflicts = Array.isArray(configured.scriptConflicts) ? configured.scriptConflicts : []
 			return {
-				content: [{ type: "text", text: `Blueprint base applied after approval. Decision packet: ${packetPath}. Replaced placeholders in ${changedFiles.length} files. Preserved ${preserved.length} existing files. Package-script conflicts: ${scriptConflicts.length ? scriptConflicts.join(", ") : "none"}. Reconcile preserved files, verify commands against the real package manifest, then run the focused bootstrap checks. Do not remove bootstrap helpers until every required check passes.` }],
+				content: [{ type: "text", text: `Blueprint base applied after approval. Decision packet: ${packetPath}. Replaced placeholders in ${changedFiles.length} files. Preserved ${preserved.length} existing files. Package-script conflicts: ${scriptConflicts.length ? scriptConflicts.join(", ") : "none"}. Reconcile preserved files, verify commands against the real package manifest, then run the focused blueprint checks from the installed scripts and repository instructions. Update does not restore removed bootstrap-only helpers. Report failed or unavailable checks and unresolved placeholders; do not claim complete validation from sync success. Do not remove bootstrap helpers until every required check passes.` }],
 				details: { status: "approved", sync, packetPath, configured },
 			}
 		},
 	})
 
 	pi.registerCommand("project", {
-		description: "Audit, adopt, or initialize the Agent Project Blueprint with interactive approval",
+		description: "Audit, adopt, update, or initialize the Agent Project Blueprint with interactive approval",
 		handler: async (rawArgs, ctx) => {
 			if (!ctx.isIdle()) {
 				ctx.ui.notify("Wait for the current response to finish, then run /project again.", "warning")
@@ -376,7 +435,7 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 			}
 			let parsed = parseProjectArgs(rawArgs)
 			if ((!parsed || !parsed.target) && ctx.hasUI) {
-				const mode = await ctx.ui.select("Project blueprint mode", ["audit", "adopt", "new"])
+				const mode = await ctx.ui.select("Project blueprint mode", ["audit", "adopt", "update", "new"])
 				if (!mode) return
 				const target = await ctx.ui.input("Project target path", ctx.cwd)
 				parsed = target?.trim() ? { mode: mode as ProjectMode, target: target.trim() } : null
@@ -394,7 +453,8 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 				}
 				const questionnaire = await readQuestionnaire(blueprintRoot)
 				const next = { mode: parsed.mode, target, blueprintRoot, questionnaire }
-				let prompt = projectPlanningPrompt(parsed.mode, target, questionnaire)
+				const decisionsPath = parsed.mode === "update" ? await updateDecisionsPath(target) : undefined
+				let prompt = projectPlanningPrompt(parsed.mode, target, questionnaire, decisionsPath)
 				const savedPath = draftPath(target)
 				if (existsSync(savedPath) && ctx.hasUI) {
 					const resume = await ctx.ui.select("Saved project draft found", ["Resume", "Start over", "Cancel"])

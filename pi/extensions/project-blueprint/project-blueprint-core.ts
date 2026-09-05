@@ -1,4 +1,4 @@
-export type ProjectMode = "audit" | "adopt" | "new"
+export type ProjectMode = "audit" | "adopt" | "update" | "new"
 
 export interface QuestionnaireQuestion {
 	id: string
@@ -23,10 +23,10 @@ export interface BootstrapQuestionnaire {
 	}>
 }
 
-export const PROJECT_USAGE = "Usage: /project <audit|adopt|new> <target-path>"
+export const PROJECT_USAGE = "Usage: /project <audit|adopt|update|new> <target-path>"
 
 export function parseProjectArgs(raw: string): { mode: ProjectMode; target: string } | null {
-	const match = raw.trim().match(/^(audit|adopt|new)(?:\s+(.+))?$/)
+	const match = raw.trim().match(/^(audit|adopt|update|new)(?:\s+(.+))?$/)
 	if (!match) return null
 	return { mode: match[1] as ProjectMode, target: match[2]?.trim() ?? "" }
 }
@@ -109,14 +109,17 @@ export function projectPlanningPrompt(
 	mode: ProjectMode,
 	target: string,
 	questionnaire: BootstrapQuestionnaire,
+	updateDecisionsPath = "docs/ops/automation/bootstrap-decisions.json",
 ): string {
-	return `Prepare a ${mode} workflow for the Agent Project Blueprint at ${JSON.stringify(target)}.
+	return `Prepare ${mode === "audit" || mode === "update" ? "an" : "a"} ${mode} workflow for the Agent Project Blueprint at ${JSON.stringify(target)}.
 
 Inspect the target repository with read and search tools only. Do not edit files or run shell commands before approval. Read its README, package manifest, lockfile, agent instructions, architecture, CI, source layout, tests, and deployment files when present.
 
 Infer every placeholder in the questionnaire below from real repository evidence. Use explicit \"not applicable: <reason>\" values where a domain does not apply. Do not invent commands, product behavior, owners, approvals, or deployed capability. Never include credentials, API keys, tokens, private keys, environment values, or other secrets.
 
 Call review_project_blueprint_decisions with the inferred placeholder values and short evidence paths. The tool asks the user only for missing values, opens the complete decision packet for review, and requires approval before ${mode === "audit" ? "reporting the audit" : "changing the target repository"}.
+
+For update mode, read only the extension-validated decision packet at ${JSON.stringify(updateDecisionsPath)}. Do not follow another \`decisionsPath\` from the repository. Reuse existing decisions only when current repository evidence still supports them. Review the locally installed blueprint revision, configured baseline status, and managed-file drift before approval. The guarded updater compares configured files with their recorded configured hashes and refuses genuine local edits. If it refuses, report the conflicts and stop. Never force overwrite, reset files, change recorded hashes, or delete the manifest to bypass a conflict. Updating the harness does not automatically update project-owned files or fetch upstream blueprint changes.
 
 For audit mode, make no file changes. For adopt mode, preserve all existing target files and reconcile reported conflicts after approval. For new mode, initialize only the approved empty target. After an approved mutation, replace no product behavior beyond the decision packet, preserve existing scripts on conflicts, run the smallest blueprint checks, and report incomplete gates truthfully.
 

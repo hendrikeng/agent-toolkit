@@ -7,7 +7,7 @@ license: SEE LICENSE IN node_modules/react-doctor/LICENSE
 
 # React Doctor
 
-This skill is manual-only. Run it when the user requests a React health check or before shipping a meaningful React change—not after every small edit.
+This skill is manual-only. Run it only when the user explicitly requests a React health check or React Doctor scan. Do not run it automatically during coding, commit, push, or task closeout.
 
 ## Scan changed code
 

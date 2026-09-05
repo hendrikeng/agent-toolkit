@@ -3,6 +3,7 @@ import test from "node:test"
 import {
 	missingDecisionValues,
 	parseProjectArgs,
+	projectPlanningPrompt,
 	validateDecisionValues,
 	type BootstrapQuestionnaire,
 } from "../project-blueprint-core.ts"
@@ -36,7 +37,14 @@ const validValues = {
 test("parses project modes and paths", () => {
 	assert.deepEqual(parseProjectArgs("adopt ../existing project"), { mode: "adopt", target: "../existing project" })
 	assert.deepEqual(parseProjectArgs("audit /tmp/repo"), { mode: "audit", target: "/tmp/repo" })
-	assert.equal(parseProjectArgs("update /tmp/repo"), null)
+	assert.deepEqual(parseProjectArgs("update /tmp/repo"), { mode: "update", target: "/tmp/repo" })
+	assert.equal(parseProjectArgs("overwrite /tmp/repo"), null)
+	const prompt = projectPlanningPrompt("update", "/tmp/repo", questionnaire)
+	assert.match(prompt, /bootstrap-decisions\.json/)
+	assert.match(prompt, /Do not follow another `decisionsPath`/)
+	assert.match(prompt, /Never force overwrite/)
+	assert.match(prompt, /compares configured files with their recorded configured hashes/)
+	assert.match(prompt, /requires approval before changing/)
 })
 
 test("allows non-Node toolchain decisions for read-only audits", () => {

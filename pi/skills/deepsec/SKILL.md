@@ -7,7 +7,7 @@ license: Apache-2.0
 
 # DeepSec
 
-DeepSec is manual-only. Never run it automatically during coding, review, commit, push, or task closeout. The wrapper lazily downloads the exact pinned `deepsec@2.3.5` package on first use, so normal toolkit installation stays small.
+DeepSec is manual-only. Never run it automatically during coding, review, commit, push, or task closeout. The wrapper lazily downloads the exact pinned `deepsec@2.3.9` package on first use, so normal toolkit installation stays small.
 
 Treat DeepSec like a coding agent with full shell access. Run it only on trusted source code. Its AI stages can cost thousands or tens of thousands of dollars on large repositories.
 
@@ -46,7 +46,7 @@ Before any `init`, `process`, `revalidate`, or `triage` command:
 2. Show the exact command, scope, model, limits, and credential route.
 3. Obtain explicit confirmation for that command.
 4. Use the scaffolded local Codex route for ordinary `process` and `revalidate` runs.
-5. For `triage`, disclose that `deepsec@2.3.5` uses Claude and obtain explicit approval for that credential route.
+5. For `triage`, disclose that `deepsec@2.3.9` uses Claude and obtain explicit approval for that credential route.
 6. Set `DEEPSEC_ALLOW_AI=1` only for the confirmed invocation. Set `DEEPSEC_ALLOW_CLAUDE=1` for an approved `triage` invocation.
 7. For `sandbox` or `sandbox-all`, disclose the source upload and Vercel costs. Set `DEEPSEC_ALLOW_VERCEL=1` only after approval.
 

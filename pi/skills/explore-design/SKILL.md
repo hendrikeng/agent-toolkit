@@ -88,7 +88,7 @@ Hard rules:
 - HTML-escape every value from specs, code, fixtures, APIs, or records before inserting it as text. Never treat sampled values as markup or script.
 - No dark "AI artifact" aesthetic for chrome (dark gray + neon + monospace everything).
 - No comments in the HTML except one top-of-file header block (title, source spec, date).
-- Open the file in a browser according to workflow step 8 before reporting done.
+- Open the file in a browser according to workflow step 7 before reporting done.
 
 ## Examples
 

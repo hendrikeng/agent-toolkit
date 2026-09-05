@@ -30,8 +30,8 @@ or wants a prompt for another agent.
 The prompt must:
 
 - Start a discussion, not a command-only work order.
-- Ask the receiving agent to do an extensive independent review before changing
-  anything.
+- Ask the receiving agent to inspect the relevant code and verify assumptions
+  before changing anything. Match investigation depth to the task's scope and risk.
 - Make clear that the receiving agent owns that review; the handoff only gives
   starting context and known constraints.
 - Ask the agent to decide whether the task is a good idea, stale, already
