@@ -31,7 +31,7 @@ test("uses OpenAI's Fast mode cost multipliers", () => {
 	assert.equal(fastModeCostMultiplier("gpt-5.4"), 2)
 	assert.equal(fastModeCostMultiplier("gpt-5.5"), 2.5)
 	assert.equal(fastModeCostMultiplier("gpt-5.6-sol"), 2.5)
-	assert.equal(fastModeCostMultiplier("gpt-6-astra"), 2)
+	assert.equal(fastModeCostMultiplier("gpt-6-astra"), 2.5)
 })
 
 test("adds the priority tier only to enabled OpenAI Codex requests", () => {

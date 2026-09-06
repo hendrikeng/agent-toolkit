@@ -30,7 +30,7 @@ export function supportsFastMode(model: unknown): model is string {
 }
 
 export function fastModeCostMultiplier(model: string): number {
-	return model === "gpt-5.4" || model === "gpt-6-astra" ? 2 : 2.5
+	return model === "gpt-5.4" ? 2 : 2.5
 }
 
 export function applyFastMode(provider: string | undefined, enabled: boolean, payload: unknown): void {

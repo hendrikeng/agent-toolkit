@@ -85,12 +85,12 @@ SECRET_VALUE_PATTERNS = [
 MAX_BUNDLE_TEXT_BYTES = 180_000
 DEFAULT_ENGINE_PATHS = ("/usr/local/bin", "/usr/bin", "/bin")
 DEFAULT_MODEL_BY_ENGINE = {
-    "codex": "gpt-5.6-sol",
+    "codex": "gpt-6-astra",
     "claude": "claude-fable-5",
 }
-DEFAULT_CODEX_ACCESS_FALLBACK_MODEL = "gpt-5.6-terra"
+DEFAULT_CODEX_ACCESS_FALLBACK_MODEL = "gpt-5.6-sol"
 DEFAULT_THINKING_BY_ENGINE = {
-    "codex": "high",
+    "codex": "medium",
 }
 THINKING_LEVELS_BY_ENGINE = {
     "codex": {"none", "minimal", "low", "medium", "high", "xhigh"},
@@ -1287,43 +1287,48 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
     if access_fallback and access_fallback != args.model:
         models.append(access_fallback)
     primary_failure: subprocess.CompletedProcess[str] | None = None
-    for index, model in enumerate(models):
-        cmd = [resolve_command(args.codex_bin, repo), "--ask-for-approval", "never"]
-        if args.web_search:
-            cmd.append("--search")
-        if model:
-            cmd.extend(["--model", model])
-        if args.thinking:
-            cmd.extend(["-c", f'model_reasoning_effort="{args.thinking}"'])
-        cmd.extend(codex_config_isolation_flags(repo))
-        cmd.extend(codex_auth_config_flags())
-        # Codex makes custom review instructions mutually exclusive with
-        # --uncommitted/--base/--commit. Autoreview has already selected, validated,
-        # secret-scanned, and embedded the exact target bundle in `prompt`, so use
-        # the built-in custom-review path and pass that bundle over stdin.
-        cmd.extend(["-C", str(repo), "-s", "read-only", "review", "-"])
-        result = run_with_heartbeat(
-            cmd,
-            repo,
-            input_text=prompt,
-            label="codex review",
-            stream_output=args.stream_engine_output,
-            env=safe_engine_env(repo, [Path(cmd[0]).parent]),
-        )
-        if result.returncode == 0:
-            return result.stdout
-        if index == 0 and len(models) > 1 and model and codex_model_access_failure(result, model):
-            primary_failure = result
-            print(f"codex model {model} is unavailable for this account; retrying with {models[1]}", file=sys.stderr)
-            continue
-        detail = result.stderr or result.stdout
-        if primary_failure is not None:
-            primary_detail = primary_failure.stderr or primary_failure.stdout
-            raise SystemExit(
-                f"codex review failed with primary model ({primary_failure.returncode})\n{primary_detail}\n"
-                f"codex fallback model failed ({result.returncode})\n{detail}"
+    with tempfile.TemporaryDirectory(prefix="autoreview-codex-schema.") as tempdir:
+        schema_path = Path(tempdir) / "review.schema.json"
+        schema_path.write_text(json.dumps(SCHEMA), encoding="utf-8")
+        for index, model in enumerate(models):
+            cmd = [resolve_command(args.codex_bin, repo), "--ask-for-approval", "never"]
+            if args.web_search:
+                cmd.append("--search")
+            if model:
+                cmd.extend(["--model", model])
+            if args.thinking:
+                cmd.extend(["-c", f'model_reasoning_effort="{args.thinking}"'])
+            cmd.extend(codex_config_isolation_flags(repo))
+            cmd.extend(codex_auth_config_flags())
+            # Autoreview has already selected, validated, secret-scanned, and
+            # embedded the exact target bundle in `prompt`. Use exec so Codex can
+            # enforce the report schema instead of relying on prompt compliance.
+            cmd.extend([
+                "-C", str(repo), "-s", "read-only", "exec", "--ephemeral",
+                "--ignore-user-config", "--ignore-rules", "--output-schema", str(schema_path), "-",
+            ])
+            result = run_with_heartbeat(
+                cmd,
+                repo,
+                input_text=prompt,
+                label="codex review",
+                stream_output=args.stream_engine_output,
+                env=safe_engine_env(repo, [Path(cmd[0]).parent]),
             )
-        raise SystemExit(f"codex review failed ({result.returncode})\n{detail}")
+            if result.returncode == 0:
+                return result.stdout
+            if index == 0 and len(models) > 1 and model and codex_model_access_failure(result, model):
+                primary_failure = result
+                print(f"codex model {model} is unavailable for this account; retrying with {models[1]}", file=sys.stderr)
+                continue
+            detail = result.stderr or result.stdout
+            if primary_failure is not None:
+                primary_detail = primary_failure.stderr or primary_failure.stdout
+                raise SystemExit(
+                    f"codex review failed with primary model ({primary_failure.returncode})\n{primary_detail}\n"
+                    f"codex fallback model failed ({result.returncode})\n{detail}"
+                )
+            raise SystemExit(f"codex review failed ({result.returncode})\n{detail}")
     raise AssertionError("unreachable")
 
 
@@ -2140,7 +2145,10 @@ import sys
 
 record = os.environ["AUTOREVIEW_FAKE_RECORD"]
 args = sys.argv[1:]
-Path(record).write_text(json.dumps({"argv": args, "cwd": os.getcwd(), "stdin": sys.stdin.read()}))
+schema = None
+if "--output-schema" in args:
+    schema = json.loads(Path(args[args.index("--output-schema") + 1]).read_text())
+Path(record).write_text(json.dumps({"argv": args, "cwd": os.getcwd(), "stdin": sys.stdin.read(), "output_schema": schema}))
 report = {
     "findings": [],
     "overall_correctness": "patch is correct",
@@ -2369,17 +2377,23 @@ def self_test_engine_isolation() -> int:
                 'cli_auth_credentials_store="auto"',
                 'forced_login_method="chatgpt"',
                 'forced_chatgpt_workspace_id=["workspace-one", "workspace-two"]',
-                "review",
+                "exec",
+                "--ephemeral",
+                "--ignore-user-config",
+                "--ignore-rules",
+                "--output-schema",
                 str(repo),
                 "read-only",
             ]:
                 if required not in codex_argv:
                     raise SystemExit(f"codex isolation self-test failed: missing {required}")
             if codex_record["stdin"] != "review hostile patch":
-                raise SystemExit("codex isolation self-test failed: built-in review prompt not delivered over stdin")
+                raise SystemExit("codex isolation self-test failed: review prompt not delivered over stdin")
+            if codex_record["output_schema"] != SCHEMA:
+                raise SystemExit("codex isolation self-test failed: wrong output schema")
             if codex_argv[-1] != "-":
                 raise SystemExit("codex isolation self-test failed: review prompt was not configured for stdin")
-            for forbidden in ["hostile-user-model", "exec", "--output-schema", "--output-last-message"]:
+            for forbidden in ["hostile-user-model", "review", "--output-last-message"]:
                 if forbidden in codex_argv:
                     raise SystemExit(f"codex isolation self-test failed: leaked {forbidden}")
             if Path(codex_record["cwd"]).resolve() != repo.resolve():
@@ -2999,12 +3013,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base")
     parser.add_argument("--commit", default="HEAD")
     parser.add_argument("--engine", choices=ENGINES, default=os.environ.get("AUTOREVIEW_ENGINE", "codex"))
-    parser.add_argument("--reviewers", help="Comma-separated review panel, e.g. codex,claude,cursor or codex:gpt-5.6-sol:high.")
+    parser.add_argument("--reviewers", help="Comma-separated review panel, e.g. codex,claude,cursor or codex:gpt-6-astra:medium.")
     parser.add_argument("--panel", action="store_true", help="Run a Codex/Claude review panel unless --engine changes the first reviewer.")
     parser.add_argument(
         "--model",
         action="append",
-        help="Model for all reviewers or engine=model. Repeatable. Defaults: codex=gpt-5.6-sol with high reasoning and an access-only gpt-5.6-terra retry; claude=claude-fable-5.",
+        help="Model for all reviewers or engine=model. Repeatable. Defaults: codex=gpt-6-astra with medium reasoning and an access-only gpt-5.6-sol retry; claude=claude-fable-5.",
     )
     parser.add_argument("--thinking", action="append", help="Thinking/effort for all reviewers or engine=level. Repeatable. Codex: none, minimal, low, medium, high, xhigh. Claude: low, medium, high, xhigh, max. Droid: off, none, low, medium, high. Pi: off, minimal, low, medium, high, xhigh. OpenCode: minimal, low, medium, high, max. Cursor: none.")
     parser.add_argument(
@@ -3367,11 +3381,11 @@ def self_test_config_defaults() -> None:
     ]
     with preserve_env(keys):
         default_codex = reviewer_args(reviewer_test_args(engine="codex"))[0]
-        if default_codex.model != "gpt-5.6-sol" or default_codex.thinking != "high":
+        if default_codex.model != "gpt-6-astra" or default_codex.thinking != "medium":
             raise SystemExit(
                 f"self-test config defaults failed: default codex model={default_codex.model!r} thinking={default_codex.thinking!r}"
             )
-        if default_codex.codex_access_fallback_model != "gpt-5.6-terra":
+        if default_codex.codex_access_fallback_model != "gpt-5.6-sol":
             raise SystemExit(
                 f"self-test config defaults failed: codex access fallback={default_codex.codex_access_fallback_model!r}"
             )
@@ -3407,14 +3421,14 @@ def self_test_config_defaults() -> None:
         if inline.model != "inline-model" or inline.thinking != "minimal":
             raise SystemExit("self-test config defaults failed: inline reviewer values should override CLI/env")
         access_error = subprocess.CompletedProcess(
-            ["codex"], 1, "", "The model gpt-5.6-sol does not exist or you do not have access to it",
+            ["codex"], 1, "", "The model gpt-6-astra does not exist or you do not have access to it",
         )
-        if not codex_model_access_failure(access_error, "gpt-5.6-sol"):
+        if not codex_model_access_failure(access_error, "gpt-6-astra"):
             raise SystemExit("self-test config defaults failed: Codex access failure was not detected")
         capacity_error = subprocess.CompletedProcess(
-            ["codex"], 1, "", "The model gpt-5.6-sol is temporarily at capacity",
+            ["codex"], 1, "", "The model gpt-6-astra is temporarily at capacity",
         )
-        if codex_model_access_failure(capacity_error, "gpt-5.6-sol"):
+        if codex_model_access_failure(capacity_error, "gpt-6-astra"):
             raise SystemExit("self-test config defaults failed: Codex capacity error triggered access fallback")
     print("self-test config defaults: ok")
 
