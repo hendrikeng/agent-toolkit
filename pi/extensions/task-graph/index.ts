@@ -56,7 +56,7 @@ const taskSchema = Type.Object({
 	repository: Type.Optional(Type.String({ minLength: 1, description: "Local Git repository root relative to the current repository; defaults to the current repository" })),
 	owns: Type.Array(Type.String({ minLength: 1 }), { maxItems: 20, description: "Exclusive write paths relative to this task's repository; empty for read-only work" }),
 	specialty: Type.String({ minLength: 1, description: "Worker expertise needed for this task" }),
-	thinking: Type.Union([Type.Literal("medium"), Type.Literal("high")], { description: "Worker thinking level" }),
+	thinking: Type.Union([Type.Literal("medium"), Type.Literal("high")], { description: "Worker thinking level: medium by default; high only when the user explicitly requests it" }),
 	done_when: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 10, description: "Observable completion criteria" }),
 	validation: Type.String({ minLength: 1, description: "Smallest focused validation command or manual check" }),
 }, { additionalProperties: false })
@@ -233,7 +233,6 @@ function validatePlanChainPlans(plan: TaskGraphPlan, root: string, targetKey: st
 		task.owns = [...new Set([...lifecycleTargets, ...targets])]
 		if (task.owns.length > 20) throw new Error(`Plan-chain task ${task.id} exceeds 20 ownership targets.`)
 		task.done_when = [acceptance, `Validation lanes: ${validation}`]
-		task.thinking = risk === "high" ? "high" : "medium"
 		const recoveryTask = planningDocumentNeedsRecovery(local, markdown)
 		if (recoveryTask && !planSecurityApproved(markdown)) throw new Error(`Plan-chain recovery task ${task.id} has no approved security gate.`)
 		if (!recoveryTask && !planningDocumentIsExecutable(local, markdown)) throw new Error(`Plan-chain task ${task.id} is not executable.`)
@@ -805,7 +804,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			}
 			if (!workerLaunch) return
 			const requestedModel = taskGraphWorkerModel(command)
-			if (!requestedModel) return { block: true, reason: "Every graph worker launch must include an explicit --model provider/model so quota policy can be enforced." }
+			if (!requestedModel) return { block: true, reason: `Cannot verify the worker launch command. Use one standalone orca terminal create/split invocation with exactly one --command containing 'pi-yolo --model ${workerModel} --thinking medium' (high only if explicitly requested). Keep the account environment assignments from the approved graph prompt before pi-yolo. Do not nest a shell, combine commands, or use --provider/-m. This is command-format validation, not evidence that the launcher is broken; no source inspection or launch dry-run is required. If debugging is needed, search $PI_CODING_AGENT_DIR/extensions/task-graph, not the runtime root.` }
 			if (requestedModel !== workerModel) return { block: true, reason: `Graph workers must use the approved model ${workerModel}.` }
 			if (requestedModel.startsWith("openai-codex/")) {
 				const requestedAccount = taskGraphWorkerAccount(command)

@@ -236,6 +236,8 @@ config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.j
 const temporaryDir = fs.realpathSync(os.tmpdir());
 config.piInfrastructureReadPaths = [...new Set([
   ...(config.piInfrastructureReadPaths ?? []),
+  path.join(runtimeAgentDir, "extensions"),
+  path.join(managedAgentDir, "extensions"),
   path.join(managedAgentDir, "git"),
   path.join(managedAgentDir, "npm/node_modules"),
   // Orca and terminal clipboard integrations put pasted images here.

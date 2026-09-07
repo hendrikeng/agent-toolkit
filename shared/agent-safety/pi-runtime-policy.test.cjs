@@ -1,0 +1,35 @@
+const assert = require('node:assert/strict')
+const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, rmSync } = require('node:fs')
+const { join } = require('node:path')
+const { tmpdir } = require('node:os')
+const { execFileSync } = require('node:child_process')
+const test = require('node:test')
+
+test('runtime extension reads are scoped without opening runtime data or writes', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-runtime-policy-')))
+  try {
+    const managed = join(root, 'managed')
+    const runtime = join(root, 'runtime')
+    const policy = join(managed, 'extensions/pi-permission-system/config.json')
+    const output = join(runtime, 'extensions/pi-permission-system/config.json')
+    mkdirSync(join(managed, 'extensions/pi-permission-system'), { recursive: true })
+    mkdirSync(join(runtime, 'extensions/pi-permission-system'), { recursive: true })
+    writeFileSync(policy, readFileSync(join(__dirname, 'pi-permission-system.json')))
+    const launcher = readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
+    const script = launcher.match(/node - "\$policy" "\$agent_dir\/extensions\/pi-permission-system\/config.json" <<'NODE'\n([\s\S]*?)\nNODE/)[1]
+    execFileSync(process.execPath, ['-', policy, output], { input: script })
+    const config = JSON.parse(readFileSync(output, 'utf8'))
+    assert.ok(config.piInfrastructureReadPaths.includes(join(runtime, 'extensions')))
+    assert.ok(config.piInfrastructureReadPaths.includes(join(managed, 'extensions')))
+    assert.ok(!config.piInfrastructureReadPaths.includes(runtime))
+    assert.ok(!config.piInfrastructureReadPaths.includes(managed))
+    assert.equal(config.permission.external_directory['*'], 'deny')
+    assert.equal(config.permission.external_directory[join(runtime, 'extensions')], undefined)
+    assert.equal(config.permission.path[join(runtime, 'auth.json')], 'deny')
+    assert.equal(config.permission.path[join(runtime, 'codex-runtimes', '*', 'auth.json')], 'deny')
+    assert.equal(config.permission.path['~/.pi/agent/auth-profiles/*'], 'deny')
+    assert.equal(config.permission.path['*.env'], 'deny')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
