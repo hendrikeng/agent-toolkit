@@ -4,6 +4,14 @@
 
 When Pi runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
 
+## Agent delegation
+
+Use `pi-yolo` for all spawned task workers and full handoffs, including ordinary tasks outside `/graph`. Use the current Pi provider/model with an explicit `--model provider/model` and `--thinking medium`; use high only when the user explicitly requests it, never automatically on retries.
+
+In Orca, launch workers through `terminal create --command 'pi-yolo --model provider/model --thinking medium'` in the target worktree, then deliver the task using the version-matched handoff or orchestration guide. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent`/`worker-start` launchers that do not guarantee `pi-yolo`. If the wrapper cannot launch, report the blocker rather than falling back to another agent.
+
+Review exception: `autoreview` continues to use its Codex CLI engine with Astra at medium thinking and its documented access-only fallback. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
+
 ## Copyable output
 
 Put text the user needs to copy (prompts, handoffs, commands, or instructions for another agent) in a fenced code block, never a Markdown blockquote (`>`). Keep explanations outside the block so the user can copy its contents unchanged.
