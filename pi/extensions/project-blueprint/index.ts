@@ -137,7 +137,7 @@ async function assertNoTargetSymlink(target: string, filePath: string): Promise<
 	}
 }
 
-async function updateDecisionsPath(target: string): Promise<string> {
+async function updateDecisionsPath(target: string): Promise<string | null> {
 	const manifestPath = join(target, "docs", "ops", "automation", "harness-manifest.json")
 	await assertNoTargetSymlink(target, manifestPath)
 	const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
@@ -147,7 +147,14 @@ async function updateDecisionsPath(target: string): Promise<string> {
 	}
 	const path = resolve(target, manifest.decisionsPath ?? "docs/ops/automation/bootstrap-decisions.json")
 	await assertNoTargetSymlink(target, path)
-	if (!(await lstat(path)).isFile()) throw new Error("The harness decision packet must be a regular file.")
+	try {
+		if (!(await lstat(path)).isFile()) throw new Error("The harness decision packet must be a regular file.")
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error
+		// Only an unconfigured installation may start without a historical packet.
+		if (manifest.decisionsPath === undefined && !manifest.managedFiles?.some((entry: { configuredSha256?: string }) => entry.configuredSha256 !== undefined)) return null
+		throw new Error(`The recorded harness decision packet is missing: ${relative(target, path)}. Restore it before retrying /project update; do not reset the manifest or configured hashes.`)
+	}
 	const canonical = realpathSync(path)
 	if (!isWithin(target, canonical)) throw new Error("The harness decision packet must stay inside the project.")
 	return relative(target, canonical)
@@ -239,12 +246,13 @@ async function writeDecisionPacket(
 	return relative(active.target, packetPath)
 }
 
-function runBlueprintConfigure(active: ActiveProject, decisionsPath: string): Record<string, unknown> {
+function runBlueprintConfigure(active: ActiveProject, decisionsPath: string, baselineOnly = false): Record<string, unknown> {
 	const result = spawnSync(process.execPath, [
 		join(active.blueprintRoot, "scripts", "bootstrap-configure.mjs"),
 		"--target", active.target,
 		"--decisions", decisionsPath,
 		"--json", "true",
+		...(baselineOnly ? ["--baseline-only", "true"] : []),
 	], { cwd: active.blueprintRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 	if (result.status !== 0) throw new Error(result.stderr.trim() || "Blueprint configuration failed.")
 	return JSON.parse(result.stdout)
@@ -329,7 +337,7 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 					decisionsPath: manifest.decisionsPath ?? null,
 					configuredBaseline: Boolean(manifest.decisionsPath && manifest.managedFiles?.every((entry: { configuredSha256?: string }) => /^[a-f0-9]{64}$/.test(entry.configuredSha256 ?? ""))),
 					sourceRevision: blueprintRevision(active.blueprintRoot),
-					updatePolicy: "Guarded update only. Locally modified managed files block the entire update. Project-owned files and the original decision packet are preserved. Required checks run afterward.",
+					updatePolicy: "Guarded update only. If the configured baseline is missing, approval first saves a new decision packet and runs baseline-only migration against the installed blueprint revision. A revision or template mismatch blocks migration; use a reviewed checkout of the installed revision with the current migration scripts. Migration changes only baseline metadata, marks differing files as preserved local edits, and never configures project files. Locally modified managed files block the update. Project-owned files and any original decision packet are preserved. Required checks run afterward.",
 				})
 			}
 			let edited = await ctx.ui.editor("Review project blueprint decision packet", JSON.stringify({
@@ -399,6 +407,13 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 				const packetPath = await writeDecisionPacket(active, reviewed.values, reviewed.evidence ?? {}, comparison)
 				let sync: Record<string, unknown>
 				try {
+					if (!comparison.configuredBaseline) {
+						try {
+							runBlueprintConfigure(active, join(active.target, packetPath), true)
+						} catch (error) {
+							throw new Error(`Legacy baseline migration blocked: ${error instanceof Error ? error.message : String(error)} Use a reviewed checkout of installed blueprint revision ${comparison.installedRevision}, with the current scripts/harness-sync.mjs and scripts/bootstrap-configure.mjs but unchanged installed templates and ownership manifest. Run bootstrap-configure with this approved packet and --baseline-only true, then retry /project update. Never copy raw hashes into a configured baseline.`)
+						}
+					}
 					sync = runHarnessCommand(active, "update", join(active.target, packetPath))
 				} catch (error) {
 					throw new Error(`${error instanceof Error ? error.message : String(error)} Approved decisions retained at ${packetPath}. Stop and report the blocker; do not bypass the updater.`)

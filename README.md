@@ -142,6 +142,10 @@ The guarded updater compares managed files with their configured baseline. It st
 
 A successful update preserves earlier decision packets and writes a new update packet. It applies the approved values to incoming templates and preserves project-owned files. Pi then runs focused checks and reports unresolved conflicts or unavailable checks. Sync success alone does not prove application correctness.
 
+Legacy installations can use `update` without a decision packet when the manifest has no recorded decision path or configured hashes. Pi gathers fresh decisions and requires interactive approval. After approval, it saves a new packet and attempts `bootstrap-configure.mjs --baseline-only true` before the guarded update. This migration changes only manifest metadata and marks differing files as preserved local edits. It does not overwrite those files.
+
+Migration requires the installed blueprint revision, matching templates, and the original ownership manifest. A mismatch stops migration and reports the approved packet path. The recovery procedure uses a reviewed checkout of that installed revision with the current `scripts/harness-sync.mjs` and `scripts/bootstrap-configure.mjs`. That checkout runs baseline-only migration with the approved packet before another update attempt. A missing packet at an explicitly recorded path requires restoration, not legacy migration.
+
 ### Fast mode
 
 ```text

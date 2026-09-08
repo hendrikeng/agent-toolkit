@@ -109,7 +109,7 @@ export function projectPlanningPrompt(
 	mode: ProjectMode,
 	target: string,
 	questionnaire: BootstrapQuestionnaire,
-	updateDecisionsPath = "docs/ops/automation/bootstrap-decisions.json",
+	updateDecisionsPath: string | null = "docs/ops/automation/bootstrap-decisions.json",
 ): string {
 	return `Prepare ${mode === "audit" || mode === "update" ? "an" : "a"} ${mode} workflow for the Agent Project Blueprint at ${JSON.stringify(target)}.
 
@@ -119,7 +119,9 @@ Infer every placeholder in the questionnaire below from real repository evidence
 
 Call review_project_blueprint_decisions with the inferred placeholder values and short evidence paths. The tool asks the user only for missing values, opens the complete decision packet for review, and requires approval before ${mode === "audit" ? "reporting the audit" : "changing the target repository"}.
 
-For update mode, read only the extension-validated decision packet at ${JSON.stringify(updateDecisionsPath)}. Do not follow another \`decisionsPath\` from the repository. Reuse existing decisions only when current repository evidence still supports them. Review the locally installed blueprint revision, configured baseline status, and managed-file drift before approval. The guarded updater compares configured files with their recorded configured hashes and refuses genuine local edits. If it refuses, report the conflicts and stop. Never force overwrite, reset files, change recorded hashes, or delete the manifest to bypass a conflict. Updating the harness does not automatically update project-owned files or fetch upstream blueprint changes.
+For update mode, ${updateDecisionsPath === null
+	? "this is a legacy installation without a decision packet or configured baseline. Infer a fresh packet from repository evidence and ask the user for unknown values. Do not invent historical decisions or create a baseline. After interactive approval, the extension saves the packet and attempts the supported baseline-only migration; it requires matching installed-revision templates and preserves local edits."
+	: `read only the extension-validated decision packet at ${JSON.stringify(updateDecisionsPath)}.`} Do not follow another \`decisionsPath\` from the repository. Reuse existing decisions only when current repository evidence still supports them. Review the locally installed blueprint revision, configured baseline status, and managed-file drift before approval. The guarded updater compares configured files with their recorded configured hashes and refuses genuine local edits. If it refuses, report the conflicts and stop. Never force overwrite, reset files, change recorded hashes, or delete the manifest to bypass a conflict. Updating the harness does not automatically update project-owned files or fetch upstream blueprint changes.
 
 For audit mode, make no file changes. For adopt mode, preserve all existing target files and reconcile reported conflicts after approval. For new mode, initialize only the approved empty target. After an approved mutation, replace no product behavior beyond the decision packet, preserve existing scripts on conflicts, run the smallest blueprint checks, and report incomplete gates truthfully.
 
