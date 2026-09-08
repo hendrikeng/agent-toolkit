@@ -138,6 +138,32 @@ class AutoreviewCursorTests(unittest.TestCase):
         self.assertIn("review engine result was not structured JSON", str(exc_info.exception))
 
 
+class AutoreviewRepositoryProbeTests(unittest.TestCase):
+    def test_repository_probe_preserves_git_failures_and_success(self) -> None:
+        root = Path.cwd().resolve()
+        for code, detail in (
+            (0, ""),
+            (126, "git yolo guard: Git config override is not allowlisted"),
+            (128, "fatal: not a git repository (or any of the parent directories): .git"),
+        ):
+            result = subprocess.CompletedProcess(
+                ["git"], code, f"{root}\n".encode() if code == 0 else b"", detail.encode(),
+            )
+            with self.subTest(code=code), mock.patch.object(
+                AUTOREVIEW, "find_command", return_value="/fixture/git",
+            ), mock.patch.object(AUTOREVIEW, "safe_git_env", return_value={}), mock.patch.object(
+                AUTOREVIEW.subprocess, "run", return_value=result,
+            ):
+                if code == 0:
+                    self.assertEqual(AUTOREVIEW.repo_root(), root)
+                else:
+                    with self.assertRaises(SystemExit) as caught:
+                        AUTOREVIEW.repo_root()
+                    self.assertIn(f"Git failed while reading review data ({code})", str(caught.exception))
+                    self.assertIn(detail, str(caught.exception))
+                    self.assertNotIn("autoreview must run inside", str(caught.exception))
+
+
 class AutoreviewPriorityTests(unittest.TestCase):
     def test_toolkit_defaults_preserve_review_coverage_and_model(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(sys, "argv", ["autoreview"]):

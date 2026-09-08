@@ -33,7 +33,7 @@ NODE
 node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
 bash -n "$repo_dir/shared/agent-safety/agent-yolo"
 bash -n "$repo_dir/shared/agent-safety/git-yolo-guard"
-node --test "$repo_dir/shared/agent-safety/git-yolo-guard.test.cjs" "$repo_dir/shared/agent-safety/pi-runtime-policy.test.cjs"
+node --test "$repo_dir/shared/agent-safety/git-yolo-guard.test.cjs" "$repo_dir/shared/agent-safety/git-guard-install.test.cjs" "$repo_dir/shared/agent-safety/pi-runtime-policy.test.cjs"
 bash -n "$repo_dir/update.sh"
 bash -n "$repo_dir/shared/update-global-skills"
 "$repo_dir/update.sh" --help >/dev/null

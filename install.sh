@@ -353,6 +353,12 @@ install_ponytail() {
   fi
 }
 
+if [[ ${1:-} == --git-guard-only ]]; then
+  [[ $# -eq 1 ]] || { printf 'Usage: ./install.sh --git-guard-only\n' >&2; exit 2; }
+  install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
+  exit
+fi
+
 initialize_blueprint_submodule
 
 if ! command -v npm >/dev/null 2>&1; then

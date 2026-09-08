@@ -1498,9 +1498,7 @@ def repo_root() -> Path:
     unsafe_root = discover_repo_root(start) or start
     if not find_command("git", unsafe_root):
         raise SystemExit("git executable not found. Install Git or add it to PATH.")
-    result = git_result(unsafe_root, "rev-parse", "--show-toplevel", check=False)
-    if result.returncode != 0:
-        raise SystemExit("autoreview must run inside a git repository")
+    result = git_result(unsafe_root, "rev-parse", "--show-toplevel")
     return Path(result.stdout.removesuffix("\n")).resolve()
 
 

@@ -8,6 +8,7 @@ Agent Toolkit provides reviewed skills, Pi extensions, safety policy, and launch
 - Git
 - At least one supported agent CLI
 - Orca for `/graph` and Orca notifications
+- TruffleHog on `PATH` for AI reviews
 
 ## Install
 
@@ -30,6 +31,22 @@ The installer:
 - Moves replaced files to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
 Run `/reload` after an extension change. Restart Pi after a launcher or account-runtime change.
+
+To update only the installed Git guard, without package or account changes:
+
+```bash
+./install.sh --git-guard-only
+```
+
+This uses the same backup and ownership checks as the full installer. It refuses to overwrite user-modified policy.
+
+On macOS, install the review scanner with Homebrew:
+
+```bash
+brew install trufflehog
+```
+
+Autoreview stops before the model call if TruffleHog is missing or scanning fails.
 
 ## Included tools
 
