@@ -40,25 +40,41 @@ function syncStatuses(ctx: ExtensionContext, mode: string): string {
 
 export default function statusFormatExtension(pi: ExtensionAPI) {
 	let timer: ReturnType<typeof setInterval> | undefined
+	let pendingSync: ReturnType<typeof setTimeout> | undefined
+	let active = false
+	const stop = () => {
+		active = false
+		clearInterval(timer)
+		clearTimeout(pendingSync)
+		timer = undefined
+		pendingSync = undefined
+	}
 	let mode: string | undefined
 	let fallbackMode: string | undefined
 	const sync = (ctx: ExtensionContext, force = false) => {
+		if (!active || ctx.mode !== "tui") return
 		const next = resolvePonytailMode(sessionEntries(ctx), fallbackMode)
 		if (force || next !== mode) mode = syncStatuses(ctx, next)
 	}
+	const scheduleSync = (ctx: ExtensionContext) => {
+		if (!active || ctx.mode !== "tui") return
+		clearTimeout(pendingSync)
+		pendingSync = setTimeout(() => {
+			pendingSync = undefined
+			sync(ctx, true)
+		}, 0)
+	}
 	pi.on("session_start", (_event, ctx) => {
-		fallbackMode = resolvePonytailMode([])
-		setTimeout(() => sync(ctx, true), 0)
+		stop()
 		if (ctx.mode !== "tui") return
-		if (timer) clearInterval(timer)
+		active = true
+		fallbackMode = resolvePonytailMode([])
+		scheduleSync(ctx)
 		// ponytail: poll session state until Pi exposes status formatting or entry-change events.
 		timer = setInterval(() => sync(ctx), 250)
 	})
 	for (const event of ["agent_start", "agent_end", "agent_settled"] as const) {
-		pi.on(event, (_event, ctx) => setTimeout(() => sync(ctx, true), 0))
+		pi.on(event, (_event, ctx) => scheduleSync(ctx))
 	}
-	pi.on("session_shutdown", () => {
-		if (timer) clearInterval(timer)
-		timer = undefined
-	})
+	pi.on("session_shutdown", stop)
 }
