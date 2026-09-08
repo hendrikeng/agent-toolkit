@@ -21,6 +21,22 @@ test('allows only new-branch switch and preserves staged, unstaged and untracked
     writeFileSync(join(cwd, 'untracked'), 'keep\n')
     const before = git('status', '--porcelain')
     const head = git('rev-parse', 'HEAD')
+    git('remote', 'add', 'origin', cwd)
+    git('fetch', 'origin', 'HEAD:refs/remotes/origin/dev')
+    for (const prefix of [[], ['-C', cwd]]) {
+      const result = run(...prefix, 'merge-base', 'HEAD', 'origin/dev')
+      assert.equal(result.status, 0, result.stderr)
+      assert.equal(result.stdout.trim(), head)
+    }
+    for (const args of [
+      ['merge-base'], ['merge-base', 'HEAD'], ['merge-base', 'HEAD', 'HEAD'],
+      ['merge-base', 'origin/dev', 'HEAD'], ['merge-base', '--all', 'HEAD', 'origin/dev'],
+      ['merge-base', 'HEAD', 'origin/dev', '--is-ancestor'],
+      ['-c', 'core.hooksPath=/tmp/unapproved', 'merge-base', 'HEAD', 'origin/dev'],
+      ['reset', '--hard'], ['clean', '-fd'], ['checkout', '--', 'tracked']
+    ]) assert.equal(run(...args).status, 126, JSON.stringify(args))
+    assert.equal(git('status', '--porcelain'), before)
+    assert.equal(git('rev-parse', 'HEAD'), head)
     assert.equal(run('switch', '-c', 'slice/new').status, 0)
     assert.equal(git('branch', '--show-current'), 'slice/new')
     assert.equal(git('rev-parse', 'HEAD'), head)

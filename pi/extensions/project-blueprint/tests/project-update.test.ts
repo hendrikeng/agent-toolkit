@@ -17,6 +17,8 @@ const { default: extension } = await import("../index.ts")
 hook.deregister()
 
 const blueprintRoot = await realpath(new URL("../../../../vendor/agent-project-blueprint", import.meta.url))
+const { configureContent } = await import("../../../../vendor/agent-project-blueprint/scripts/bootstrap-configure.mjs")
+const managedPath = "docs/agent-hardening/TOOL_POLICY.md"
 
 for (const installation of ["configured", "legacy", "historical", "historical-pruned"]) test(`${installation} update requires approval, preserves decisions and local edits, and configures a guarded sync`, async () => {
 	const legacy = installation !== "configured"
@@ -53,8 +55,19 @@ for (const installation of ["configured", "legacy", "historical", "historical-pr
 		const originalPacket = join(target, "docs/ops/automation/bootstrap-decisions.json")
 		const originalContent = `${JSON.stringify({ schemaVersion: 1, values, evidence: { PRODUCT: "test fixture" } }, null, 2)}\n`
 		await writeFile(originalPacket, originalContent)
-		const configure = spawnSync(process.execPath, [join(installationRoot, "scripts/bootstrap-configure.mjs"), "--target", target, "--decisions", originalPacket, "--json", "true"], { encoding: "utf8" })
-		assert.equal(configure.status, 0, configure.stderr)
+		if (installation.startsWith("historical")) {
+			// Model an already-configured historical project. Retired values belong only
+			// to this fixture, not to today's approved decision packet or migration.
+			const installed = JSON.parse(await readFile(join(target, "docs/ops/automation/harness-manifest.json"), "utf8"))
+			for (const entry of [...installed.managedFiles, ...(installed.projectFiles ?? [])]) {
+				const source = await readFile(join(installationRoot, entry.sourcePath))
+				const retired = Object.fromEntries([...source.toString().matchAll(/\{\{([A-Z0-9_]+)\}\}/g)].map((match) => [match[1], match[1].toLowerCase()]))
+				await writeFile(join(target, entry.targetPath), configureContent(entry.targetPath, source, { ...retired, ...values }))
+			}
+		} else {
+			const configure = spawnSync(process.execPath, [join(installationRoot, "scripts/bootstrap-configure.mjs"), "--target", target, "--decisions", originalPacket, "--json", "true"], { encoding: "utf8" })
+			assert.equal(configure.status, 0, configure.stderr)
+		}
 		await writeFile(join(target, "product.txt"), "keep product behavior\n")
 		if (installation !== "historical") await rm(join(target, "package.scripts.fragment.json"))
 		const manifestPath = join(target, "docs/ops/automation/harness-manifest.json")
@@ -214,36 +227,38 @@ for (const installation of ["configured", "legacy", "historical", "historical-pr
 			for (const mismatch of ["revision", "template", "missing-managed", "duplicate-managed", "unexpected-managed"]) {
 				const mismatched = JSON.parse(before)
 				if (mismatch === "revision") mismatched.sourceRevision = "0".repeat(40)
-				else if (mismatch === "template") mismatched.managedFiles[0].sha256 = "0".repeat(64)
-				else if (mismatch === "missing-managed") mismatched.managedFiles = mismatched.managedFiles.filter((entry: any) => entry.targetPath !== "README.md")
+				else if (mismatch === "template") mismatched.managedFiles.find((entry: any) => entry.targetPath === managedPath).sha256 = "0".repeat(64)
+				else if (mismatch === "missing-managed") mismatched.managedFiles = mismatched.managedFiles.filter((entry: any) => entry.targetPath !== managedPath)
 				else if (mismatch === "duplicate-managed") mismatched.managedFiles.push(mismatched.managedFiles[0])
 				else mismatched.managedFiles.push({ ...mismatched.managedFiles[0], sourcePath: "template/unexpected.txt", targetPath: "unexpected.txt" })
 				await writeFile(manifestPath, JSON.stringify(mismatched))
 				events.agent_settled()
 				await start()
 				choice = "Approve and update"
-				await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /Legacy baseline migration blocked:.*(?:does not match|does not contain|Cannot prepare installed blueprint revision).*--baseline-only true.*Approved decisions retained/s)
+				await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /Legacy baseline migration blocked:.*(?:does not match|does not contain|Cannot prepare installed blueprint revision).*--baseline-only true.*Approved decisions retained/s, `${installation}: ${mismatch}`)
 				assert.deepEqual(JSON.parse(await readFile(manifestPath, "utf8")), mismatched)
 				assert.ok(events.tool_call({ toolName: "edit" })?.block)
 			}
 			await writeFile(manifestPath, before)
 
 			// Migration may record differing content only as preservedLocal, never overwrite it.
-			const readmePath = join(target, "README.md")
-			const readme = await readFile(readmePath, "utf8")
-			await writeFile(readmePath, `${readme}\nlegacy local edit\n`)
+			const managedFile = join(target, managedPath)
+			const managedContent = await readFile(managedFile, "utf8")
+			await writeFile(managedFile, `${managedContent}\nlegacy local edit\n`)
 			events.agent_settled()
 			await start()
-			await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /MODIFIED_MANAGED_FILES.*README\.md/)
-			assert.equal(await readFile(readmePath, "utf8"), `${readme}\nlegacy local edit\n`)
+			await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /MODIFIED_MANAGED_FILES.*TOOL_POLICY\.md/)
+			assert.equal(await readFile(managedFile, "utf8"), `${managedContent}\nlegacy local edit\n`)
 			const migrated = JSON.parse(await readFile(manifestPath, "utf8"))
-			assert.equal(migrated.managedFiles.find((entry: any) => entry.targetPath === "README.md").preservedLocal, true)
+			assert.equal(migrated.managedFiles.find((entry: any) => entry.targetPath === managedPath).preservedLocal, true)
 			assert.ok(events.tool_call({ toolName: "write" })?.block)
 			// Restore the fixture to test the conflict-free migration separately.
 			await writeFile(manifestPath, before)
-			await writeFile(readmePath, readme)
+			await writeFile(managedFile, managedContent)
 		}
 
+		const projectReadme = `${await readFile(join(target, "README.md"), "utf8")}\nproject-owned local edit\n`
+		await writeFile(join(target, "README.md"), projectReadme)
 		events.agent_settled()
 		await start()
 		choice = "Approve and update"
@@ -257,7 +272,8 @@ for (const installation of ["configured", "legacy", "historical", "historical-pr
 		if (legacy) await assert.rejects(readFile(originalPacket), { code: "ENOENT" })
 		else assert.equal(await readFile(originalPacket, "utf8"), originalContent)
 		assert.equal(await readFile(join(target, "product.txt"), "utf8"), "keep product behavior\n")
-		assert.match(await readFile(join(target, "README.md"), "utf8"), /Example/)
+		assert.equal(await readFile(join(target, "README.md"), "utf8"), projectReadme)
+		assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).managedFiles.some((entry: any) => entry.targetPath === "README.md"), false)
 		assert.equal(JSON.parse(await readFile(join(target, "package.json"), "utf8")).scripts["verify:fast"], "existing-check")
 		assert.equal((await readdir(target)).includes("package.scripts.fragment.json"), false)
 		if (installation === "historical-pruned") {
@@ -271,15 +287,16 @@ for (const installation of ["configured", "legacy", "historical", "historical-pr
 
 		// A genuine local change blocks the next sync rather than being overwritten.
 		const configuredManifest = await readFile(manifestPath, "utf8")
-		const configuredReadme = await readFile(join(target, "README.md"), "utf8")
-		const locallyEditedReadme = `${configuredReadme}\nlocal edit\n`
-		await writeFile(join(target, "README.md"), locallyEditedReadme)
+		const configuredContent = await readFile(join(target, managedPath), "utf8")
+		const locallyEditedContent = `${configuredContent}\nlocal edit\n`
+		await writeFile(join(target, managedPath), locallyEditedContent)
 		events.agent_settled()
 		await start()
-		await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /MODIFIED_MANAGED_FILES.*README\.md/)
+		await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /MODIFIED_MANAGED_FILES.*TOOL_POLICY\.md/)
 		assert.ok(events.tool_call({ toolName: "edit" })?.block)
 		assert.equal(await readFile(manifestPath, "utf8"), configuredManifest)
-		assert.equal(await readFile(join(target, "README.md"), "utf8"), locallyEditedReadme)
+		assert.equal(await readFile(join(target, managedPath), "utf8"), locallyEditedContent)
+		assert.equal(await readFile(join(target, "README.md"), "utf8"), projectReadme)
 		assert.deepEqual((await readdir(tmpdir())).filter((name) => name.startsWith("project-blueprint-baseline-")).sort(), migrationTempsBefore)
 	} finally {
 		if (previousRoot === undefined) delete process.env.AGENT_PROJECT_ALLOWED_ROOTS
