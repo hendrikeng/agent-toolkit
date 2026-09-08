@@ -80,6 +80,29 @@ test("allows non-Node toolchain decisions for read-only audits", () => {
 	assert.throws(() => validateDecisionValues(auditQuestionnaire, values), /NODE_VERSION must be 24/)
 })
 
+test("accepts individual and team codeowners while rejecting malformed owners", () => {
+	const ownerKeys = ["CODEOWNERS_DEFAULT_TEAM", "CODEOWNERS_SECURITY_TEAM"]
+	const withOwners: BootstrapQuestionnaire = {
+		...questionnaire,
+		sections: [...questionnaire.sections, {
+			id: "owners", title: "Owners",
+			questions: [{ id: "owners", prompt: "Owners", placeholders: ownerKeys }],
+		}],
+	}
+	for (const owner of ["@hendrikeng", "@some-user", "@acme/platform", "@acme/security-ops"]) {
+		assert.doesNotThrow(() => validateDecisionValues(withOwners, {
+			...validValues, CODEOWNERS_DEFAULT_TEAM: owner, CODEOWNERS_SECURITY_TEAM: owner,
+		}))
+	}
+	for (const key of ownerKeys) {
+		for (const owner of ["hendrikeng", "@", "@-user", "@acme/", "@acme/team/extra", "@user @other", "@user\n* @other"]) {
+			assert.throws(() => validateDecisionValues(withOwners, {
+				...validValues, CODEOWNERS_DEFAULT_TEAM: "@hendrikeng", CODEOWNERS_SECURITY_TEAM: "@hendrikeng", [key]: owner,
+			}))
+		}
+	}
+})
+
 test("finds and validates missing decision values", () => {
 	assert.deepEqual(missingDecisionValues(questionnaire, { PRODUCT: "Example" }), [
 		"LAST_UPDATED_ISO_DATE",

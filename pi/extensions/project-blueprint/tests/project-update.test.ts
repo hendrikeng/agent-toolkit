@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdtemp, readFile, writeFile, rm, readdir, realpath, symlink } from "node:fs/promises"
+import { copyFile, mkdtemp, readFile, writeFile, rm, readdir, realpath, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { registerHooks } from "node:module"
@@ -18,15 +18,28 @@ hook.deregister()
 
 const blueprintRoot = await realpath(new URL("../../../../vendor/agent-project-blueprint", import.meta.url))
 
-for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "update"} requires approval, preserves decisions and local edits, and configures a guarded sync`, async () => {
+for (const installation of ["configured", "legacy", "historical", "historical-pruned"]) test(`${installation} update requires approval, preserves decisions and local edits, and configures a guarded sync`, async () => {
+	const legacy = installation !== "configured"
 	const root = await realpath(await mkdtemp(join(tmpdir(), "project-update-")))
 	const target = join(root, "app")
 	const previousRoot = process.env.AGENT_PROJECT_ALLOWED_ROOTS
 	const previousBlueprint = process.env.AGENT_PROJECT_BLUEPRINT_DIR
 	process.env.AGENT_PROJECT_ALLOWED_ROOTS = root
 	process.env.AGENT_PROJECT_BLUEPRINT_DIR = blueprintRoot
+	const migrationTempsBefore = (await readdir(tmpdir())).filter((name) => name.startsWith("project-blueprint-baseline-")).sort()
 	try {
-		const install = spawnSync(process.execPath, [join(blueprintRoot, "scripts/harness-sync.mjs"), "install", "--target", target], { encoding: "utf8" })
+		let installationRoot = blueprintRoot
+		if (installation.startsWith("historical")) {
+			installationRoot = join(root, "installed-blueprint")
+			const clone = spawnSync("git", ["clone", "--local", "--shared", "--revision=b87feacb824ced6ebf80c8bcf9fbe41c127a2b56", blueprintRoot, installationRoot], { encoding: "utf8" })
+			assert.equal(clone.status, 0, clone.stderr)
+			// This real historical revision has no questionnaire or configure script.
+			await assert.rejects(readFile(join(installationRoot, "distribution/bootstrap-questionnaire.json")), { code: "ENOENT" })
+			for (const path of ["scripts/harness-sync.mjs", "scripts/bootstrap-configure.mjs", "distribution/bootstrap-questionnaire.json"]) {
+				await copyFile(join(blueprintRoot, path), join(installationRoot, path))
+			}
+		}
+		const install = spawnSync(process.execPath, [join(installationRoot, "scripts/harness-sync.mjs"), "install", "--target", target], { encoding: "utf8" })
 		assert.equal(install.status, 0, install.stderr)
 		await writeFile(join(target, "package.json"), JSON.stringify({ name: "example", scripts: { "verify:fast": "existing-check" } }))
 		await writeFile(join(target, "package-lock.json"), "{}")
@@ -35,15 +48,15 @@ for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "updat
 		Object.assign(values, {
 			LAST_UPDATED_ISO_DATE: "2026-03-22", CURRENT_STATE_DATE: "2026-03-22", GENERATED_AT_UTC_ISO: "2026-03-22T12:00:00.000Z",
 			PRODUCT: "Example", NODE_VERSION: "24", CI_INSTALL_COMMAND: "npm ci", PACKAGE_MANAGER_CACHE: "npm", PACKAGE_MANAGER_LOCKFILE: "package-lock.json",
-			CODEOWNERS_DEFAULT_TEAM: "@acme/platform", CODEOWNERS_SECURITY_TEAM: "@acme/security",
+			CODEOWNERS_DEFAULT_TEAM: legacy ? "@hendrikeng" : "@acme/platform", CODEOWNERS_SECURITY_TEAM: legacy ? "@hendrikeng" : "@acme/security",
 		})
 		const originalPacket = join(target, "docs/ops/automation/bootstrap-decisions.json")
 		const originalContent = `${JSON.stringify({ schemaVersion: 1, values, evidence: { PRODUCT: "test fixture" } }, null, 2)}\n`
 		await writeFile(originalPacket, originalContent)
-		const configure = spawnSync(process.execPath, [join(blueprintRoot, "scripts/bootstrap-configure.mjs"), "--target", target, "--decisions", originalPacket, "--json", "true"], { encoding: "utf8" })
+		const configure = spawnSync(process.execPath, [join(installationRoot, "scripts/bootstrap-configure.mjs"), "--target", target, "--decisions", originalPacket, "--json", "true"], { encoding: "utf8" })
 		assert.equal(configure.status, 0, configure.stderr)
 		await writeFile(join(target, "product.txt"), "keep product behavior\n")
-		await rm(join(target, "package.scripts.fragment.json"))
+		if (installation !== "historical") await rm(join(target, "package.scripts.fragment.json"))
 		const manifestPath = join(target, "docs/ops/automation/harness-manifest.json")
 		if (legacy) {
 			// Model pre-decision-packet installations, without blessing target content as a baseline.
@@ -53,7 +66,19 @@ for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "updat
 				delete entry.configuredSha256
 				delete entry.preservedLocal
 			}
+			if (installation === "historical-pruned") {
+				const retired = new Set(["PLACEHOLDERS.md", "package.scripts.fragment.json", "scripts/check-template-placeholders.sh"])
+				manifest.managedFiles = manifest.managedFiles.filter((entry: any) => !retired.has(entry.targetPath))
+				for (const path of retired) await rm(join(target, path), { force: true })
+			}
 			await writeFile(manifestPath, JSON.stringify(manifest))
+			if (installation === "historical-pruned") {
+				// Without reviewed policy, even known bootstrap omissions remain blocked.
+				const result = spawnSync(process.execPath, [join(installationRoot, "scripts/bootstrap-configure.mjs"), "--target", target, "--decisions", originalPacket, "--baseline-only", "true"], { encoding: "utf8" })
+				assert.equal(result.status, 1)
+				assert.match(result.stderr, /complete managed file set/)
+				assert.equal(await readFile(manifestPath, "utf8"), JSON.stringify(manifest))
+			}
 			await rm(originalPacket)
 		}
 		const events: Record<string, Function> = {}
@@ -116,20 +141,88 @@ for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "updat
 		assert.ok(reviewedPacket.blueprintComparison.installedRevision)
 		assert.equal(reviewedPacket.blueprintComparison.configuredBaseline, !legacy)
 		assert.equal(reviewedPacket.blueprintComparison.decisionsPath, legacy ? null : "docs/ops/automation/bootstrap-decisions.json")
+
+		// Missing dates come from one UTC clock reading, not bootstrap questions.
+		events.agent_settled()
+		await start()
+		const withoutDates = { ...values }
+		for (const key of ["LAST_UPDATED_ISO_DATE", "CURRENT_STATE_DATE", "GENERATED_AT_UTC_ISO"]) delete withoutDates[key]
+		ctx.hasUI = false
+		const clockBefore = Date.now()
+		const proposed = (await tool.execute("test", { values: withoutDates }, undefined, undefined, ctx)).details
+		assert.equal(proposed.status, "approval-required")
+		assert.deepEqual(proposed.missing, [])
+		assert.ok(Date.parse(proposed.values.GENERATED_AT_UTC_ISO) >= clockBefore)
+		assert.ok(Date.parse(proposed.values.GENERATED_AT_UTC_ISO) <= Date.now())
+		assert.equal(proposed.values.LAST_UPDATED_ISO_DATE, proposed.values.GENERATED_AT_UTC_ISO.slice(0, 10))
+		assert.equal(proposed.values.CURRENT_STATE_DATE, proposed.values.LAST_UPDATED_ISO_DATE)
+		assert.match(proposed.evidence.LAST_UPDATED_ISO_DATE, /UTC system clock/)
+		assert.equal(withoutDates.LAST_UPDATED_ISO_DATE, undefined)
+		ctx.hasUI = true
+
+		// Invalid dates and JSON reopen the exact edited packet; only valid packets reach approval.
+		const originalEditor = ctx.ui.editor
+		const originalSelect = ctx.ui.select
+		let attempts = 0, corrected = ""
+		ctx.ui.editor = (_title: string, packet: string) => {
+			assert.ok(events.tool_call({ toolName: "write" })?.block)
+			if (++attempts === 3) {
+				assert.equal(packet, `${corrected}!`)
+				return corrected
+			}
+			assert.ok(attempts < 3)
+			const parsed = JSON.parse(packet)
+			assert.equal(parsed.values.CURRENT_STATE_DATE, values.CURRENT_STATE_DATE)
+			if (attempts === 1) {
+				parsed.values.PRODUCT = "User-edited product"
+				parsed.evidence.PRODUCT = "User-edited evidence"
+				parsed.values.LAST_UPDATED_ISO_DATE = "today"
+				return JSON.stringify(parsed)
+			}
+			assert.equal(parsed.values.PRODUCT, "User-edited product")
+			assert.equal(parsed.evidence.PRODUCT, "User-edited evidence")
+			assert.equal(parsed.values.LAST_UPDATED_ISO_DATE, "today")
+			parsed.values.LAST_UPDATED_ISO_DATE = "2026-09-08"
+			corrected = JSON.stringify(parsed)
+			return `${corrected}!`
+		}
+		ctx.ui.select = () => { assert.equal(attempts, 3); return "Revise" }
+		const revised = (await tool.execute("test", { values: { ...withoutDates, CURRENT_STATE_DATE: values.CURRENT_STATE_DATE } }, undefined, undefined, ctx)).details
+		assert.equal(revised.status, "revise")
+		assert.equal(revised.values.PRODUCT, "User-edited product")
+		assert.equal(revised.values.LAST_UPDATED_ISO_DATE, "2026-09-08")
+		assert.match(notifications.shift() ?? "", /LAST_UPDATED_ISO_DATE must be a valid YYYY-MM-DD/)
+		assert.match(notifications.shift() ?? "", /Invalid decision packet:.*Your edits are preserved/)
+		assert.deepEqual(notifications, [])
+
+		// Cancelling an invalid packet never reaches approval or writes to the project.
+		attempts = 0
+		ctx.ui.editor = () => ++attempts === 1 ? "{" : undefined
+		ctx.ui.select = () => { throw new Error("Invalid packets must not reach approval") }
+		assert.equal((await tool.execute("test", { values }, undefined, undefined, ctx)).details.status, "cancelled")
+		assert.match(notifications.pop() ?? "", /Invalid decision packet/)
+		assert.equal(await readFile(manifestPath, "utf8"), before)
+		assert.equal((await readdir(join(target, "docs/ops/automation"))).some((name) => name.startsWith("blueprint-update-decisions-")), false)
+		assert.ok(events.tool_call({ toolName: "bash" })?.block)
+		ctx.ui.editor = originalEditor
+		ctx.ui.select = originalSelect
 		if (legacy) {
 			await assert.rejects(readFile(originalPacket), { code: "ENOENT" })
 			assert.equal((await readdir(join(target, "docs/ops/automation"))).some((name) => name.startsWith("blueprint-update-decisions-")), false)
 
 			// Neither a wrong revision nor mismatched templates can produce a baseline.
-			for (const mismatch of ["revision", "template"]) {
+			for (const mismatch of ["revision", "template", "missing-managed", "duplicate-managed", "unexpected-managed"]) {
 				const mismatched = JSON.parse(before)
 				if (mismatch === "revision") mismatched.sourceRevision = "0".repeat(40)
-				else mismatched.managedFiles[0].sha256 = "0".repeat(64)
+				else if (mismatch === "template") mismatched.managedFiles[0].sha256 = "0".repeat(64)
+				else if (mismatch === "missing-managed") mismatched.managedFiles = mismatched.managedFiles.filter((entry: any) => entry.targetPath !== "README.md")
+				else if (mismatch === "duplicate-managed") mismatched.managedFiles.push(mismatched.managedFiles[0])
+				else mismatched.managedFiles.push({ ...mismatched.managedFiles[0], sourcePath: "template/unexpected.txt", targetPath: "unexpected.txt" })
 				await writeFile(manifestPath, JSON.stringify(mismatched))
 				events.agent_settled()
 				await start()
 				choice = "Approve and update"
-				await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /Legacy baseline migration blocked:.*does not match.*--baseline-only true.*Approved decisions retained/)
+				await assert.rejects(tool.execute("test", { values }, undefined, undefined, ctx), /Legacy baseline migration blocked:.*(?:does not match|does not contain|Cannot prepare installed blueprint revision).*--baseline-only true.*Approved decisions retained/s)
 				assert.deepEqual(JSON.parse(await readFile(manifestPath, "utf8")), mismatched)
 				assert.ok(events.tool_call({ toolName: "edit" })?.block)
 			}
@@ -156,6 +249,9 @@ for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "updat
 		choice = "Approve and update"
 		const result = await tool.execute("test", { values }, undefined, undefined, ctx)
 		assert.equal(result.details.sync.command, "update")
+		const codeowners = await readFile(join(target, ".github/CODEOWNERS"), "utf8")
+		assert.ok(codeowners.includes(`* ${values.CODEOWNERS_DEFAULT_TEAM}\n`))
+		assert.ok(codeowners.includes(`**/security/** ${values.CODEOWNERS_DEFAULT_TEAM} ${values.CODEOWNERS_SECURITY_TEAM}\n`))
 		assert.equal(result.details.status, "approved")
 		assert.equal(events.tool_call({ toolName: "write" }), undefined)
 		if (legacy) await assert.rejects(readFile(originalPacket), { code: "ENOENT" })
@@ -164,6 +260,11 @@ for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "updat
 		assert.match(await readFile(join(target, "README.md"), "utf8"), /Example/)
 		assert.equal(JSON.parse(await readFile(join(target, "package.json"), "utf8")).scripts["verify:fast"], "existing-check")
 		assert.equal((await readdir(target)).includes("package.scripts.fragment.json"), false)
+		if (installation === "historical-pruned") {
+			for (const path of ["PLACEHOLDERS.md", "scripts/check-template-placeholders.sh"]) {
+				await assert.rejects(readFile(join(target, path)), { code: "ENOENT" })
+			}
+		}
 		assert.match(result.details.packetPath, /blueprint-update-decisions-\d+\.json$/)
 		assert.equal(result.details.drift.driftDetected, false)
 		assert.equal(JSON.parse(await readFile(manifestPath, "utf8")).decisionsPath, result.details.packetPath)
@@ -179,6 +280,7 @@ for (const legacy of [false, true]) test(`${legacy ? "legacy migration" : "updat
 		assert.ok(events.tool_call({ toolName: "edit" })?.block)
 		assert.equal(await readFile(manifestPath, "utf8"), configuredManifest)
 		assert.equal(await readFile(join(target, "README.md"), "utf8"), locallyEditedReadme)
+		assert.deepEqual((await readdir(tmpdir())).filter((name) => name.startsWith("project-blueprint-baseline-")).sort(), migrationTempsBefore)
 	} finally {
 		if (previousRoot === undefined) delete process.env.AGENT_PROJECT_ALLOWED_ROOTS
 		else process.env.AGENT_PROJECT_ALLOWED_ROOTS = previousRoot

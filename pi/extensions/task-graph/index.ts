@@ -49,6 +49,8 @@ import {
 	validateTaskGraphRepositories,
 } from "./task-graph-core.ts"
 
+import { validateRunRecovery, type RunRecoverySnapshot } from "./run-recovery.ts"
+
 const taskSchema = Type.Object({
 	id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$", description: "Stable lowercase task ID" }),
 	goal: Type.String({ minLength: 1, description: "One bounded outcome" }),
@@ -294,6 +296,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	let activeRunKey: string | undefined
 	let activeRunObjective: string | undefined
 	let activeOrcaRunId: string | undefined
+	let boundRunObjective: string | undefined
 	let resumingRun = false
 	let runCreationAttempted = false
 	let recoveredOrcaRunId: string | undefined
@@ -336,12 +339,15 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		name: "bind_task_graph_run",
 		label: "Bind Task Graph Run",
 		description: "Bind the one unfinished Orca Run selected or created for this approved graph.",
-		parameters: Type.Object({ run_id: Type.String({ pattern: "^run_[a-zA-Z0-9_-]+$", description: "Selected Orca Run ID" }) }, { additionalProperties: false }),
+		parameters: Type.Object({
+			run_id: Type.String({ pattern: "^run_[a-zA-Z0-9_-]+$", description: "Selected Orca Run ID" }),
+			recover: Type.Optional(Type.Boolean({ description: "Explicitly recover this Run across an objective change; requires preserved contracts, identity/dispatch validation and interactive confirmation." })),
+		}, { additionalProperties: false }),
 		executionMode: "sequential",
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			if (!planning || !approved || !activeRunObjective) throw new Error("bind_task_graph_run requires an approved active /graph run.")
 			if (recoveredOrcaRunId && params.run_id !== recoveredOrcaRunId) throw new Error(`Resume the Orca Run persisted by this graph: ${recoveredOrcaRunId}`)
-			const matchingRuns = orcaRuns().filter((run: { objective?: unknown }) => run.objective === activeRunObjective)
+			const matchingRuns = orcaRuns().filter((run: { id?: unknown; objective?: unknown }) => run.objective === activeRunObjective || params.recover && run.id === params.run_id)
 			if (!Array.isArray(matchingRuns) || !matchingRuns.some((run: { id?: unknown }) => run.id === params.run_id)) throw new Error("The supplied Orca Run does not match this approved graph.")
 			const unfinishedRuns = matchingRuns.filter((candidate: { id?: unknown }) => {
 				const candidateTasks = orcaJson(["orchestration", "task-list", "--run", String(candidate.id), "--json"])?.result?.tasks
@@ -349,11 +355,59 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			})
 			if (unfinishedRuns.length > 1 || unfinishedRuns.length === 1 && unfinishedRuns[0].id !== params.run_id) throw new Error("The approved objective has an ambiguous or different unfinished Orca Run.")
 			const run = orcaJson(["orchestration", "run-show", "--id", params.run_id, "--json"])?.result?.run
-			if (run?.objective !== activeRunObjective) throw new Error("The supplied Orca Run does not match this approved graph.")
+			if (!params.recover && run?.objective !== activeRunObjective) throw new Error("The supplied Orca Run does not match this approved graph. Use recover: true for explicitly confirmed Run-ID recovery.")
 			const tasks = orcaJson(["orchestration", "task-list", "--run", params.run_id, "--json"])?.result?.tasks
 			if (!recoveryPlan && recoveredOrcaRunId !== params.run_id && Array.isArray(tasks) && tasks.length > 0 && tasks.every((task: { status?: unknown }) => task.status === "completed")) throw new Error("The supplied Orca Run is already complete.")
-			orcaJson(["orchestration", "run-use", "--id", params.run_id, "--json"])
-			for (const lock of activeLocks) bindTaskGraphLockToOrcaRun(lock, params.run_id)
+			let recoveredMarkers: string[] | undefined
+			const recoveryLocks: TaskGraphLock[] = []
+			if (params.recover) {
+				if (planChain || !recoveredPlanContract || !ctx.hasUI) throw new Error("Explicit Run recovery requires an approved task graph and interactive confirmation.")
+				const root = repositoryRoot(ctx.cwd)
+				const lockRoot = join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir(), "task-graph-locks")
+				const oldKey = String(run?.objective ?? "").replace(/^Pi task graph: /, "")
+				const readRecovery = () => {
+					const ids = taskGraphOrcaRunIdsForLockRun(lockRoot, oldKey)
+					const contracts = taskGraphPlanContractsForLockRun(lockRoot, oldKey)
+					if (ids.length !== 1 || ids[0] !== params.run_id || contracts.length !== 1) throw new Error("Recovery requires one preserved original Run binding and graph contract.")
+					const previous = JSON.parse(contracts[0]) as TaskGraphPlan
+					const snapshot: RunRecoverySnapshot = {
+						run: orcaJson(["orchestration", "run-show", "--id", params.run_id, "--json"])?.result?.run,
+						tasks: orcaJson(["orchestration", "task-list", "--run", params.run_id, "--json"])?.result?.tasks,
+						workers: orcaJson(["orchestration", "worker-list", "--run", params.run_id, "--json"])?.result?.workers,
+						dispatches: {},
+						terminalInventory: orcaJson(["terminal", "list", "--limit", "1000", "--json"])?.result,
+					}
+					if (!Array.isArray(snapshot.tasks)) throw new Error("Recovery task inventory is incomplete.")
+					for (const task of snapshot.tasks) snapshot.dispatches[task.id] = orcaJson(["orchestration", "dispatch-show", "--task", task.id, "--json"])?.result?.dispatch
+					return validateRunRecovery(root, params.run_id, previous, JSON.parse(recoveredPlanContract!), snapshot)
+				}
+				const checked = readRecovery()
+				if (checked.objective !== run.objective) throw new Error("Recovery Run changed during inspection.")
+				if (!await ctx.ui.confirm(`Recover ${params.run_id} without replacing it?`, `The objective differs or explicit reconciliation was requested. Repositories, ownership, task identities, dependencies and dispatches match. Preserve the existing task specs and contract markers below; new workers still use the newly approved model, account and thinking levels.\n\n${JSON.stringify(checked, null, 2)}`, { signal })) throw new Error("Run recovery cancelled; no Run or task was changed.")
+				try {
+					if (oldKey !== activeRunKey) {
+						for (const key of taskGraphLockKeysForRun(lockRoot, oldKey)) {
+							const path = join(lockRoot, `${createHash("sha256").update(key).digest("hex")}.lock`)
+							if (!activeLocks.some((lock) => lock.path === path)) recoveryLocks.push(acquireTaskGraphLock(lockRoot, key, process.pid, oldKey))
+						}
+					}
+					if (!isDeepStrictEqual(checked, readRecovery())) throw new Error("Recovery state changed during confirmation; inspect it again before binding.")
+					recoveredMarkers = checked.markers
+				} catch (error) {
+					for (const lock of recoveryLocks.reverse()) abandonTaskGraphLock(lock)
+					throw error
+				}
+			}
+			try {
+				orcaJson(["orchestration", "run-use", "--id", params.run_id, "--json"])
+				for (const lock of activeLocks) bindTaskGraphLockToOrcaRun(lock, params.run_id)
+			} catch (error) {
+				for (const lock of recoveryLocks.reverse()) abandonTaskGraphLock(lock)
+				throw error
+			}
+			activeLocks.push(...recoveryLocks)
+			if (recoveredMarkers) approvedTaskMarkers = recoveredMarkers
+			boundRunObjective = run.objective
 			recoveredOrcaRunId = params.run_id
 			const workers = orcaJson(["orchestration", "worker-list", "--run", params.run_id, "--json"])?.result?.workers
 			if (!Array.isArray(workers)) throw new Error("Cannot reconcile worker terminals for the selected Orca Run.")
@@ -423,7 +477,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (params.run_id !== activeOrcaRunId) throw new Error("Finish the Orca Run bound for this graph invocation.")
 			if (recoveryPlan) throw new Error("Finish the approved plan lifecycle recovery before releasing graph locks.")
 			const run = orcaJson(["orchestration", "run-show", "--id", params.run_id, "--json"])?.result?.run
-			if (run?.objective !== activeRunObjective) throw new Error("The supplied Orca Run does not match this approved graph.")
+			if (!boundRunObjective || run?.objective !== boundRunObjective) throw new Error("The bound Orca Run objective changed after binding.")
 			const tasks = orcaJson(["orchestration", "task-list", "--run", params.run_id, "--json"])?.result?.tasks
 			if (!approvedLedgerIsComplete(tasks)) {
 				throw new Error("Every approved Orca task must exist exactly once and be completed before graph locks are released.")
@@ -449,6 +503,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			activeRunKey = undefined
 			activeRunObjective = undefined
 			activeOrcaRunId = undefined
+			boundRunObjective = undefined
 			resumingRun = false
 			runCreationAttempted = false
 			recoveredOrcaRunId = undefined
@@ -852,6 +907,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	})
 
 	pi.on("agent_settled", () => {
+		boundRunObjective = undefined
 		for (const lock of activeLocks.reverse()) {
 			if ((approved || resumingRun) && !finished) abandonTaskGraphLock(lock)
 			else releaseTaskGraphLock(lock)
@@ -891,6 +947,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	})
 
 	pi.on("session_shutdown", () => {
+		boundRunObjective = undefined
 		for (const lock of activeLocks.reverse()) {
 			if ((approved || resumingRun) && !finished) abandonTaskGraphLock(lock)
 			else releaseTaskGraphLock(lock)

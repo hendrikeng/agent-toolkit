@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, realpathSync } from "node:fs"
-import { lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
-import { homedir } from "node:os"
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { homedir, tmpdir } from "node:os"
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -246,16 +246,47 @@ async function writeDecisionPacket(
 	return relative(active.target, packetPath)
 }
 
-function runBlueprintConfigure(active: ActiveProject, decisionsPath: string, baselineOnly = false): Record<string, unknown> {
+function runBlueprintConfigure(active: ActiveProject, decisionsPath: string, baselineOnly = false, bootstrapPolicyPath?: string): Record<string, unknown> {
 	const result = spawnSync(process.execPath, [
 		join(active.blueprintRoot, "scripts", "bootstrap-configure.mjs"),
 		"--target", active.target,
 		"--decisions", decisionsPath,
 		"--json", "true",
 		...(baselineOnly ? ["--baseline-only", "true"] : []),
+		...(bootstrapPolicyPath ? ["--bootstrap-policy", bootstrapPolicyPath] : []),
 	], { cwd: active.blueprintRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 	if (result.status !== 0) throw new Error(result.stderr.trim() || "Blueprint configuration failed.")
 	return JSON.parse(result.stdout)
+}
+
+async function migrateLegacyBaseline(active: ActiveProject, decisionsPath: string, installedRevision: unknown): Promise<void> {
+	if (typeof installedRevision !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(installedRevision)) {
+		throw new Error("Legacy migration requires a full installed blueprint commit ID.")
+	}
+	if (installedRevision === blueprintRevision(active.blueprintRoot)) {
+		runBlueprintConfigure(active, decisionsPath, true)
+		return
+	}
+	const temporaryRoot = await mkdtemp(join(tmpdir(), "project-blueprint-baseline-"))
+	const checkout = join(temporaryRoot, "blueprint")
+	try {
+		// Local objects only: never fetch, move the user's checkout, or rewrite installed hashes.
+		const result = spawnSync("git", [
+			"clone", "--local", "--shared", `--revision=${installedRevision}`, active.blueprintRoot, checkout,
+		], { cwd: active.blueprintRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+		if (result.status !== 0) throw new Error(`Cannot prepare installed blueprint revision ${installedRevision} from local Git objects: ${result.stderr?.trim() || result.error?.message || "Git failed"}. Git with clone --revision support and the installed commit must be available locally. No upstream fetch was attempted.`)
+		for (const path of ["scripts/harness-sync.mjs", "scripts/bootstrap-configure.mjs", "distribution/bootstrap-questionnaire.json"]) {
+			const destination = join(checkout, path)
+			await assertNoTargetSymlink(checkout, destination)
+			await mkdir(dirname(destination), { recursive: true })
+			await copyFile(join(active.blueprintRoot, path), destination)
+		}
+		// Verify all recorded files and hashes. Only omitted bootstrap-only entries from
+		// the reviewed current policy may stay omitted; never invent ownership or restore helpers.
+		runBlueprintConfigure({ ...active, blueprintRoot: checkout }, decisionsPath, true, join(active.blueprintRoot, "distribution/harness-ownership-manifest.json"))
+	} finally {
+		await rm(temporaryRoot, { recursive: true, force: true })
+	}
 }
 
 function summarizeComparison(comparison: Record<string, unknown>): Record<string, unknown> {
@@ -303,6 +334,13 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 			if (reviewClosed) throw new Error("This project review is closed. Start another /project command.")
 			const values = { ...params.values } as Record<string, string>
 			const evidence = { ...(params.evidence ?? {}) } as Record<string, string>
+			const generatedAt = new Date().toISOString()
+			for (const placeholder of missingDecisionValues(active.questionnaire, values)) {
+				if (["LAST_UPDATED_ISO_DATE", "CURRENT_STATE_DATE", "GENERATED_AT_UTC_ISO"].includes(placeholder)) {
+					values[placeholder] = placeholder === "GENERATED_AT_UTC_ISO" ? generatedAt : generatedAt.slice(0, 10)
+					evidence[placeholder] = "UTC system clock at decision review; editable before approval"
+				}
+			}
 			if (!ctx.hasUI) {
 				return {
 					content: [{ type: "text", text: "Interactive approval is unavailable. Report the proposed decisions and stop without changing files." }],
@@ -337,32 +375,38 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 					decisionsPath: manifest.decisionsPath ?? null,
 					configuredBaseline: Boolean(manifest.decisionsPath && manifest.managedFiles?.every((entry: { configuredSha256?: string }) => /^[a-f0-9]{64}$/.test(entry.configuredSha256 ?? ""))),
 					sourceRevision: blueprintRevision(active.blueprintRoot),
-					updatePolicy: "Guarded update only. If the configured baseline is missing, approval first saves a new decision packet and runs baseline-only migration against the installed blueprint revision. A revision or template mismatch blocks migration; use a reviewed checkout of the installed revision with the current migration scripts. Migration changes only baseline metadata, marks differing files as preserved local edits, and never configures project files. Locally modified managed files block the update. Project-owned files and any original decision packet are preserved. Required checks run afterward.",
+					updatePolicy: "Guarded update only. If the configured baseline is missing, approval first saves a new decision packet and runs baseline-only migration against the installed blueprint revision. For an older revision, migration prepares a temporary checkout from local Git objects with the current migration scripts and questionnaire, keeping installed templates and the ownership manifest unchanged. No upstream fetch occurs. Only files marked bootstrap-only in the reviewed current blueprint policy may be absent from the recorded file set; they stay absent. Missing normal entries, unavailable revisions, and template mismatches block migration. Migration changes only baseline metadata, marks differing files as preserved local edits, and never configures project files. Locally modified managed files block the update. Project-owned files and any original decision packet are preserved. Required checks run afterward.",
 				})
 			}
-			let edited = await ctx.ui.editor("Review project blueprint decision packet", JSON.stringify({
+			let edited = JSON.stringify({
 				mode: active.mode,
 				target: active.target,
 				blueprintComparison: comparison,
 				values,
 				evidence,
-			}, null, 2))
-			if (edited === undefined) {
-				reviewClosed = true
-				ctx.abort()
-				return { content: [{ type: "text", text: "The user cancelled review. No files changed." }], details: { status: "cancelled" } }
-			}
+			}, null, 2)
 			let reviewed: { mode: ProjectMode; target: string; values: Record<string, string>; evidence?: Record<string, string> }
-			try {
-				reviewed = JSON.parse(edited)
-				if (reviewed.mode !== active.mode || reviewed.target !== active.target) throw new Error("Mode and target cannot change during review.")
-				validateDecisionValues(active.questionnaire, reviewed.values, active.mode !== "audit")
-				if (reviewed.evidence && (typeof reviewed.evidence !== "object" || Array.isArray(reviewed.evidence) || Object.values(reviewed.evidence).some((value) => typeof value !== "string"))) {
-					throw new Error("Evidence must be an object with string values.")
+			while (true) {
+				signal?.throwIfAborted()
+				const answer = await ctx.ui.editor("Review project blueprint decision packet", edited)
+				if (answer === undefined) {
+					reviewClosed = true
+					ctx.abort()
+					return { content: [{ type: "text", text: "The user cancelled review. No files changed." }], details: { status: "cancelled" } }
 				}
-				assertNoLikelySecrets(reviewed.evidence ?? {})
-			} catch (error) {
-				throw new Error(`Invalid decision packet: ${error instanceof Error ? error.message : String(error)}`)
+				edited = answer
+				try {
+					reviewed = JSON.parse(edited)
+					if (reviewed.mode !== active.mode || reviewed.target !== active.target) throw new Error("Mode and target cannot change during review.")
+					validateDecisionValues(active.questionnaire, reviewed.values, active.mode !== "audit")
+					if (reviewed.evidence && (typeof reviewed.evidence !== "object" || Array.isArray(reviewed.evidence) || Object.values(reviewed.evidence).some((value) => typeof value !== "string"))) {
+						throw new Error("Evidence must be an object with string values.")
+					}
+					assertNoLikelySecrets(reviewed.evidence ?? {})
+					break
+				} catch (error) {
+					ctx.ui.notify(`Invalid decision packet: ${error instanceof Error ? error.message : String(error)} Correct it in the editor or cancel. Your edits are preserved.`, "error")
+				}
 			}
 
 			const action = active.mode === "audit" ? "Approve audit" : `Approve and ${active.mode}`
@@ -409,9 +453,9 @@ export default function projectBlueprintExtension(pi: ExtensionAPI): void {
 				try {
 					if (!comparison.configuredBaseline) {
 						try {
-							runBlueprintConfigure(active, join(active.target, packetPath), true)
+							await migrateLegacyBaseline(active, join(active.target, packetPath), comparison.installedRevision)
 						} catch (error) {
-							throw new Error(`Legacy baseline migration blocked: ${error instanceof Error ? error.message : String(error)} Use a reviewed checkout of installed blueprint revision ${comparison.installedRevision}, with the current scripts/harness-sync.mjs and scripts/bootstrap-configure.mjs but unchanged installed templates and ownership manifest. Run bootstrap-configure with this approved packet and --baseline-only true, then retry /project update. Never copy raw hashes into a configured baseline.`)
+							throw new Error(`Legacy baseline migration blocked: ${error instanceof Error ? error.message : String(error)} Use a reviewed checkout of installed blueprint revision ${comparison.installedRevision}, with the current scripts/harness-sync.mjs, scripts/bootstrap-configure.mjs, and distribution/bootstrap-questionnaire.json but unchanged installed templates and ownership manifest. Run bootstrap-configure with this approved packet, --baseline-only true, and --bootstrap-policy pointing to the reviewed current blueprint ownership manifest, then retry /project update. Never copy raw hashes into a configured baseline.`)
 						}
 					}
 					sync = runHarnessCommand(active, "update", join(active.target, packetPath))

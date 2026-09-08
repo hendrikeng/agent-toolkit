@@ -41,6 +41,10 @@ import {
 	validateTaskGraphRepositories,
 } from "../task-graph-core.ts"
 
+import { createHash } from "node:crypto"
+import { registerHooks } from "node:module"
+import { validateRunRecovery, type RunRecoverySnapshot } from "../run-recovery.ts"
+
 const plan: TaskGraphPlan = {
 	objective: "Build search",
 	mode: "execute",
@@ -67,6 +71,180 @@ const plan: TaskGraphPlan = {
 		},
 	],
 }
+
+test("recovers a renamed objective only with preserved repository, contracts, tasks and dispatches", () => {
+	const root = mkdtempSync(join(tmpdir(), "task-graph-run-recovery-"))
+	try {
+		execFileSync("git", ["init", "--quiet", root])
+		const previous = structuredClone(plan)
+		const approved = { ...structuredClone(plan), objective: "Resume active search plan" }
+		approved.tasks.reverse()
+		approved.tasks[0].goal = "Resume the existing UI task"
+		approved.tasks[0].thinking = "medium"
+		approved.tasks[0].owns = approved.tasks[0].owns.map((path) => `${path}/`)
+		const marker = (task: TaskGraphPlan["tasks"][number]) => `[graph-task:${task.id}][graph-contract:${createHash("sha256").update(JSON.stringify(task)).digest("hex")}]`
+		const snapshot: RunRecoverySnapshot = {
+			run: { id: "run_original", objective: `Pi task graph: ${repositoryIdentity(root)}::objective:docs/future/search.md  \n old wording` },
+			tasks: previous.tasks.map((task) => ({ id: `task_${task.id}`, run_id: "run_original", parent_id: null, spec: `${marker(task)}\nOriginal task brief`, deps: JSON.stringify(task.depends_on.map((id) => `task_${id}`)), status: "ready" })),
+			workers: [], dispatches: { task_api: null, task_web: null }, terminalInventory: { terminals: [] },
+		}
+		const check = (candidate = snapshot, current = approved, original = previous) => validateRunRecovery(root, "run_original", original, current, candidate)
+		const untouched = structuredClone(snapshot)
+		assert.deepEqual(check().markers, approved.tasks.map((task) => marker(previous.tasks.find((old) => old.id === task.id)!)))
+		assert.deepEqual(snapshot, untouched, "validation must not mutate the Run, tasks or dispatches")
+		const reject = (change: (candidate: RunRecoverySnapshot) => void, message: RegExp) => {
+			const candidate = structuredClone(snapshot)
+			change(candidate)
+			assert.throws(() => check(candidate), message)
+		}
+		reject((s) => { s.run.id = "run_other" }, /different repository/)
+		reject((s) => { s.run.objective = "Pi task graph: /other/.git::objective:search" }, /different repository/)
+		reject((s) => { s.tasks.pop() }, /complete, unique/)
+		reject((s) => { s.tasks[1].id = s.tasks[0].id }, /complete, unique/)
+		reject((s) => { s.tasks[0].parent_id = "task_web" }, /contract marker/)
+		reject((s) => { s.tasks[0].spec = s.tasks[1].spec }, /contract marker/)
+		reject((s) => { s.tasks[0].spec = s.tasks[0].spec.replace(/graph-contract:[a-f0-9]+/, "graph-contract:wrong") }, /contract marker/)
+		reject((s) => { s.tasks[0].run_id = "run_other" }, /identity, Run or status/)
+		reject((s) => { s.tasks[1].deps = '[]' }, /changed dependencies/)
+		reject((s) => { s.tasks[1].deps = '["task_api","task_api"]' }, /changed dependencies/)
+		reject((s) => { s.tasks[1].deps = 'null' }, /changed dependencies/)
+		reject((s) => { s.tasks.forEach((task) => { task.status = "completed" }) }, /already complete/)
+		reject((s) => { s.terminalInventory.truncated = true }, /inventory is incomplete/)
+		reject((s) => { s.terminalInventory.hostScope = { omittedHostIds: ["offline"] } }, /inventory is incomplete/)
+		reject((s) => { delete s.dispatches.task_api }, /inspect every task/)
+		reject((s) => { s.tasks[0].status = "dispatched" }, /missing its dispatch/)
+		const changed = structuredClone(approved)
+		changed.tasks[0].owns = ["src/other"]
+		assert.throws(() => check(snapshot, changed), /preserve task identities/)
+		changed.tasks[0] = { ...approved.tasks[0], depends_on: [] }
+		assert.throws(() => check(snapshot, changed), /preserve task identities/)
+		assert.throws(() => check(snapshot, { ...approved, mode: "plan-only" }), /execute contracts/)
+
+		snapshot.tasks[0].status = "dispatched"
+		snapshot.workers.push({ dispatchId: "ctx_live", taskId: "task_api", runId: "run_original", dispatchStatus: "active", agentTerminalHandle: "term_live" })
+		snapshot.dispatches.task_api = { id: "ctx_live", task_id: "task_api", run_id: "run_original", status: "active", assignee_handle: "term_live" }
+		snapshot.terminalInventory.terminals.push({ handle: "term_live", worktreePath: root })
+		const live = structuredClone(snapshot)
+		assert.equal(check().workers[0].dispatchId, "ctx_live")
+		assert.deepEqual(snapshot, live, "live dispatch and process identity must be preserved")
+		reject((s) => { s.workers[0].runId = "run_other" }, /orphan, duplicate or invalid/)
+		reject((s) => { s.workers[0].taskId = "task_unknown" }, /orphan, duplicate or invalid/)
+		reject((s) => { s.workers.push({ ...s.workers[0] }) }, /orphan, duplicate or invalid/)
+		reject((s) => { s.workers.push({ ...s.workers[0], dispatchId: "ctx_second" }) }, /live dispatch/)
+		reject((s) => { s.dispatches.task_api!.assignee_handle = "term_other" }, /settlement is inconsistent/)
+		reject((s) => { s.dispatches.task_api!.run_id = "run_other" }, /settlement is inconsistent/)
+		reject((s) => { s.terminalInventory.terminals = [] }, /unavailable or in a different worktree/)
+		reject((s) => { s.terminalInventory.terminals[0].worktreePath = tmpdir() }, /unavailable or in a different worktree/)
+		reject((s) => { s.tasks[0].status = "completed" }, /live dispatch/)
+
+		snapshot.tasks[0].status = "completed"
+		snapshot.workers[0].dispatchStatus = "completed"
+		snapshot.dispatches.task_api!.status = "completed"
+		snapshot.terminalInventory.terminals = []
+		assert.equal(check().workers[0].dispatchId, "ctx_live", "settled dispatch IDs remain unchanged")
+		reject((s) => { s.dispatches.task_api!.status = "failed" }, /settlement is inconsistent/)
+		reject((s) => { s.tasks[0].status = "ready" }, /statuses disagree/)
+	} finally {
+		rmSync(root, { recursive: true, force: true })
+	}
+})
+
+test("explicit binding confirms and rechecks recovery before mutations, then closes the original Run", async () => {
+	const root = mkdtempSync(join(tmpdir(), "task-graph-binding-"))
+	const agentDir = join(root, "agent")
+	const lockRoot = join(agentDir, "task-graph-locks")
+	const oldAgentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR
+	const globals = globalThis as typeof globalThis & { graphTestRpc?: (args: string[]) => string }
+	const hooks = registerHooks({
+		resolve(specifier, context, next) {
+			if (!context.parentURL?.endsWith("/task-graph/index.ts")) return next(specifier, context)
+			const mocks: Record<string, string> = {
+				"@earendil-works/pi-coding-agent": `export const getAgentDir = () => ${JSON.stringify(agentDir)}; export const isToolCallEventType = (type, event) => event.toolName === type;`,
+				"typebox": "export const Type = new Proxy({}, {get: () => (...args) => ({})});",
+				"../codex-account/index.ts": "export const defaultPiAccount = () => undefined; export const fetchCodexUsage = () => undefined; export const piAccountEmail = () => undefined; export const piProfileAccountId = () => undefined;",
+				"node:child_process": "export const execFileSync = (_command, args) => globalThis.graphTestRpc(args);",
+			}
+			return mocks[specifier] ? { url: `data:text/javascript,${encodeURIComponent(mocks[specifier])}`, shortCircuit: true } : next(specifier, context)
+		},
+	})
+	let settle: (() => void) | undefined
+	try {
+		execFileSync("git", ["init", "--quiet", root])
+		process.env.AGENT_TOOLKIT_PI_AGENT_DIR = agentDir
+		const oldKey = `${repositoryIdentity(root)}::objective:docs/future/search.md old wording`
+		const oldLock = acquireTaskGraphLock(lockRoot, oldKey)
+		bindTaskGraphLockToOrcaRun(oldLock, "run_original")
+		bindTaskGraphLockToPlanContract(oldLock, JSON.stringify(plan))
+		abandonTaskGraphLock(oldLock)
+		const run = { id: "run_original", objective: `Pi task graph: ${oldKey}` }
+		const tasks = plan.tasks.map((task) => ({ id: `task_${task.id}`, parent_id: null, run_id: run.id, status: "ready", deps: JSON.stringify(task.depends_on.map((id) => `task_${id}`)), spec: `[graph-task:${task.id}][graph-contract:${createHash("sha256").update(JSON.stringify(task)).digest("hex")}]\nOriginal brief` }))
+		const before = structuredClone({ run, tasks })
+		const calls: string[][] = []
+		let duplicate = false
+		globals.graphTestRpc = (args) => {
+			calls.push(args)
+			const operation = args.slice(0, 2).join(" ")
+			let result: unknown
+			switch (operation) {
+				case "orchestration run-list": result = { runs: [run, ...(duplicate ? [{ id: "run_duplicate", objective: `Pi task graph: ${repositoryIdentity(root)}::objective:Resume search` }] : [])] }; break
+				case "orchestration run-show": result = { run }; break
+				case "orchestration task-list": result = { tasks }; break
+				case "orchestration worker-list": result = { workers: [] }; break
+				case "orchestration dispatch-show": result = { dispatch: null }; break
+				case "terminal list": result = { terminals: [] }; break
+				case "orchestration run-use": result = { run }; break
+				default: throw new Error(`Unexpected RPC mutation: ${args.join(" ")}`)
+			}
+			return JSON.stringify({ ok: true, result })
+		}
+		const tools = new Map<string, any>()
+		const commands = new Map<string, any>()
+		const events = new Map<string, any>()
+		const { default: extension } = await import("../index.ts")
+		extension({
+			registerTool: (tool: any) => tools.set(tool.name, tool),
+			registerCommand: (name: string, command: any) => commands.set(name, command),
+			on: (name: string, handler: any) => events.set(name, handler),
+			sendUserMessage: (prompt: string) => events.get("before_agent_start")({ prompt }),
+		} as never)
+		settle = events.get("agent_settled")
+		let confirm = async () => false
+		const ctx = { cwd: root, hasUI: true, isIdle: () => true, model: { provider: "test", id: "model" }, ui: { select: async () => "Approve and execute", confirm: async () => confirm(), notify: (message: string) => { throw new Error(message) } } }
+		await commands.get("graph").handler("Resume search", ctx)
+		await tools.get("propose_task_graph").execute("proposal", { ...structuredClone(plan), objective: "Resume search" }, undefined, undefined, ctx)
+		const bind = (recover = true) => tools.get("bind_task_graph_run").execute("bind", { run_id: run.id, recover }, undefined, undefined, ctx)
+		await assert.rejects(bind(false), /does not match/)
+		await assert.rejects(bind(), /cancelled/)
+		confirm = async () => true
+		duplicate = true
+		await assert.rejects(bind(), /ambiguous or different unfinished/)
+		duplicate = false
+		confirm = async () => { tasks[0].spec += " changed while confirming"; return true }
+		await assert.rejects(bind(), /changed during confirmation/)
+		tasks[0].spec = before.tasks[0].spec
+		assert.equal(calls.some((args) => args[1] === "run-use"), false, "failed validation and cancelled/stale confirmation must not bind")
+		confirm = async () => true
+		const receipt = await bind()
+		assert.equal(receipt.details.runId, run.id)
+		assert.deepEqual({ run, tasks }, before, "binding must preserve the original objective, IDs, specs, dependencies and statuses")
+		assert.equal(calls.filter((args) => args[1] === "run-use").length, 1)
+		assert.equal((await bind()).details.runId, run.id, "repeat binding keeps the same recovery locks and ledger")
+		assert.equal(calls.some((args) => ["run-create", "task-create", "task-update", "dispatch"].includes(args[1])), false)
+		tasks.forEach((task) => { task.status = "completed" })
+		run.objective += " tampered"
+		await assert.rejects(tools.get("finish_task_graph").execute("finish", { run_id: run.id, evidence: "fixture checks" }), /objective changed/)
+		run.objective = before.run.objective
+		assert.equal((await tools.get("finish_task_graph").execute("finish", { run_id: run.id, evidence: "fixture checks" })).details.status, "complete")
+		assert.deepEqual(taskGraphOrcaRunIdsForLockRun(lockRoot, oldKey), [], "closeout releases the original recovery lock")
+	} finally {
+		settle?.()
+		hooks.deregister()
+		delete globals.graphTestRpc
+		if (oldAgentDir === undefined) delete process.env.AGENT_TOOLKIT_PI_AGENT_DIR
+		else process.env.AGENT_TOOLKIT_PI_AGENT_DIR = oldAgentDir
+		rmSync(root, { recursive: true, force: true })
+	}
+})
 
 test("pauses new graph workers at the subscription quota reserve", () => {
 	assert.match(taskGraphQuotaPauseReason({

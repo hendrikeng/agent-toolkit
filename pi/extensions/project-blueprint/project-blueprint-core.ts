@@ -88,7 +88,7 @@ export function validateDecisionValues(questionnaire: BootstrapQuestionnaire, va
 		throw new Error("OUT_OF_SCOPE_ITEM values must be unique.")
 	}
 	for (const key of ["CODEOWNERS_DEFAULT_TEAM", "CODEOWNERS_SECURITY_TEAM"]) {
-		if (validateMutation && required.has(key) && !/^@[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(values[key])) throw new Error(`${key} must use @org/team format.`)
+		if (validateMutation && required.has(key) && !/^@[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:\/[A-Za-z0-9_.-]+)?$/.test(values[key])) throw new Error(`${key} must use @username or @org/team format.`)
 	}
 	assertNoLikelySecrets(values)
 }

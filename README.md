@@ -140,11 +140,17 @@ first@example.com | 5h 72% ↻ 2h · 7d 39% ↻ 3d · ↻ 3 · 22d | FAST | YOLO
 
 The guarded updater compares managed files with their configured baseline. It stops if these files contain local changes. Never force an update to bypass conflicts.
 
+After an approved manual migration, the blueprint's `harness-sync.mjs reconcile` command can record the reconciled installation. This separate command requires a reviewed hash record. It writes only the manifest and retains customized-file markers. It rejects changed inputs, missing managed files, symlinks, and incomplete reviews. The command and review contract are documented in `vendor/agent-project-blueprint/README.md`. `/project update` does not approve or perform this reconciliation automatically.
+
 A successful update preserves earlier decision packets and writes a new update packet. It applies the approved values to incoming templates and preserves project-owned files. Pi then runs focused checks and reports unresolved conflicts or unavailable checks. Sync success alone does not prove application correctness.
 
 Legacy installations can use `update` without a decision packet when the manifest has no recorded decision path or configured hashes. Pi gathers fresh decisions and requires interactive approval. After approval, it saves a new packet and attempts `bootstrap-configure.mjs --baseline-only true` before the guarded update. This migration changes only manifest metadata and marks differing files as preserved local edits. It does not overwrite those files.
 
-Migration requires the installed blueprint revision, matching templates, and the original ownership manifest. A mismatch stops migration and reports the approved packet path. The recovery procedure uses a reviewed checkout of that installed revision with the current `scripts/harness-sync.mjs` and `scripts/bootstrap-configure.mjs`. That checkout runs baseline-only migration with the approved packet before another update attempt. A missing packet at an explicitly recorded path requires restoration, not legacy migration.
+Migration requires the installed blueprint revision, matching templates, and the original ownership manifest. For older revisions, Pi creates a temporary checkout from local Git objects after approval. It copies the current migration scripts and questionnaire into that checkout, without changing its templates or ownership manifest. The migrator verifies the installed file set and template hashes before it records baseline metadata.
+
+The migrator accepts omitted bootstrap-only entries only when the reviewed current ownership manifest lists them in `bootstrapOnlyGlobs`. Pi passes this policy through `--bootstrap-policy` for baseline-only migration without changing the historical ownership manifest. Omitted helpers stay omitted. Pi removes the temporary checkout after success or failure.
+
+Automatic recovery requires Git with `clone --revision` support and the installed commit in the local blueprint repository. It does not fetch upstream changes or move the existing checkout. Unavailable commits, mismatched templates, missing managed files, and local-edit conflicts remain blockers. A missing packet at an explicitly recorded path requires restoration, not legacy migration.
 
 ### Fast mode
 
@@ -277,6 +283,10 @@ The approval screen shows the complete top-to-bottom execution order. One approv
 #### Execution
 
 After approval, `/graph` uses one stable Orca Run objective. It resumes one unfinished matching Run or creates a Run when none exists.
+
+For an explicitly named Run with a changed objective, the coordinator can call `bind_task_graph_run` with `recover: true`. Recovery requires interactive confirmation and the preserved original graph contract. It validates the repository, task identities, ownership, dependencies, and live dispatches before any Run mutation. It preserves the original objective, task IDs, specs, contract markers, and dispatches.
+
+This recovery path supports complete top-level task graphs, not partial ledgers or plan chains. Missing evidence, changed ownership, conflicting Runs, unavailable live workers, or an active original graph lock stop recovery. The model, account, quota, and closeout guards remain active.
 
 The coordinator creates one non-dispatched Orca task for each plan. These tasks store the approved dependencies and provide the durable execution ledger.
 
