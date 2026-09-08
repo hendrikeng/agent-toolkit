@@ -36,7 +36,6 @@ Run `/reload` after an extension change. Restart Pi after a launcher or account-
 | Tool | Purpose |
 |---|---|
 | `autoreview` | Run a risk-gated or explicit second-model review. |
-| `handoff` | Create a portable handoff prompt. |
 | Ponytail | Prefer the smallest correct implementation. |
 | `/project` | Audit, adopt, or create a project from the pinned blueprint. |
 | `/graph` | Plan and supervise an Orca task graph. |
@@ -352,7 +351,6 @@ Trusted push, pull-request, merge, release, credential, and permission boundarie
 | `vue` | Automatic for matching work |
 | `explore-design` | Automatic for visual exploration and chosen-mock implementation |
 | `autoreview` | Explicit or risk-gated |
-| `handoff` | Explicit |
 | `simple-english` | Explicit |
 | `react-doctor` | Explicit |
 | `deepsec` | Explicit |
@@ -437,7 +435,7 @@ The script checks extensions, skills, command discovery, package pins, and safet
 |---|---|
 | `pi/extensions/` | Pi commands and runtime integrations |
 | `pi/skills/` | Shared task guidance |
-| `codex/skills/` | Codex-native review and handoff skills |
+| `codex/skills/` | Shared code-review skill |
 | `shared/agent-safety/` | Launchers and safety policy |
 | `shared/ponytail/` | Ponytail version and configuration |
 | `shared/pi-web-access/` | Web-tool defaults |

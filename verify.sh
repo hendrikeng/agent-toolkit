@@ -168,8 +168,8 @@ done
 [[ -n $system_git ]]
 mkdir "$tmp_dir/system-git"
 ln -s "$system_git" "$tmp_dir/system-git/git"
-PATH="$tmp_dir/system-git:$PATH" "$repo_dir/codex/skills/autoreview/scripts/autoreview" --self-test
-cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$HOME/.codex/skills/handoff/SKILL.md"
+PATH="$tmp_dir/system-git:$PATH" python3 "$repo_dir/codex/skills/autoreview/scripts/autoreview_test.py"
+test ! -e "$HOME/.codex/skills/handoff" && test ! -L "$HOME/.codex/skills/handoff"
 cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$HOME/.codex/skills/explore-design/SKILL.md"
 cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$HOME/.codex/skills/fastapi/SKILL.md"
 cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.codex/skills/fastify/SKILL.md"
@@ -183,7 +183,7 @@ cmp "$repo_dir/pi/skills/python/SKILL.md" "$HOME/.claude/skills/python/SKILL.md"
 cmp "$repo_dir/pi/extensions/simple-english/SKILL.md" "$HOME/.claude/skills/simple-english/SKILL.md"
 cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.claude/skills/vue/SKILL.md"
 cmp "$repo_dir/codex/skills/autoreview/SKILL.md" "$pi_agent_dir/skills/autoreview/SKILL.md"
-cmp "$repo_dir/codex/skills/handoff/SKILL.md" "$pi_agent_dir/skills/handoff/SKILL.md"
+test ! -e "$pi_agent_dir/skills/handoff" && test ! -L "$pi_agent_dir/skills/handoff"
 cmp "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 cmp "$repo_dir/pi/extensions/ask-user-question/index.ts" "$pi_agent_dir/extensions/ask-user-question/index.ts"
 cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
@@ -353,7 +353,10 @@ if grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"; then
   exit 1
 fi
 grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
-grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"
+if grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"; then
+  printf 'The retired handoff skill is still available\n' >&2
+  exit 1
+fi
 grep -q '"name":"skill:deepsec"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:react-doctor"' "$tmp_dir/rpc.jsonl"
 grep -q '"name":"skill:explore-design"' "$tmp_dir/rpc.jsonl"
@@ -369,14 +372,5 @@ if grep -q '"name":"skill:librarian"' "$tmp_dir/rpc.jsonl"; then
   printf 'pi-web-access librarian skill should be filtered out\n' >&2
   exit 1
 fi
-
-fresh_agent_dir="$tmp_dir/fresh-pi-agent"
-mkdir -p "$fresh_agent_dir/skills"
-ln -s "$repo_dir/codex/skills/handoff" "$fresh_agent_dir/skills/handoff"
-printf '%s\n' '{"enableSkillCommands":true}' >"$fresh_agent_dir/settings.json"
-printf '%s\n' '{"id":"commands","type":"get_commands"}' \
-  | PI_CODING_AGENT_DIR="$fresh_agent_dir" pi --offline --mode rpc --no-session --no-extensions \
-    >"$tmp_dir/fresh-rpc.jsonl" 2>"$tmp_dir/fresh-rpc.err"
-grep -q '"name":"skill:handoff"' "$tmp_dir/fresh-rpc.jsonl"
 
 printf '\nAll checks passed.\n'

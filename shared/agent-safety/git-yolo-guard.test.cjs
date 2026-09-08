@@ -5,7 +5,7 @@ const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const test = require('node:test')
 
-test('allows only new-branch switch and preserves staged, unstaged and untracked files', () => {
+test('allows read-only ancestry queries and new-branch switch while preserving local work', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'git-guard-test-'))
   const guard = join(__dirname, 'git-yolo-guard')
   const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' } }).trim()
@@ -23,15 +23,21 @@ test('allows only new-branch switch and preserves staged, unstaged and untracked
     const head = git('rev-parse', 'HEAD')
     git('remote', 'add', 'origin', cwd)
     git('fetch', 'origin', 'HEAD:refs/remotes/origin/dev')
-    for (const prefix of [[], ['-C', cwd]]) {
-      const result = run(...prefix, 'merge-base', 'HEAD', 'origin/dev')
-      assert.equal(result.status, 0, result.stderr)
-      assert.equal(result.stdout.trim(), head)
+    git('fetch', 'origin', 'HEAD:refs/remotes/origin/main')
+    for (const prefix of [[], ['-C', cwd], ['-c', 'diff.suppressBlankEmpty=false']]) {
+      for (const refs of [['HEAD', 'origin/dev'], ['HEAD', 'origin/main'], ['origin/main', 'HEAD'], ['--all', 'HEAD', 'HEAD'], ['--octopus', 'HEAD', 'origin/main']]) {
+        const result = run(...prefix, 'merge-base', ...refs)
+        assert.equal(result.status, 0, result.stderr)
+        assert.equal(result.stdout.trim(), head)
+      }
+      const ancestor = run(...prefix, 'merge-base', '--is-ancestor', 'HEAD', 'origin/main')
+      assert.equal(ancestor.status, 0, ancestor.stderr)
+      const commitDiff = run(...prefix, 'diff-tree', '--root', '--no-commit-id', '--name-only', '-r', 'HEAD')
+      assert.equal(commitDiff.status, 0, commitDiff.stderr)
+      assert.equal(commitDiff.stdout.trim(), 'tracked')
     }
+    assert.notEqual(run('merge-base', 'HEAD', 'missing-ref').status, 0)
     for (const args of [
-      ['merge-base'], ['merge-base', 'HEAD'], ['merge-base', 'HEAD', 'HEAD'],
-      ['merge-base', 'origin/dev', 'HEAD'], ['merge-base', '--all', 'HEAD', 'origin/dev'],
-      ['merge-base', 'HEAD', 'origin/dev', '--is-ancestor'],
       ['-c', 'core.hooksPath=/tmp/unapproved', 'merge-base', 'HEAD', 'origin/dev'],
       ['reset', '--hard'], ['clean', '-fd'], ['checkout', '--', 'tracked']
     ]) assert.equal(run(...args).status, 126, JSON.stringify(args))

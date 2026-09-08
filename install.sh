@@ -384,8 +384,16 @@ elif [[ -e "$legacy_simple_english" || -L "$legacy_simple_english" ]]; then
   printf 'refusing to retire user-managed path at %s\n' "$legacy_simple_english" >&2
   exit 1
 fi
+for legacy_handoff in "$HOME/.codex/skills/handoff" "$pi_agent_dir/skills/handoff"; do
+  if [[ -L "$legacy_handoff" && $(readlink "$legacy_handoff") == "$repo_dir/codex/skills/handoff" ]]; then
+    rm "$legacy_handoff"
+    printf 'retired %s\n' "$legacy_handoff"
+  elif [[ -e "$legacy_handoff" || -L "$legacy_handoff" ]]; then
+    printf 'refusing to retire user-managed path at %s\n' "$legacy_handoff" >&2
+    exit 1
+  fi
+done
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
-install_link "$repo_dir/codex/skills/handoff" "$HOME/.codex/skills/handoff"
 install_link "$repo_dir/pi/skills/explore-design" "$HOME/.codex/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
@@ -403,7 +411,6 @@ install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bi
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/claude-yolo" 700
 install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
-install_link "$repo_dir/codex/skills/handoff" "$pi_agent_dir/skills/handoff"
 install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensions/ask-user-question"
 install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"

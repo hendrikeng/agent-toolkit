@@ -13,7 +13,7 @@ while ((i < ${#args[@]})); do
   case ${args[i]} in
     -C|--git-dir|--work-tree|--namespace|--super-prefix) i=$((i + 2)) ;;
     -c)
-      case ${args[i+1]:-} in core.fsmonitor=false|core.pager=cat|diff.external=|diff.renames=false|pager.diff=cat|pager.log=cat|pager.show=cat) i=$((i + 2)) ;; *) printf 'git yolo guard: Git config override is not allowlisted\n' >&2; exit 126 ;; esac
+      case ${args[i+1]:-} in core.fsmonitor=false|core.pager=cat|diff.external=|diff.renames=false|diff.suppressBlankEmpty=false|pager.diff=cat|pager.log=cat|pager.show=cat) i=$((i + 2)) ;; *) printf 'git yolo guard: Git config override is not allowlisted\n' >&2; exit 126 ;; esac
       ;;
     --config-env=*|--exec-path|--exec-path=*) printf 'git yolo guard: executable overrides are disabled\n' >&2; exit 126 ;;
     --git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--html-path|--man-path|--info-path|-p|-P|--paginate|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-advice|--no-lazy-fetch) i=$((i + 1)) ;;
@@ -25,10 +25,7 @@ done
 
 command=${args[i]:-}
 case $command in
-  status|diff|log|show|add|commit|fetch|merge|rebase|cherry-pick|revert|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|remote|init|clone|version|help)
-    ;;
-  merge-base)
-    [[ ${#args[@]} -eq $((i + 3)) && ${args[i+1]:-} == HEAD && ${args[i+2]:-} == origin/dev ]] || { printf 'git yolo guard: only git merge-base HEAD origin/dev is allowed unattended\n' >&2; exit 126; }
+  status|diff|diff-tree|log|show|add|commit|fetch|merge|merge-base|rebase|cherry-pick|revert|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|remote|init|clone|version|help)
     ;;
   switch)
     [[ ${#args[@]} -eq $((i + 3)) && ${args[i+1]:-} == -c && -n ${args[i+2]:-} && ${args[i+2]} != -* ]] || { printf 'git yolo guard: only git switch -c <new-branch> is allowed unattended\n' >&2; exit 126; }
