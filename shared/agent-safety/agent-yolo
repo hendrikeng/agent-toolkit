@@ -218,7 +218,7 @@ NODE
       done
       mkdir "$agent_dir/extensions/pi-permission-system"
     fi
-    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" <<'NODE'
+    scratch_root=$(node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" <<'NODE'
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -233,6 +233,12 @@ const managedAgentDir = fs.realpathSync(path.resolve(process.argv[2], "../../.."
 const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
 config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";
+// Keep scratch data across exits/resumes, inside the already trusted Code tree.
+const scratchRoot = path.join(os.homedir(), "Code", ".agent-toolkit-scratch");
+fs.mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
+const scratchStat = fs.lstatSync(scratchRoot);
+if (scratchStat.isSymbolicLink() || !scratchStat.isDirectory()) throw new Error("Scratch directory must be a real directory, not a symlink");
+fs.chmodSync(scratchRoot, 0o700);
 const temporaryDir = fs.realpathSync(os.tmpdir());
 const reviewRoot = path.join(managedAgentDir, "review-results");
 fs.mkdirSync(reviewRoot, { recursive: true, mode: 0o700 });
@@ -255,7 +261,7 @@ config.piInfrastructureReadPaths = [...new Set([
   path.join(temporaryDir, "codex-clipboard-*"),
 ])];
 config.permission.external_directory = { "*": "deny" };
-for (const root of [path.join(process.env.HOME, "Code"), path.join(process.env.HOME, "orca/workspaces")]) {
+for (const root of [path.join(process.env.HOME, "Code"), path.join(process.env.HOME, "orca/workspaces"), fs.realpathSync(scratchRoot)]) {
   config.permission.external_directory[root] = "allow";
   config.permission.external_directory[path.join(root, "*")] = "allow";
 }
@@ -272,7 +278,9 @@ const output = process.argv[3];
 const temporary = `${output}.${process.pid}`;
 fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
 fs.renameSync(temporary, output);
+process.stdout.write(fs.realpathSync(scratchRoot));
 NODE
+    )
 
     enable_git_guard
     if [[ -n $account_profile ]]; then
@@ -280,7 +288,7 @@ NODE
     else
       unset AGENT_TOOLKIT_CODEX_PROFILE_HOME
     fi
-    PATH=$PATH AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir AGENT_TOOLKIT_REVIEW_ROOT="$source_agent_dir/review-results" PI_CODING_AGENT_DIR=$agent_dir pi "$@"
+    PATH=$PATH AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir AGENT_TOOLKIT_REVIEW_ROOT="$source_agent_dir/review-results" AGENT_TOOLKIT_SCRATCH_ROOT="$scratch_root" PI_CODING_AGENT_DIR=$agent_dir pi "$@"
     ;;
   *)
     printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2

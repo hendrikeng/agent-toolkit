@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphFile, graphGit, graphInput, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkerWorkspace } from "../workspaces.ts"
+import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphFile, graphGit, graphInput, graphRepositoryMap, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkerWorkspace } from "../workspaces.ts"
 import { cleanupGraphWorkers } from "../cleanup.ts"
 import { acquireTaskGraphMutationLock, releaseTaskGraphLock, taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.ts"
 
@@ -364,6 +364,54 @@ test("planning-only work stays in Markdown; read-only work needs no worktree; Or
 		assert.throws(() => graphWritePath(planning, join(repo.workspace!.path!, "docs/script.ts")), /Planning-only/)
 		assert.equal(taskGraphStandaloneOrca("orca status --json"), true)
 		for (const command of ["orca status; touch source", "orca status && git push", "orca status > source", "orca status $(touch source)", "echo ok; orca status"]) assert.equal(taskGraphStandaloneOrca(command), false)
+	} finally { f.cleanup() }
+})
+
+for (const owns of [[], ["docs/future/output.md"]]) test(`plan-only captures code and active plans without granting input ownership (${owns.length ? "writing" : "read-only"})`, () => {
+	const f = fixture()
+	try {
+		const inputs = ["src/a.ts", "docs/exec-plans/active/foundation.md", "docs/future/plan.md"]
+		mkdirSync(join(f.source, "docs/exec-plans/active"), { recursive: true })
+		for (const path of inputs) writeFileSync(join(f.source, path), "approved foundation\n")
+		writeFileSync(join(f.source, "unrelated.txt"), "not selected\n")
+		const status = graphGit(f.source, "status", "--porcelain=v1")
+		const index = readFileSync(join(f.source, ".git/index"))
+		const state = captureGraphWorkspaces(f.source, { ...plan, mode: "plan-only", tasks: [{ ...plan.tasks[0], owns }] }, [{ paths: inputs }])
+		const repo = state.repositories[0]
+		createGraphWorkspace(repo, repo.workspace!, f.orca, () => {})
+		importGraphInputs(repo, () => {})
+		const destination = repo.workspace!.path!
+		verifyGraphChanges(repo, repo.workspace!, owns, state.mode)
+		assert.equal(graphRepositoryMap(state)[f.source].path, destination)
+		assert.notEqual(destination, f.source)
+		for (const path of inputs) assert.equal(readFileSync(join(destination, path), "utf8"), "approved foundation\n")
+		assert.equal(existsSync(join(destination, "unrelated.txt")), false)
+		assert.equal(graphGit(f.source, "status", "--porcelain=v1"), status)
+		assert.deepEqual(readFileSync(join(f.source, ".git/index")), index)
+		assert.equal(graphGit(f.source, "rev-parse", "HEAD"), repo.base)
+		const file = join(f.directory, "state.json")
+		saveGraphWorkspaces(file, state)
+		const recovered = readGraphWorkspaces(file).repositories[0]
+		writeFileSync(join(f.source, inputs[0]), "later source edit\n")
+		importGraphInputs(recovered, () => {})
+		assert.equal(readFileSync(join(destination, inputs[0]), "utf8"), "approved foundation\n")
+		verifyGraphChanges(recovered, recovered.workspace!, owns, state.mode)
+		const worker: GraphWorkerWorkspace = { ...repo.workspace!, base: repo.captureCheckpoint!, task: "task_reader", approvedTask: "a", source: f.source, owns }
+		for (const path of inputs) {
+			assert.throws(() => graphWritePath(state, join(destination, path), worker), /Planning-only|does not own/)
+			assert.throws(() => checkpointGraphChanges(repo, repo.workspace!, owns, state.mode, [path], "Not authorized"), /Planning-only|outside approved ownership/)
+		}
+		if (owns.length) {
+			writeFileSync(join(destination, owns[0]), "planning output\n")
+			checkpointGraphChanges(repo, repo.workspace!, owns, state.mode, owns, "Approved planning output")
+		}
+		// Capturing a file must not exempt later changes, even if a later commit restores it.
+		for (const text of ["unauthorized edit\n", "approved foundation\n"]) {
+			writeFileSync(join(destination, inputs[2]), text)
+			graphGit(destination, "add", "--", inputs[2])
+			graphGit(destination, "commit", "-m", "History fixture", "--", inputs[2])
+		}
+		assert.throws(() => verifyGraphChanges(repo, repo.workspace!, owns, state.mode), /outside approved ownership/)
 	} finally { f.cleanup() }
 })
 

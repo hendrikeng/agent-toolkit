@@ -124,12 +124,10 @@ export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan, select
 		const dirty = graphDirtyPaths(source)
 		if (new Set(paths).size !== paths.length || paths.some((path) => !dirty.includes(path))) throw new Error("Import only explicitly selected dirty files, without duplicates.")
 		const writing = plan.tasks.some((task) => realpathSync(resolve(root, task.repository ?? ".")) === source && task.owns.length > 0)
-		if (!writing && paths.length) throw new Error("Read-only repositories cannot import dirty files.")
-		return { source, identity: repositoryIdentity(source), base: graphGit(source, "rev-parse", "HEAD"), sourceBranch: graphGit(source, "rev-parse", "--abbrev-ref", "HEAD"), inputs: paths.map((path) => graphInput(source, path)), ...(writing ? { workspace: { name: `${plan.objective.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "graph"}-delivery-${randomUUID().slice(0, 8)}`, base: graphGit(source, "rev-parse", "HEAD"), phase: "creating" as const } } : {}) }
+		return { source, identity: repositoryIdentity(source), base: graphGit(source, "rev-parse", "HEAD"), sourceBranch: graphGit(source, "rev-parse", "--abbrev-ref", "HEAD"), inputs: paths.map((path) => graphInput(source, path)), ...(writing || paths.length ? { workspace: { name: `${plan.objective.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "graph"}-${writing ? "delivery" : "snapshot"}-${randomUUID().slice(0, 8)}`, base: graphGit(source, "rev-parse", "HEAD"), phase: "creating" as const } } : {}) }
 	})
 	if (new Set(repositories.map((repo) => repo.identity)).size !== repositories.length) throw new Error("Use one source checkout per Git repository in a graph.")
 	if (currentCheckout && repositories.some((repo) => graphDirtyPaths(repo.source).length > 0)) throw new Error("The current-checkout override requires clean repositories; use isolation for dirty inputs.")
-	for (const repo of repositories) for (const input of repo.inputs) assertGraphMode(plan.mode, input.path)
 	return { version: 1, key: randomUUID(), label: plan.objective, contractHash: createHash("sha256").update(JSON.stringify(plan)).digest("hex"), currentCheckout, cleanupWorkers: plan.cleanup_workers === true, mode: plan.mode, repositories, workers: [] }
 }
 
@@ -287,8 +285,11 @@ export function verifyGraphChanges(repository: GraphRepository, workspace: Graph
 		if (!graphOwns(owners, path)) throw new Error(`Graph change is outside approved ownership: ${path}`)
 	}
 	for (const path of graphDirtyPaths(workspace.path!)) check(path)
-	// Check imported history, including both sides of merges, not just the final tree.
-	for (const commit of graphGit(workspace.path!, "rev-list", `${workspace.base}..HEAD`).split("\n").filter(Boolean)) {
+	// Captured inputs are an approved baseline, not worker/coordinator write ownership.
+	const base = repository.captureComplete && workspace.path === repository.workspace?.path ? repository.captureCheckpoint ?? workspace.base : workspace.base
+	graphGit(workspace.path!, "merge-base", "--is-ancestor", base, "HEAD")
+	// Check new history, including both sides of merges, not just the final tree.
+	for (const commit of graphGit(workspace.path!, "rev-list", `${base}..HEAD`).split("\n").filter(Boolean)) {
 		const paths = graphGit(workspace.path!, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-m", "-z", commit).split("\0").filter(Boolean)
 		for (const path of paths) check(path)
 		if (paths.length && graphGit(workspace.path!, "ls-tree", "-r", "-z", commit, "--", ...paths).split("\0").some((entry) => entry && !/^100(?:644|755) blob /.test(entry))) throw new Error("Graph history contains a non-regular file change.")

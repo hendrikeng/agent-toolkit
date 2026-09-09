@@ -362,7 +362,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	const pendingTerminalLaunches = new Set<string>()
 	const coordinatorOwners = (repository: GraphRepository) => {
 		const contract = JSON.parse(recoveredPlanContract!) as TaskGraphPlan
-		return [...contract.tasks.filter((task) => approvedTaskRepositories.get(task.id) === repository.source).flatMap((task) => task.owns), ...repository.inputs.map((input) => input.path)]
+		return contract.tasks.filter((task) => approvedTaskRepositories.get(task.id) === repository.source).flatMap((task) => task.owns)
 	}
 	const verifyCoordinator = (repository: GraphRepository) => verifyGraphChanges(repository, repository.workspace!, coordinatorOwners(repository), workspaces!.mode)
 	const workerContext = (cwd: string) => {
@@ -536,7 +536,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		if (!worker && repository && workspaces.workers.some((reader) => !reader.integrated && reader.prerequisites?.[repository.source])) throw new Error("Finish dependent workers before changing their pinned prerequisite workspace.")
 		if (!repository || !workspace || !repository.captureComplete && !workspaces.currentCheckout) throw new Error("Prepare this repository's writing workspace and input checkpoint first.")
 		verifyGraphWorkspace(repository, workspace)
-		return { repository, workspace, worker, owners: worker?.owns ?? coordinatorOwners(repository) }
+		const owners = worker?.owns ?? coordinatorOwners(repository)
+		if (!owners.length) throw new Error("Read-only graph snapshots use read/search tools only.")
+		return { repository, workspace, worker, owners }
 	}
 
 	// Keep the native tool name: every command still traverses Pi's normal bash permission hooks.
