@@ -115,7 +115,8 @@ export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan, select
 	const selected = new Map<string, string[]>()
 	for (const selection of selections) {
 		const source = realpathSync(resolve(root, selection.repository ?? "."))
-		if (!sources.includes(source) || selected.has(source)) throw new Error("Input selection must name each approved repository at most once.")
+		if (!sources.includes(source)) throw new Error(`Input repository ${JSON.stringify(selection.repository ?? ".")} resolves to ${JSON.stringify(source)}, which is not referenced by any task. Task repositories: ${sources.map((path) => JSON.stringify(path)).join(", ")}. Remove this input entry or correct the task/input repository paths before resubmitting for approval.`)
+		if (selected.has(source)) throw new Error(`Duplicate input repository: ${JSON.stringify(selection.repository ?? ".")} resolves to already selected ${JSON.stringify(source)}. Combine its approved paths into one inputs entry.`)
 		selected.set(source, selection.paths)
 	}
 	const repositories = sources.map((source) => {

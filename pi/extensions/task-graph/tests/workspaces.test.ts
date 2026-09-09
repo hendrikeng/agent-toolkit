@@ -44,6 +44,25 @@ function fixture(branchPrefix = "") {
 	return { directory, source, orca, creates: () => creates, cleanup: () => rmSync(directory, { recursive: true, force: true }) }
 }
 
+test("input repository errors distinguish missing task references from duplicate resolved paths", () => {
+	const f = fixture()
+	try {
+		const other = join(f.directory, "other")
+		mkdirSync(other)
+		assert.throws(() => captureGraphWorkspaces(f.source, plan, [{ repository: "../other", paths: [] }]), {
+			message: `Input repository "../other" resolves to ${JSON.stringify(other)}, which is not referenced by any task. Task repositories: ${JSON.stringify(f.source)}. Remove this input entry or correct the task/input repository paths before resubmitting for approval.`,
+		})
+		const alias = join(f.directory, "alias")
+		symlinkSync(f.source, alias, "dir")
+		for (const repository of [".", f.source, "../alias"]) {
+			assert.throws(() => captureGraphWorkspaces(f.source, plan, [{ paths: [] }, { repository, paths: [] }]), {
+				message: `Duplicate input repository: ${JSON.stringify(repository)} resolves to already selected ${JSON.stringify(f.source)}. Combine its approved paths into one inputs entry.`,
+			})
+		}
+		assert.equal(captureGraphWorkspaces(f.source, plan, [{ repository: "../alias", paths: [] }]).repositories.length, 1)
+	} finally { f.cleanup() }
+})
+
 function completedFixture() {
 	const f = fixture("test/")
 	const state = captureGraphWorkspaces(f.source, { ...plan, cleanup_workers: true })
