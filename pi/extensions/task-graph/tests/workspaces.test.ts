@@ -10,7 +10,7 @@ import { taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.
 Object.assign(process.env, { GIT_AUTHOR_NAME: "Graph Test", GIT_AUTHOR_EMAIL: "graph@example.com", GIT_COMMITTER_NAME: "Graph Test", GIT_COMMITTER_EMAIL: "graph@example.com" })
 const plan: TaskGraphPlan = { objective: "Fixture", mode: "execute", tasks: ["a", "b"].map((id) => ({ id, goal: id, repository: ".", depends_on: [], owns: [`src/${id}.ts`], specialty: "test", thinking: "medium", done_when: ["checked"], validation: "test" })) }
 
-function fixture() {
+function fixture(branchPrefix = "") {
 	const directory = realpathSync(mkdtempSync(join(tmpdir(), "graph-workspaces-")))
 	const source = join(directory, "source")
 	execFileSync("git", ["init", "--quiet", "--initial-branch=dev", source])
@@ -32,14 +32,41 @@ function fixture() {
 		const base = args[args.indexOf("--base-branch") + 1]
 		const path = join(directory, name)
 		// This is an unregistered disposable Git fixture, not an Orca-managed user worktree.
-		graphGit(source, "worktree", "add", "--quiet", "-b", name, path, base)
-		const worktree = { id: `fixture::${path}`, path, branch: `refs/heads/${name}`, displayName: name }
+		graphGit(source, "worktree", "add", "--quiet", "-b", `${branchPrefix}${name}`, path, base)
+		const worktree = { id: `fixture::${path}`, path, branch: `refs/heads/${branchPrefix}${name}`, displayName: name }
 		receipts.push(worktree)
 		creates++
 		return { result: { worktree } }
 	}
 	return { directory, source, orca, creates: () => creates, cleanup: () => rmSync(directory, { recursive: true, force: true }) }
 }
+
+test("prefixed Orca branches recover a lost create receipt without creating another worktree", () => {
+	const f = fixture("hendrikeng/")
+	try {
+		const state = captureGraphWorkspaces(f.source, plan)
+		const repo = state.repositories[0]
+		const manifest = join(f.directory, "state.json")
+		const persist = () => saveGraphWorkspaces(manifest, state)
+		assert.throws(() => createGraphWorkspace(repo, repo.workspace!, (args) => {
+			const result = f.orca(args)
+			if (args[1] === "create") throw new Error("Lost create receipt")
+			return result
+		}, persist), /Lost create receipt/)
+		const recovered = readGraphWorkspaces(manifest)
+		const restoredRepo = recovered.repositories[0]
+		createGraphWorkspace(restoredRepo, restoredRepo.workspace!, f.orca, () => saveGraphWorkspaces(manifest, recovered))
+		assert.equal(restoredRepo.workspace!.branch, `hendrikeng/${repo.workspace!.name}`)
+		assert.equal(f.creates(), 1)
+		verifyGraphWorkspace(restoredRepo, restoredRepo.workspace!, true)
+		assert.throws(() => verifyGraphWorkspace(restoredRepo, { ...restoredRepo.workspace!, branch: "unexpected-branch" }), /branch changed/)
+		assert.throws(() => createGraphWorkspace(repo, repo.workspace!, (args) => {
+			const result = f.orca(args)
+			return { result: { worktrees: result.result.worktrees.map((receipt) => ({ ...receipt, branch: "refs/heads/unexpected-branch" })) } }
+		}, persist), /branch does not match its receipt/)
+		assert.equal(f.creates(), 1)
+	} finally { f.cleanup() }
+})
 
 test("captures only approved working-file bytes, preserving source branch, index and unrelated dirty files", () => {
 	const f = fixture()

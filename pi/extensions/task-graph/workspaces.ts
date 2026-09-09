@@ -177,7 +177,7 @@ export function createGraphWorkspace(repository: GraphRepository, workspace: Gra
 	const path = realpathSync(receipt.path)
 	if (path === repository.source || path.startsWith(`${repository.source}${sep}`) || repositoryIdentity(path) !== repository.identity || graphGit(path, "rev-parse", "HEAD") !== workspace.base || graphDirtyPaths(path).length) throw new Error("Orca workspace does not match the clean approved base.")
 	const branch = graphGit(path, "rev-parse", "--abbrev-ref", "HEAD")
-	if (branch !== workspace.name) throw new Error("Orca workspace branch does not match the reserved name.")
+	if (receipt.branch !== `refs/heads/${branch}`) throw new Error(`Orca workspace branch does not match its receipt: expected ${receipt.branch}, found refs/heads/${branch}.`)
 	Object.assign(workspace, { path, branch, id: receipt.id, phase: "ready" })
 	persist()
 }

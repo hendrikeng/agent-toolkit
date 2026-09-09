@@ -83,8 +83,8 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 			case "worktree create": {
 				const source = value("--repo").slice(5), name = value("--name"), path = join(directory, name)
 				assert.equal(value("--setup"), "skip")
-				graphGit(source, "worktree", "add", "--quiet", "-b", name, path, value("--base-branch"))
-				const workspace = { id: `fixture::${path}`, source, path, displayName: name, branch: `refs/heads/${name}` }
+				graphGit(source, "worktree", "add", "--quiet", "-b", `hendrikeng/${name}`, path, value("--base-branch"))
+				const workspace = { id: `fixture::${path}`, source, path, displayName: name, branch: `refs/heads/hendrikeng/${name}` }
 				worktrees.push(workspace); result = { worktree: workspace }; break
 			}
 			default: throw new Error(`Unexpected fixture RPC: ${args.join(" ")}`)
