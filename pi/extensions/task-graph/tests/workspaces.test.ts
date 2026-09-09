@@ -5,7 +5,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphFile, graphGit, graphInput, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkerWorkspace } from "../workspaces.ts"
-import { taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.ts"
+import { cleanupGraphWorkers } from "../cleanup.ts"
+import { acquireTaskGraphMutationLock, releaseTaskGraphLock, taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.ts"
 
 Object.assign(process.env, { GIT_AUTHOR_NAME: "Graph Test", GIT_AUTHOR_EMAIL: "graph@example.com", GIT_COMMITTER_NAME: "Graph Test", GIT_COMMITTER_EMAIL: "graph@example.com" })
 const plan: TaskGraphPlan = { objective: "Fixture", mode: "execute", tasks: ["a", "b"].map((id) => ({ id, goal: id, repository: ".", depends_on: [], owns: [`src/${id}.ts`], specialty: "test", thinking: "medium", done_when: ["checked"], validation: "test" })) }
@@ -42,6 +43,124 @@ function fixture(branchPrefix = "") {
 	}
 	return { directory, source, orca, creates: () => creates, cleanup: () => rmSync(directory, { recursive: true, force: true }) }
 }
+
+function completedFixture() {
+	const f = fixture("test/")
+	const state = captureGraphWorkspaces(f.source, { ...plan, cleanup_workers: true })
+	const repo = state.repositories[0]
+	createGraphWorkspace(repo, repo.workspace!, f.orca, () => {})
+	importGraphInputs(repo, () => {})
+	const worker: GraphWorkerWorkspace = { task: "task_cleanup", approvedTask: "a", terminal: "term_cleanup", source: f.source, owns: ["src/a.ts"], name: "cleanup-worker", base: graphGit(repo.workspace!.path!, "rev-parse", "HEAD"), phase: "creating" }
+	state.workers.push(worker)
+	createGraphWorkspace(repo, worker, f.orca, () => {})
+	writeFileSync(join(worker.path!, "src/a.ts"), "implemented\n")
+	checkpointGraphChanges(repo, worker, worker.owns, state.mode, ["src/a.ts"], "Worker result")
+	integrateGraphWorker(state, worker, () => {})
+	state.runId = "run_cleanup"
+	state.completion = { evidence: "Fixture passed", deliveryPending: true }
+	const lockRoot = join(f.directory, "locks")
+	const file = join(lockRoot, "completed", "fixture.json")
+	const persist = () => saveGraphWorkspaces(file, state)
+	persist()
+	const terminals: any[] = [], commands: string[][] = []
+	const dispatch = { taskId: worker.task, runId: state.runId, agentTerminalHandle: worker.terminal, dispatchStatus: "completed", workerState: "released", resource: null }
+	let denied = false, lost = false
+	const orca = (args: string[]) => {
+		commands.push(args)
+		if (args[1] === "task-list") return { result: { tasks: [{ id: worker.task, run_id: state.runId, status: "completed" }] } }
+		if (args[1] === "worker-list") return { result: { workers: [dispatch] } }
+		if (args[0] === "terminal") return { result: { terminals } }
+		if (args[1] === "show") {
+			const workspace = args[args.indexOf("--worktree") + 1] === `id:${worker.id}` ? worker : repo.workspace!
+			return { result: { worktree: { id: workspace.id, path: workspace.path, branch: `refs/heads/${workspace.branch}` } } }
+		}
+		if (args[1] === "set") {
+			assert.deepEqual(args, ["worktree", "set", "--worktree", `id:${repo.workspace!.id}`, "--display-name", "Fixture · delivery", "--json"])
+			return { result: {} }
+		}
+		if (args[1] === "list") return { result: { worktrees: [] } }
+		assert.deepEqual(args, ["worktree", "rm", "--worktree", `id:${worker.id}`, "--json"])
+		if (denied) throw new Error("permission denied")
+		rmSync(worker.path!, { recursive: true, force: true }) // Simulate Orca only inside this disposable fixture.
+		if (lost) throw new Error("lost removal receipt")
+		return { result: {} }
+	}
+	return { ...f, state, repo, worker, lockRoot, file, persist, terminals, commands, dispatch, orca, set denied(value: boolean) { denied = value }, set lost(value: boolean) { lost = value } }
+}
+
+test("approved cleanup removes only integrated workers, including approved ignored setup artifacts", () => {
+	const f = completedFixture()
+	try {
+		writeFileSync(join(f.source, ".git/info/exclude"), "node_modules/\n")
+		mkdirSync(join(f.worker.path!, "node_modules"))
+		writeFileSync(join(f.worker.path!, "node_modules/generated.txt"), "setup artifact")
+		const startupLock = acquireTaskGraphMutationLock(f.lockRoot)
+		try { assert.throws(() => cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist), /Another \/graph run/) }
+		finally { releaseTaskGraphLock(startupLock) }
+		assert.ok(existsSync(f.worker.path!))
+		const result = cleanupGraphWorkers(f.state, f.lockRoot, (args) => {
+			if (args[1] === "rm") assert.throws(() => acquireTaskGraphMutationLock(f.lockRoot), /Another \/graph run/)
+			return f.orca(args)
+		}, f.persist)
+		assert.deepEqual(result, { removed: [f.worker.path], retained: [], deliveries: [{ path: f.repo.workspace!.path, label: "Fixture · delivery" }] })
+		assert.ok(existsSync(f.source))
+		assert.ok(existsSync(f.repo.workspace!.path!))
+		assert.equal(readFileSync(join(f.repo.workspace!.path!, "src/a.ts"), "utf8"), "implemented\n")
+		assert.equal(readGraphWorkspaces(f.file).workers[0].cleanup, "removed")
+	} finally { f.cleanup() }
+})
+
+test("cleanup preserves unapproved, dirty, live, failed, unintegrated and shared worktrees", () => {
+	const f = completedFixture()
+	try {
+		const clean = () => cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist)
+		f.state.cleanupWorkers = false
+		assert.throws(clean, /explicit approval/)
+		f.state.cleanupWorkers = true
+		writeFileSync(join(f.worker.path!, "src/a.ts"), "unfinished\n")
+		assert.match(clean().retained[0].reason, /dirty or unintegrated/)
+		writeFileSync(join(f.worker.path!, "src/a.ts"), "implemented\n")
+		f.terminals.push({ handle: "unused-or-live-shell" })
+		assert.match(clean().retained[0].reason, /still has terminals/)
+		f.terminals.length = 0
+		f.dispatch.dispatchStatus = "failed"
+		assert.match(clean().retained[0].reason, /completed and released/)
+		f.dispatch.dispatchStatus = "completed"
+		const tip = f.worker.integrated
+		f.worker.integrated = f.worker.base
+		assert.match(clean().retained[0].reason, /dirty or unintegrated/)
+		f.worker.integrated = tip
+		mkdirSync(join(f.lockRoot, "other.lock"))
+		saveGraphWorkspaces(join(f.lockRoot, "other.lock/workspaces.json"), f.state)
+		assert.match(clean().retained[0].reason, /unfinished graph/)
+		rmSync(join(f.lockRoot, "other.lock"), { recursive: true })
+		const other = structuredClone(f.state)
+		other.repositories[0].source = f.worker.path!
+		other.repositories[0].workspace = undefined
+		other.workers = []
+		saveGraphWorkspaces(join(f.lockRoot, "completed/other.json"), other)
+		assert.match(clean().retained[0].reason, /source or delivery worktree/)
+		assert.equal(f.commands.some((args) => args[1] === "rm"), false)
+		assert.ok(existsSync(f.worker.path!))
+	} finally { f.cleanup() }
+})
+
+test("cleanup honors permission denial and recovers a lost removal receipt without repeating deletion", () => {
+	const f = completedFixture()
+	try {
+		f.denied = true
+		assert.match(cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist).retained[0].reason, /permission denied/)
+		assert.ok(existsSync(f.worker.path!))
+		f.denied = false
+		f.lost = true
+		assert.match(cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist).retained[0].reason, /lost removal receipt/)
+		const recovered = readGraphWorkspaces(f.file)
+		assert.equal(recovered.workers[0].cleanup, "pending")
+		const result = cleanupGraphWorkers(recovered, f.lockRoot, f.orca, () => saveGraphWorkspaces(f.file, recovered))
+		assert.deepEqual(result, { removed: [f.worker.path], retained: [], deliveries: [{ path: f.repo.workspace!.path, label: "Fixture · delivery" }] })
+		assert.equal(f.commands.filter((args) => args[1] === "rm").length, 2, "Denied call and uncertain call only; recovery must not delete again")
+	} finally { f.cleanup() }
+})
 
 test("prefixed Orca branches recover a lost create receipt without creating another worktree", () => {
 	const f = fixture("hendrikeng/")

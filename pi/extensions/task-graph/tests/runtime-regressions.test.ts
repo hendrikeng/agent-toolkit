@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { graphGit, readGraphWorkspaces } from "../workspaces.ts"
-import { repositoryIdentity, taskGraphOrcaArgv, type TaskGraphPlan } from "../task-graph-core.ts"
+import { acquireTaskGraphMutationLock, releaseTaskGraphLock, repositoryIdentity, taskGraphOrcaArgv, type TaskGraphPlan } from "../task-graph-core.ts"
 
 const globals = globalThis as any
 const hooks = registerHooks({
@@ -52,6 +52,7 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 	const dispatches: Record<string, any> = {}
 	let failAfterCreate = false
 	let permissionDenied = false
+	let confirmations = 0
 	let shellCalls = 0
 	let terminalSequence = 0
 	const rpc = (args: string[]) => {
@@ -81,6 +82,21 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 			}
 			case "repo list": result = { repos: sources.map((path, index) => ({ id: `repo_${index}`, path })) }; break
 			case "worktree list": result = { worktrees: worktrees.filter((workspace) => `id:repo_${sources.indexOf(workspace.source)}` === value("--repo")) }; break
+			case "worktree show": result = { worktree: worktrees.find((workspace) => `id:${workspace.id}` === value("--worktree")) }; break
+			case "worktree set": {
+				assert.deepEqual(args, ["worktree", "set", "--worktree", value("--worktree"), "--display-name", value("--display-name"), "--json"])
+				const workspace = worktrees.find((workspace) => `id:${workspace.id}` === value("--worktree"))!
+				workspace.displayName = value("--display-name")
+				result = { worktree: workspace }; break
+			}
+			case "worktree rm": {
+				assert.deepEqual(args, ["worktree", "rm", "--worktree", value("--worktree"), "--json"])
+				const index = worktrees.findIndex((workspace) => `id:${workspace.id}` === value("--worktree"))
+				assert.ok(index >= 0)
+				rmSync(worktrees[index].path, { recursive: true, force: true }) // Disposable fixture; production removal belongs to Orca.
+				worktrees.splice(index, 1)
+				result = {}; break
+			}
 			case "worktree create": {
 				const source = sources.find((_source, index) => `id:repo_${index}` === value("--repo"))!, name = value("--name"), path = join(directory, name)
 				assert.ok(source, "Creation requires a registered repository ID, not a checkout path")
@@ -110,7 +126,7 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 		extension({ registerTool: (tool: any) => tools.set(tool.name, tool), registerCommand: (name: string, command: any) => commands.set(name, command), on: (name: string, handler: any) => events.set(name, handler), sendUserMessage: (prompt: string) => events.get("before_agent_start")({ prompt }) } as never)
 		delete process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES
 		delete process.env.AGENT_TOOLKIT_GRAPH_TASK
-		const ctx = { cwd, hasUI: true, isIdle: () => true, model: { provider: "test", id: "model" }, ui: { select: async () => mode === "execute" ? "Approve and execute" : "Approve planning work", confirm: async () => true, notify: (message: string) => { throw new Error(message) } } }
+		const ctx = { cwd, hasUI: true, isIdle: () => true, model: { provider: "test", id: "model" }, ui: { select: async () => mode === "execute" ? "Approve and execute" : "Approve planning work", confirm: async () => { confirmations++; return true }, notify: (message: string) => { throw new Error(message) } } }
 		let sequence = 0
 		return {
 			tools, commands, events, ctx,
@@ -119,7 +135,7 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 				const blocked = await events.get("tool_call")({ toolName: name, input, toolCallId }, ctx)
 				if (blocked?.block) throw new Error(blocked.reason)
 				// Model the standard permission hook after graph preflight. No command executes on denial.
-				if (name === "bash" && permissionDenied) throw new Error("Native bash permission denied")
+				if (["bash", "cleanup_completed_task_graph"].includes(name) && permissionDenied) throw new Error("Native tool permission denied")
 				let result
 				try { result = await tools.get(name).execute(toolCallId, input, undefined, undefined, ctx) }
 				catch (error) { await events.get("tool_result")({ toolCallId, toolName: name, input, isError: true, content: [] }); throw error }
@@ -143,6 +159,7 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 		directory, sources, indexes, heads, tasks, terminals, worktrees, run, candidate, prepare, command, approve,
 		get r() { return r },
 		get shellCalls() { return shellCalls },
+		get confirmations() { return confirmations },
 		set deny(value: boolean) { permissionDenied = value },
 		set loseReceipt(value: boolean) { failAfterCreate = value },
 		worker: (worker: any) => runtime(worker.workspace.path, worker),
@@ -166,9 +183,13 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 	}
 }
 
-test("two repositories complete through setup, native bash, scoped commits, integration, resume and local closeout", async () => {
+test("two repositories complete through setup, native bash, scoped commits, integration, resume and approved cleanup", async () => {
 	const f = fixture()
 	try {
+		f.candidate.cleanup_workers = true
+		const cleanupLock = acquireTaskGraphMutationLock(join(f.directory, "agent/task-graph-locks"))
+		try { await assert.rejects(f.approve(), /Another \/graph run/) }
+		finally { releaseTaskGraphLock(cleanupLock) }
 		await f.approve()
 		await assert.rejects(f.prepare("b"), /prerequisite/)
 		const a = await f.prepare("a")
@@ -197,11 +218,56 @@ test("two repositories complete through setup, native bash, scoped commits, inte
 		const finished = await f.r.call("finish_task_graph", { run_id: f.run.id, evidence: "Two-repository fixture checks passed" })
 		assert.equal(finished.details.status, "complete")
 		assert.equal(finished.details.delivery, "not-authorized")
+		assert.equal(finished.details.cleanup.status, "pending")
+		assert.equal(f.worktrees.length, 4, "Finish must not bypass the cleanup tool's permission gate")
+		f.deny = true
+		await assert.rejects(f.r.call("cleanup_completed_task_graph", { run_id: f.run.id }), /permission denied/)
+		assert.equal(f.worktrees.length, 4)
+		f.deny = false
+		const approvals = f.confirmations
+		const cleaned = await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
+		assert.equal(f.confirmations, approvals, "Initial graph approval already covered worker cleanup")
+		assert.deepEqual(cleaned.details.removed.sort(), [a.workspace.path, b.workspace.path].sort())
+		assert.deepEqual(cleaned.details.retained, [])
+		assert.equal(f.worktrees.length, 2, "Only one delivery worktree per repository remains")
+		assert.ok(f.worktrees.every((workspace) => workspace.displayName === "Fixture · delivery"))
+		const replay = await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
+		assert.deepEqual(replay.details.removed, [])
 		for (const [index, source] of f.sources.entries()) {
 			assert.equal(readFileSync(join(source, "owned.txt"), "utf8"), "baseline\n")
 			assert.equal(graphGit(source, "rev-parse", "HEAD"), f.heads[index])
 			assert.deepEqual(readFileSync(join(source, ".git/index")), f.indexes[index])
 		}
+	} finally { f.cleanup() }
+})
+
+test("older completed graphs require one cleanup approval and honor native tool permission denial", async () => {
+	const f = fixture()
+	try {
+		f.candidate.tasks[1].owns = []
+		f.candidate.tasks[1].setup = undefined
+		await f.approve()
+		const a = await f.prepare("a")
+		await f.launch(a)
+		writeFileSync(join(a.workspace.path, "owned.txt"), "complete\n")
+		await f.worker(a).call("checkpoint_task_graph", { paths: ["owned.txt"], message: "Complete worker" })
+		f.complete("a")
+		await f.r.call("integrate_task_graph_worker", { task_id: "task_a" })
+		f.tasks[1].status = "completed"
+		const finished = await f.r.call("finish_task_graph", { run_id: f.run.id, evidence: "Local checks passed" })
+		assert.equal(finished.details.cleanup, "not-authorized")
+		const approvals = f.confirmations
+		f.deny = true
+		await assert.rejects(f.r.call("cleanup_completed_task_graph", { run_id: f.run.id }), /permission denied/)
+		assert.equal(f.confirmations, approvals)
+		assert.equal(f.worktrees.length, 2)
+		f.deny = false
+		const cleaned = await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
+		assert.deepEqual(cleaned.details.removed, [a.workspace.path])
+		assert.equal(f.confirmations, approvals + 1)
+		await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
+		assert.equal(f.confirmations, approvals + 1)
+		assert.equal(f.worktrees.length, 1)
 	} finally { f.cleanup() }
 })
 

@@ -261,6 +261,7 @@ Task graphs coordinate approved local work across repositories. Progress lives i
 | Checked checkpoints and integration | Each imported commit must stay within approved ownership, even if a later commit reverts it. |
 | Conflict, lifecycle, and quota recovery | Long graphs preserve progress across interruptions and continue after the blocker is resolved. |
 | Local readiness separate from publication | A graph can finish local work without claiming that the product shipped. |
+| Opt-in worker cleanup | Completed graphs can leave one readable delivery worktree per repository instead of a pile of temporary workers. |
 
 Keep Orca open. Enable its orchestration experimental feature.
 
@@ -363,7 +364,7 @@ Validation and required reviews cover the complete proposed delivery diff, inclu
 
 The coordinator moves a plan to `completed` only after all requirements pass. It records evidence, completes the plan task, and selects the next ready plan.
 
-Graph approval never authorizes publication, merge-back, or destructive cleanup. If repository rules require publication for completion, the plan remains active with `Status: validation`. `finish_task_graph` accepts `delivery_pending: true` after all local work and validation pass. It records local readiness without a shipped-completion claim.
+Graph approval never authorizes publication or merge-back. Worker cleanup requires the explicit option described below. If repository rules require publication for completion, the plan remains active with `Status: validation`. `finish_task_graph` accepts `delivery_pending: true` after all local work and validation pass. It records local readiness without a shipped-completion claim.
 
 These checks constrain agent operations but do not provide an operating-system sandbox. Trusted setup scripts and hooks retain their usual filesystem access. Existing secret and destructive-operation permissions remain in force.
 
@@ -395,17 +396,36 @@ Recovery preserves completed tasks, task IDs, and workspace records. It continue
 
 An incomplete input capture requires reconciliation. The runtime does not overwrite it on resume. Legacy Runs without workspace records require an explicit current-checkout exception.
 
-Successful closeout preserves the worktrees and archives their records beside the graph locks. Local completion does not mean published or merged. Publishing, PR creation, merge-back, source reconciliation, and worktree deletion remain separate authorized actions. The runtime does not assume a branch name or hosting provider.
+Successful closeout preserves delivery worktrees and archives the graph records beside the graph locks. Local completion does not mean published or merged. Publishing, PR creation, merge-back, and source reconciliation remain separate authorized actions. The runtime does not assume a branch name or hosting provider.
 
 Source reconciliation is not automatic. Original dirty inputs remain in the source checkout, including any later user edits.
 
 Completed-plan recovery can only bind an existing Run and reconcile its ledger. A checked lifecycle tool handles the missing status or move inside the recorded workspace. Recovery cannot create a Run or launch workers.
 
+#### Delivery worktrees and worker cleanup
+
+New coordinator worktrees use an objective-based name with a short unique suffix, such as `customer-search-delivery-a1b2c3d4`. These worktrees collect worker commits and become the delivery worktrees. There is no extra consolidation branch.
+
+The optional `cleanup_workers: true` proposal authorizes cleanup once, on the graph approval screen. After local closeout, the coordinator calls `cleanup_completed_task_graph` separately. Pi can deny this tool independently of `finish_task_graph`. The extension does not weaken shell, secret, or destructive-operation permissions.
+
+Cleanup removes only isolated worker worktrees whose tasks and dispatches are completed and released. Each worker must be clean, and its exact integrated commit must remain reachable from the delivery branch. No terminal can remain in the worker worktree, including an idle shell. Approval includes removal of ignored setup artifacts such as installed dependencies.
+
+Cleanup preserves source and delivery worktrees, dirty or unintegrated work, failed workers, and worktrees with terminals. It waits for unfinished graphs that use the same repository. A shared host-local lock prevents graph startup during cleanup checks and removal. It also preserves worker worktrees that serve as sources or delivery worktrees in another archived graph. Each retained worktree has a reported reason.
+
+Orca performs removal without `--force` or archive hooks. A permission error stops that removal without a filesystem fallback. Saved cleanup intent supports recovery after a lost result. Orca can retain a local branch if it cannot prove that branch is merged.
+
+Delivery worktrees receive readable Orca display labels. Existing custom labels and Git branch names stay unchanged. Separate Runs keep separate delivery worktrees: cleanup does not guess which older coordinator branches to combine.
+
+For an older completed Run, request `cleanup_completed_task_graph` with its Run ID in a graph repository. The tool requires an archived completion record and asks for cleanup approval once. It does not create a Run or restart workers. Unfinished Runs must complete or undergo explicit reconciliation first.
+
+You control the final merge into the target branch and the push.
+
 #### Intentional boundaries
 
 The graph coordinates approved local work. It does not expand its own authority or replace the execution environment.
 
-- **Publication and cleanup require separate authorization.** Graph approval does not authorize pushes, publication, merge-back, or worktree deletion.
+- **Publication requires separate authorization.** Graph approval does not authorize pushes, publication, or merge-back.
+- **Cleanup is narrowly scoped.** Only the explicit worker-cleanup option authorizes deletion of verified temporary worktrees. Other deletion requires separate authorization.
 - **Existing permissions stay active.** The graph does not bypass secret or destructive-operation permissions.
 - **Script sandboxing belongs to the execution environment.** Worktrees share Git metadata, and scripts and hooks retain host filesystem access. Workflow guards cannot contain a hostile program.
 - **Cross-host coordination belongs to Orca or a shared service.** Graph locks are host-local. They do not prevent a second coordinator on another host.
@@ -418,7 +438,7 @@ Trusted push, pull-request, merge, release, credential, and permission boundarie
 
 #### Validation coverage
 
-The focused suite covers capture recovery, CRLF conversion, staged-file preservation, multi-repository execution, prerequisite pinning, worker retries, integration conflicts, and lifecycle closeout. Git operations use disposable real repositories. Orca operations and permission-hook routing use test doubles. Live Orca and installed-permission integration remain unverified.
+The focused suite covers capture recovery, CRLF conversion, staged-file preservation, multi-repository execution, prerequisite pinning, worker retries, integration conflicts, and lifecycle closeout. Cleanup tests cover approval, permission denial, protected worktrees, ignored setup artifacts, and lost removal results. Git operations use disposable real repositories. Orca operations and permission-hook routing use test doubles. Live Orca and installed-permission integration remain unverified.
 
 ## Skills
 

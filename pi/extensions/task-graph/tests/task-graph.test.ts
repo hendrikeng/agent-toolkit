@@ -664,6 +664,10 @@ test("builds the interactive Orca planning prompt", () => {
 		assert.match(generated, /If the gate passes, continue automatically without another approval/)
 		assert.match(generated, /report the blocker once, and stop without repeated questions or launch retries/)
 		assert.match(generated, /Non-Codex workers do not require this Codex quota check/)
+		assert.match(generated, /For new graphs, propose cleanup_workers: true/)
+		assert.match(generated, /call cleanup_completed_task_graph as a separate tool invocation/)
+		assert.match(generated, /Never add cleanup authority silently when resuming an existing contract/)
+		assert.match(generated, /never force removal or bypass Pi restrictions/)
 	}
 	assert.match(chain, /Reserve 15% of the long window and 5% of the short window/)
 	assert.match(chain, /Long-window data is required/)

@@ -214,6 +214,7 @@ cmp "$repo_dir/pi/extensions/task-graph/index.ts" "$pi_agent_dir/extensions/task
 cmp "$repo_dir/pi/extensions/task-graph/task-graph-core.ts" "$pi_agent_dir/extensions/task-graph/task-graph-core.ts"
 cmp "$repo_dir/pi/extensions/task-graph/run-recovery.ts" "$pi_agent_dir/extensions/task-graph/run-recovery.ts"
 cmp "$repo_dir/pi/extensions/task-graph/workspaces.ts" "$pi_agent_dir/extensions/task-graph/workspaces.ts"
+cmp "$repo_dir/pi/extensions/task-graph/cleanup.ts" "$pi_agent_dir/extensions/task-graph/cleanup.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));

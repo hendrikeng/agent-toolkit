@@ -38,14 +38,17 @@ export interface GraphWorkerWorkspace extends GraphWorkspace {
 	prerequisites?: Record<string, string>
 	setupComplete?: boolean
 	integrated?: string
+	cleanup?: "pending" | "removed"
 	integration?: { before: string; tip: string }
 }
 export interface GraphWorkspaces {
 	version: 1
 	key: string
 	contractHash: string
+	label?: string
 	runId?: string
 	currentCheckout: boolean
+	cleanupWorkers?: boolean
 	mode: "plan-only" | "execute"
 	completion?: { evidence: string; deliveryPending: boolean }
 	repositories: GraphRepository[]
@@ -121,12 +124,12 @@ export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan, select
 		if (new Set(paths).size !== paths.length || paths.some((path) => !dirty.includes(path))) throw new Error("Import only explicitly selected dirty files, without duplicates.")
 		const writing = plan.tasks.some((task) => realpathSync(resolve(root, task.repository ?? ".")) === source && task.owns.length > 0)
 		if (!writing && paths.length) throw new Error("Read-only repositories cannot import dirty files.")
-		return { source, identity: repositoryIdentity(source), base: graphGit(source, "rev-parse", "HEAD"), sourceBranch: graphGit(source, "rev-parse", "--abbrev-ref", "HEAD"), inputs: paths.map((path) => graphInput(source, path)), ...(writing ? { workspace: { name: `pi-graph-${randomUUID()}`, base: graphGit(source, "rev-parse", "HEAD"), phase: "creating" as const } } : {}) }
+		return { source, identity: repositoryIdentity(source), base: graphGit(source, "rev-parse", "HEAD"), sourceBranch: graphGit(source, "rev-parse", "--abbrev-ref", "HEAD"), inputs: paths.map((path) => graphInput(source, path)), ...(writing ? { workspace: { name: `${plan.objective.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "graph"}-delivery-${randomUUID().slice(0, 8)}`, base: graphGit(source, "rev-parse", "HEAD"), phase: "creating" as const } } : {}) }
 	})
 	if (new Set(repositories.map((repo) => repo.identity)).size !== repositories.length) throw new Error("Use one source checkout per Git repository in a graph.")
 	if (currentCheckout && repositories.some((repo) => graphDirtyPaths(repo.source).length > 0)) throw new Error("The current-checkout override requires clean repositories; use isolation for dirty inputs.")
 	for (const repo of repositories) for (const input of repo.inputs) assertGraphMode(plan.mode, input.path)
-	return { version: 1, key: randomUUID(), contractHash: createHash("sha256").update(JSON.stringify(plan)).digest("hex"), currentCheckout, mode: plan.mode, repositories, workers: [] }
+	return { version: 1, key: randomUUID(), label: plan.objective, contractHash: createHash("sha256").update(JSON.stringify(plan)).digest("hex"), currentCheckout, cleanupWorkers: plan.cleanup_workers === true, mode: plan.mode, repositories, workers: [] }
 }
 
 export function assertGraphInputs(repository: GraphRepository): void {

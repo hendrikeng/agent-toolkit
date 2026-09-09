@@ -3,12 +3,13 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { isDeepStrictEqual } from "node:util"
-import { createBashTool, getAgentDir, isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import { createBashTool, getAgentDir, isToolCallEventType, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import { defaultPiAccount, fetchCodexUsage, piAccountEmail, piProfileAccountId } from "../codex-account/index.ts"
 import {
 	abandonTaskGraphLock,
 	acquireTaskGraphLock,
+	acquireTaskGraphMutationLock,
 	bindTaskGraphLockToOrcaRun,
 	bindTaskGraphLockToPlanContract,
 	formatTaskGraph,
@@ -53,6 +54,7 @@ import {
 	validateTaskGraphRepositories,
 } from "./task-graph-core.ts"
 
+import { cleanupGraphWorkers } from "./cleanup.ts"
 import { validateRunRecovery, type RunRecoverySnapshot } from "./run-recovery.ts"
 import { assertGraphInputs, captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphGit, graphMergeHead, graphRepositoryMap, graphOwns, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, reconcileGraphLaunch, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkspaces, type GraphWorkerWorkspace, type GraphRepository } from "./workspaces.ts"
 
@@ -77,6 +79,7 @@ const graphSchema = Type.Object({
 	tasks: Type.Array(taskSchema, { minItems: 1, maxItems: 12 }),
 	inputs: Type.Optional(Type.Array(Type.Object({ repository: Type.Optional(Type.String()), paths: Type.Array(Type.String(), { maxItems: 100 }) }, { additionalProperties: false }), { maxItems: 12, description: "Exact dirty input files to capture in isolation; never import the whole dirty checkout implicitly." })),
 	current_checkout: Type.Optional(Type.Boolean({ description: "Explicit exception: use clean source checkouts for coordinator writes. Writing workers remain isolated. Requires separate human confirmation." })),
+	cleanup_workers: Type.Optional(Type.Boolean({ description: "Explicit approval to remove this Run's clean, integrated worker worktrees after local closeout, including ignored setup artifacts. Keep source and delivery worktrees, and label delivery worktrees clearly. Never force removal or close live terminals." })),
 }, { additionalProperties: false })
 
 function repositoryRoot(cwd: string): string {
@@ -765,6 +768,38 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		},
 	})
 
+	const cleanupArchivedRun = async (runId: string, ctx: ExtensionContext, signal?: AbortSignal) => {
+		const lockRoot = join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir(), "task-graph-locks")
+		const archiveRoot = join(lockRoot, "completed")
+		const matches = existsSync(archiveRoot) ? readdirSync(archiveRoot).filter((name) => name.endsWith(".json")).map((name) => ({ file: join(archiveRoot, name), state: readGraphWorkspaces(join(archiveRoot, name)) })).filter(({ state }) => state.runId === runId) : []
+		if (matches.length !== 1 || !matches[0].state.completion) throw new Error("Cleanup requires exactly one archived, locally completed graph record.")
+		const { file } = matches[0]
+		const lock = acquireTaskGraphLock(join(lockRoot, "cleanup-locks"), runId)
+		try {
+			const state = readGraphWorkspaces(file)
+			if (!state.completion || state.runId !== runId || !state.repositories.some((repo) => repo.identity === repositoryIdentity(repositoryRoot(ctx.cwd)))) throw new Error("Run cleanup from a repository belonging to this completed graph.")
+			if (!state.cleanupWorkers) {
+				if (!ctx.hasUI || !await ctx.ui.confirm("Remove verified worker worktrees?", `Only clean, integrated workers with completed, released dispatches and no terminals can be removed. Removal includes ignored setup artifacts. Sources, delivery worktrees and blocked workers stay. Delivery worktrees receive readable display labels without branch renames. No force, hooks, publishing or merge-back.\n\n${state.workers.filter((worker) => worker.owns.length && worker.cleanup !== "removed").map((worker) => worker.path ?? worker.name).join("\n")}`, { signal })) throw new Error("Worker cleanup was not approved; nothing removed.")
+				state.cleanupWorkers = true
+				saveGraphWorkspaces(file, state)
+			}
+			return cleanupGraphWorkers(state, lockRoot, orcaJson, () => saveGraphWorkspaces(file, state))
+		} finally { releaseTaskGraphLock(lock) }
+	}
+
+	pi.registerTool({
+		name: "cleanup_completed_task_graph",
+		label: "Clean Completed Graph Workers",
+		description: "Remove only verified clean, integrated worker worktrees of one archived completed Run. Requires explicit cleanup approval, preserves sources and delivery worktrees, never forces removal or bypasses permission failures.",
+		parameters: Type.Object({ run_id: Type.String({ pattern: "^run_[a-zA-Z0-9_-]+$" }) }, { additionalProperties: false }),
+		executionMode: "sequential",
+		async execute(_id, params, signal, _onUpdate, ctx) {
+			if (planning || workerWorkspaceFile || workerTask) throw new Error("Finish the active graph before cleanup; workers cannot clean worktrees.")
+			const result = await cleanupArchivedRun(params.run_id, ctx, signal)
+			return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result }
+		},
+	})
+
 	pi.registerTool({
 		name: "finish_task_graph",
 		label: "Finish Task Graph",
@@ -827,7 +862,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			finished = true
 			approved = false
 			planning = false
-			return { content: [{ type: "text", text: `Task graph finished locally: ${params.evidence}\n${workspaces?.repositories.filter((repo) => repo.workspace).map((repo) => `${repo.workspace!.branch}: ${repo.workspace!.path} (base ${repo.base})`).join("\n") ?? ""}\nWorktrees are retained. Publishing, merge-back, source reconciliation and cleanup still require separate authorization.` }], details: { status: params.delivery_pending ? "local-ready" : "complete", evidence: params.evidence, workspaces, delivery: "not-authorized", cleanup: "not-authorized" }, terminate: true }
+			// Keep deletion in its own tool call so Pi's permission hooks can deny cleanup independently.
+			const cleanup = workspaces?.cleanupWorkers ? { status: "pending", tool: "cleanup_completed_task_graph", run_id: params.run_id } : "not-authorized"
+			return { content: [{ type: "text", text: `Task graph finished locally: ${params.evidence}\n${workspaces?.repositories.filter((repo) => repo.workspace).map((repo) => `${repo.workspace!.branch}: ${repo.workspace!.path} (base ${repo.base})`).join("\n") ?? ""}\nDelivery worktrees are retained. Publishing, merge-back and source reconciliation still require separate authorization. Worker cleanup: ${JSON.stringify(cleanup)}. If pending, call cleanup_completed_task_graph separately now; its normal Pi permission gates apply.` }], details: { status: params.delivery_pending ? "local-ready" : "complete", evidence: params.evidence, workspaces, delivery: "not-authorized", cleanup }, terminate: !workspaces?.cleanupWorkers }
 		},
 	})
 
@@ -892,7 +929,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				const path = relative(repo.source, planPathsById(repo.source, task.id)[0]).split(sep).join("/")
 				if (graphDirtyPaths(repo.source).includes(path) && !repo.inputs.some((input) => input.path === path)) throw new Error(`Include the selected dirty plan in inputs before approval: ${path}`)
 			}
-			const workspaceSummary = `Workspace policy: ${proposedWorkspaces.currentCheckout ? "EXCEPTION: source checkout writes" : "isolated run and worker worktrees"}.\nApproval authorizes the listed input captures, scoped local commits and integration inside this Run. Input snapshots bypass commit hooks and use a temporary private index. Normal checkpoints run hooks. Orca setup hooks are skipped during creation; inspect configured default terminals before approval. Run each declared task setup command in its worker workspace before launch. Publishing, PRs, merge-back, source reconciliation and deletion require separate authorization.\n${proposedWorkspaces.repositories.map((repo) => `${repo.source}\n  base: ${repo.base} (${repo.sourceBranch}); delivery target: confirm from repository rules before publishing\n  inputs: ${repo.inputs.map((input) => `${input.path} [${input.hash ?? "deleted"}]`).join(", ") || "none"}\n  workspace: ${repo.workspace?.path ?? repo.workspace?.name ?? "read-only"}`).join("\n")}`
+			const workspaceSummary = `Worker cleanup: ${proposedWorkspaces.cleanupWorkers ? "APPROVED WITH THIS GRAPH: after local closeout, remove only verified clean, integrated worker worktrees without terminals. Includes ignored setup artifacts. No force or hooks. Sources and delivery worktrees remain, with readable delivery labels." : "not authorized; retain worker worktrees"}.\nWorkspace policy: ${proposedWorkspaces.currentCheckout ? "EXCEPTION: source checkout writes" : "isolated run and worker worktrees"}.\nApproval authorizes the listed input captures, scoped local commits and integration inside this Run. Input snapshots bypass commit hooks and use a temporary private index. Normal checkpoints run hooks. Orca setup hooks are skipped during creation; inspect configured default terminals before approval. Run each declared task setup command in its worker workspace before launch. Publishing, PRs, merge-back, source reconciliation and any deletion beyond the worker-cleanup option require separate authorization.\n${proposedWorkspaces.repositories.map((repo) => `${repo.source}\n  base: ${repo.base} (${repo.sourceBranch}); delivery target: confirm from repository rules before publishing\n  inputs: ${repo.inputs.map((input) => `${input.path} [${input.hash ?? "deleted"}]`).join(", ") || "none"}\n  workspace: ${repo.workspace?.path ?? repo.workspace?.name ?? "read-only"}`).join("\n")}`
 			if (!ctx.hasUI) {
 				releaseChainLocks()
 				return {
@@ -999,17 +1036,22 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			}
 			try {
 				const lockRoot = join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir(), "task-graph-locks")
-				const recoveredRunIds = taskGraphOrcaRunIdsForLockRun(lockRoot, runKey)
-				const recoveredContracts = taskGraphPlanContractsForLockRun(lockRoot, runKey)
-				resumingRun = recoveredRunIds.length > 0 || recoveredContracts.length > 0
-				if (recoveredRunIds.length > 1 || recoveredContracts.length > 1) throw new Error("Recovered graph locks disagree about durable Run state.")
-				recoveredOrcaRunId = recoveredRunIds[0]
-				recoveredPlanContract = recoveredContracts[0]
-				activeLocks.push(acquireTaskGraphLock(lockRoot, runKey))
-				for (const key of taskGraphLockKeysForRun(lockRoot, runKey)) {
-					if (key !== runKey) activeLocks.push(acquireTaskGraphLock(lockRoot, key, process.pid, runKey))
-				}
-				activeRunKey = runKey
+				const mutationLock = acquireTaskGraphMutationLock(lockRoot)
+				try {
+					const identity = repositoryIdentity(selectedPlan?.root ?? repositoryRoot(ctx.cwd))
+					if (!runKey.startsWith(`${identity}::`)) throw new Error("Graph source changed before startup.")
+					const recoveredRunIds = taskGraphOrcaRunIdsForLockRun(lockRoot, runKey)
+					const recoveredContracts = taskGraphPlanContractsForLockRun(lockRoot, runKey)
+					resumingRun = recoveredRunIds.length > 0 || recoveredContracts.length > 0
+					if (recoveredRunIds.length > 1 || recoveredContracts.length > 1) throw new Error("Recovered graph locks disagree about durable Run state.")
+					recoveredOrcaRunId = recoveredRunIds[0]
+					recoveredPlanContract = recoveredContracts[0]
+					activeLocks.push(acquireTaskGraphLock(lockRoot, runKey))
+					for (const key of taskGraphLockKeysForRun(lockRoot, runKey)) {
+						if (key !== runKey) activeLocks.push(acquireTaskGraphLock(lockRoot, key, process.pid, runKey))
+					}
+					activeRunKey = runKey
+				} finally { releaseTaskGraphLock(mutationLock) }
 			} catch (error) {
 				for (const lock of activeLocks.reverse()) resumingRun ? abandonTaskGraphLock(lock) : releaseTaskGraphLock(lock)
 				activeLocks = []
