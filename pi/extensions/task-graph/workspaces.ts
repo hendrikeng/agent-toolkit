@@ -168,11 +168,20 @@ export function createGraphWorkspace(repository: GraphRepository, workspace: Gra
 	}
 	// Persist the name before RPC. An uncertain create is recovered by exact name, never a second create.
 	persist()
-	const inventory = orca(["worktree", "list", "--repo", `path:${repository.source}`, "--json"])?.result
+	if (repositoryIdentity(repository.source) !== repository.identity) throw new Error("Graph source repository identity changed.")
+	const registered = orca(["repo", "list", "--json"])?.result
+	if (!Array.isArray(registered?.repos) || registered.truncated || registered.hostScope?.omittedHostIds?.length) throw new Error("Orca repository inventory is incomplete.")
+	const repositories = registered.repos.filter((repo: any) => {
+		if (typeof repo.id !== "string" || !repo.id || typeof repo.path !== "string" || !isAbsolute(repo.path) || !existsSync(join(repo.path, ".git"))) return false
+		return repositoryIdentity(repo.path) === repository.identity
+	})
+	if (repositories.length !== 1) throw new Error("Graph source must resolve to exactly one registered Orca repository by Git identity.")
+	const selector = `id:${repositories[0].id}`
+	const inventory = orca(["worktree", "list", "--repo", selector, "--json"])?.result
 	if (!Array.isArray(inventory?.worktrees) || inventory.truncated) throw new Error("Orca worktree inventory is incomplete.")
 	const matches = inventory.worktrees.filter((item: any) => item.displayName === workspace.name || item.branch === `refs/heads/${workspace.name}`)
 	if (matches.length > 1) throw new Error("Duplicate graph worktrees; reconcile before continuing.")
-	const receipt = matches[0] ?? orca(["worktree", "create", "--repo", `path:${repository.source}`, "--name", workspace.name, "--base-branch", workspace.base, "--no-parent", "--setup", "skip", "--json"])?.result?.worktree
+	const receipt = matches[0] ?? orca(["worktree", "create", "--repo", selector, "--name", workspace.name, "--base-branch", workspace.base, "--no-parent", "--setup", "skip", "--json"])?.result?.worktree
 	if (!receipt?.path || !receipt?.id) throw new Error(`Orca creation has no verified receipt. Preserve and inspect ${workspace.name}.`)
 	const path = realpathSync(receipt.path)
 	if (path === repository.source || path.startsWith(`${repository.source}${sep}`) || repositoryIdentity(path) !== repository.identity || graphGit(path, "rev-parse", "HEAD") !== workspace.base || graphDirtyPaths(path).length) throw new Error("Orca workspace does not match the clean approved base.")

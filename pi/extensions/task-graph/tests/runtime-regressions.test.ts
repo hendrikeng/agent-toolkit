@@ -79,9 +79,11 @@ function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = fals
 				if (failAfterCreate) { failAfterCreate = false; throw new Error("Lost create receipt") }
 				result = { terminal }; break
 			}
-			case "worktree list": result = { worktrees: worktrees.filter((workspace) => workspace.source === value("--repo").slice(5)) }; break
+			case "repo list": result = { repos: sources.map((path, index) => ({ id: `repo_${index}`, path })) }; break
+			case "worktree list": result = { worktrees: worktrees.filter((workspace) => `id:repo_${sources.indexOf(workspace.source)}` === value("--repo")) }; break
 			case "worktree create": {
-				const source = value("--repo").slice(5), name = value("--name"), path = join(directory, name)
+				const source = sources.find((_source, index) => `id:repo_${index}` === value("--repo"))!, name = value("--name"), path = join(directory, name)
+				assert.ok(source, "Creation requires a registered repository ID, not a checkout path")
 				assert.equal(value("--setup"), "skip")
 				graphGit(source, "worktree", "add", "--quiet", "-b", `hendrikeng/${name}`, path, value("--base-branch"))
 				const workspace = { id: `fixture::${path}`, source, path, displayName: name, branch: `refs/heads/hendrikeng/${name}` }

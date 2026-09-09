@@ -48,7 +48,7 @@ test("runtime gates approval, worker placement, dependency integration, source w
 		globals.graphWorkspaceRpc = (args: string[]) => {
 			let result: any
 			switch (args.slice(0, 2).join(" ")) {
-				case "repo list": result = { repos: [{ path: source }] }; break
+				case "repo list": result = { repos: [{ id: "registered-source", path: source }] }; break
 				case "orchestration run-list": result = { runs: [run] }; break
 				case "orchestration run-show": case "orchestration run-use": result = { run }; break
 				case "orchestration task-list": result = { tasks }; break
@@ -56,8 +56,9 @@ test("runtime gates approval, worker placement, dependency integration, source w
 				case "orchestration worker-list": result = { workers: Object.values(dispatches).map((dispatch: any) => ({ taskId: dispatch.task_id, dispatchId: dispatch.id, runId: run.id, dispatchStatus: dispatch.status, agentTerminalHandle: dispatch.assignee_handle })) }; break
 				case "terminal list": result = { terminals }; break
 				case "terminal show": result = { terminal: terminals.find((terminal) => terminal.handle === args[args.indexOf("--terminal") + 1]) }; break
-				case "worktree list": result = { worktrees }; break
+				case "worktree list": assert.equal(args[args.indexOf("--repo") + 1], "id:registered-source"); result = { worktrees }; break
 				case "worktree create": {
+					assert.equal(args[args.indexOf("--repo") + 1], "id:registered-source")
 					const name = args[args.indexOf("--name") + 1]
 					const base = args[args.indexOf("--base-branch") + 1]
 					const path = join(directory, name)

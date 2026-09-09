@@ -24,6 +24,8 @@ function fixture(branchPrefix = "") {
 	const receipts: any[] = []
 	let creates = 0
 	const orca = (args: string[]) => {
+		if (args[0] === "repo") return { result: { repos: [{ id: "registered-source", path: source }] } }
+		assert.equal(args[args.indexOf("--repo") + 1], "id:registered-source")
 		if (args[1] === "list") return { result: { worktrees: receipts } }
 		assert.equal(args[1], "create")
 		assert.equal(args[args.indexOf("--setup") + 1], "skip")
@@ -62,9 +64,63 @@ test("prefixed Orca branches recover a lost create receipt without creating anot
 		assert.throws(() => verifyGraphWorkspace(restoredRepo, { ...restoredRepo.workspace!, branch: "unexpected-branch" }), /branch changed/)
 		assert.throws(() => createGraphWorkspace(repo, repo.workspace!, (args) => {
 			const result = f.orca(args)
-			return { result: { worktrees: result.result.worktrees.map((receipt) => ({ ...receipt, branch: "refs/heads/unexpected-branch" })) } }
+			return args[0] === "repo" ? result : { result: { worktrees: result.result.worktrees!.map((receipt) => ({ ...receipt, branch: "refs/heads/unexpected-branch" })) } }
 		}, persist), /branch does not match its receipt/)
 		assert.equal(f.creates(), 1)
+	} finally { f.cleanup() }
+})
+
+test("retained worktree sources resolve through registered repositories without replacing their base or inputs", () => {
+	const f = fixture("hendrikeng/")
+	try {
+		const original = captureGraphWorkspaces(f.source, plan).repositories[0]
+		createGraphWorkspace(original, original.workspace!, f.orca, () => {})
+		const retained = original.workspace!.path!
+		writeFileSync(join(retained, "src/a.ts"), "retained implementation\n")
+		graphGit(retained, "add", "--", "src/a.ts")
+		graphGit(retained, "commit", "-m", "Retained progress", "--", "src/a.ts")
+		const base = graphGit(retained, "rev-parse", "HEAD")
+		assert.notEqual(base, graphGit(f.source, "rev-parse", "HEAD"))
+		writeFileSync(join(retained, "docs/future/plan.md"), "retained approved input\n")
+		const state = captureGraphWorkspaces(retained, plan, [{ paths: ["docs/future/plan.md"] }])
+		const repo = state.repositories[0]
+		const manifest = join(f.directory, "retained.json")
+		assert.throws(() => createGraphWorkspace(repo, repo.workspace!, (args) => {
+			const result = f.orca(args)
+			if (args[0] === "worktree" && args[1] === "create") throw new Error("Lost receipt")
+			return result
+		}, () => saveGraphWorkspaces(manifest, state)), /Lost receipt/)
+		const recovered = readGraphWorkspaces(manifest)
+		const restored = recovered.repositories[0]
+		const persist = () => saveGraphWorkspaces(manifest, recovered)
+		createGraphWorkspace(restored, restored.workspace!, f.orca, persist)
+		assert.equal(f.creates(), 2, "Resume must reuse the worktree created before the lost receipt")
+		assert.equal(restored.source, retained)
+		assert.equal(graphGit(restored.workspace!.path!, "rev-parse", "HEAD"), base)
+		importGraphInputs(restored, persist)
+		assert.equal(readFileSync(join(restored.workspace!.path!, "src/a.ts"), "utf8"), "retained implementation\n")
+		assert.equal(readFileSync(join(restored.workspace!.path!, "docs/future/plan.md"), "utf8"), "retained approved input\n")
+		assert.equal(graphGit(retained, "rev-parse", "HEAD"), base)
+		assert.equal(readFileSync(join(retained, "docs/future/plan.md"), "utf8"), "retained approved input\n")
+		assert.equal(graphGit(f.source, "rev-parse", "HEAD"), original.base)
+		assert.equal(readFileSync(join(f.source, "docs/future/plan.md"), "utf8"), "original plan\n")
+	} finally { f.cleanup() }
+})
+
+test("repository resolution rejects missing, ambiguous and incomplete Orca registrations before creation", () => {
+	const f = fixture()
+	try {
+		const repo = captureGraphWorkspaces(f.source, plan).repositories[0]
+		for (const result of [
+			{ repos: [] },
+			{ repos: [{ id: "a", path: f.source }, { id: "b", path: f.source }] },
+			{ repos: [{ id: "a", path: f.source }], truncated: true },
+			{ repos: [{ id: "a", path: f.source }], hostScope: { omittedHostIds: ["offline"] } },
+		]) assert.throws(() => createGraphWorkspace(repo, repo.workspace!, (args) => {
+			assert.deepEqual(args, ["repo", "list", "--json"])
+			return { result }
+		}, () => {}), /exactly one registered Orca repository|inventory is incomplete/)
+		assert.equal(f.creates(), 0)
 	} finally { f.cleanup() }
 })
 
