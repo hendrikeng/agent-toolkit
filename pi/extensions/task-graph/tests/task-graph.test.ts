@@ -658,6 +658,13 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(chain, /fresh worker terminal/)
 	assert.match(chain, /never reuse a completed worker/)
 	assert.match(chain, /Never promote later plans early/)
+	for (const generated of [prompt, chain, accountPrompt]) {
+		assert.match(generated, /Quota checks are automatic/)
+		assert.match(generated, /Do not ask the user to confirm remaining quota or whether reserves are met/)
+		assert.match(generated, /If the gate passes, continue automatically without another approval/)
+		assert.match(generated, /report the blocker once, and stop without repeated questions or launch retries/)
+		assert.match(generated, /Non-Codex workers do not require this Codex quota check/)
+	}
 	assert.match(chain, /Reserve 15% of the long window and 5% of the short window/)
 	assert.match(chain, /Long-window data is required/)
 	assert.match(chain, /short-window reserve only when Codex reports that window/)

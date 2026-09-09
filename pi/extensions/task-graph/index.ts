@@ -1290,7 +1290,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 					return { block: true, reason: `Codex graph workers must use the approved account ${workerAccount?.email ?? "unknown"}.` }
 				}
 				const quotaPauseReason = taskGraphQuotaPauseReason(await fetchCodexUsage(join(workerAccount.agentDir, "auth-profiles", workerAccount.profile)), TASK_GRAPH_WEEKLY_QUOTA_RESERVE, TASK_GRAPH_SHORT_QUOTA_RESERVE)
-				if (quotaPauseReason) return { block: true, reason: `${quotaPauseReason} Do not start more workers. Mark the active plan budget-exhausted and stop; resume with the same /graph command after quota resets.` }
+				if (quotaPauseReason) return { block: true, reason: `${quotaPauseReason} This automatic check cannot be replaced by user confirmation. Do not ask the user to verify quota, retry launches, or start more workers. Mark the active plan budget-exhausted, report this blocker once, and stop; resume with the same /graph command after quota resets.` }
 			}
 			if (!hasOption(argv, "--json") || optionValues(argv, "--title").length !== 1 || optionValues(argv, "--title")[0] !== launchTitle(worker)) return { block: true, reason: `Worker terminal launches require --json --title ${launchTitle(worker)} for crash recovery.` }
 			pendingTerminalLaunches.add(event.toolCallId)
