@@ -41,6 +41,22 @@ In the canonical agent-skills repo, the path is
 `skills/autoreview/scripts/autoreview`. On Windows, invoke the helper with Python.
 Use `--help` for the complete flags and environment overrides.
 
+### Pi report access preflight
+
+In `pi-yolo`, the launcher exports `AGENT_TOOLKIT_REVIEW_ROOT` and grants native read tools access to that results directory only. It does not grant write access through file tools or access to all temporary files.
+
+Before launching a review in Pi:
+
+1. Get the results root with `printenv AGENT_TOOLKIT_REVIEW_ROOT`.
+2. Use the native `read` tool on `<returned-root>/.read-probe.txt`. Do not substitute shell reads for a denied tool call.
+3. If the variable is missing or the read fails, stop before launching the reviewer. Restart the affected session through the updated `pi-yolo` launcher. `/reload` alone does not regenerate its policy.
+4. Run this helper without output flags. It creates a unique `review-*` directory with `report.txt`, `report.json`, and `status.json`, and prints the directory path. Progress logs remain in the terminal output.
+5. Verify `status.json` and the report after completion. A process ID or an empty results directory is not a review verdict.
+
+The helper verifies the generated policy and filesystem access before reviewer launch. Explicit output paths outside the results root fail early in Pi. Custom wrappers must use the same approved root for additional logs, not arbitrary temporary directories. Do not disable permissions or move reports into the reviewed repository to evade a denial.
+
+Other launchers retain the existing output behavior. Existing temporary reports do not move automatically.
+
 Choose the Git target explicitly when the default is ambiguous:
 
 | Target                         | Arguments                      | Scope                                                       |

@@ -234,8 +234,17 @@ const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."
 config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";
 const temporaryDir = fs.realpathSync(os.tmpdir());
+const reviewRoot = path.join(managedAgentDir, "review-results");
+fs.mkdirSync(reviewRoot, { recursive: true, mode: 0o700 });
+if (fs.lstatSync(reviewRoot).isSymbolicLink()) throw new Error("Review results directory must not be a symlink");
+const probe = path.join(reviewRoot, ".read-probe.txt");
+const probeText = "Pi review results read access is available.\n";
+try { fs.writeFileSync(probe, probeText, { flag: "wx", mode: 0o600 }); }
+catch (error) { if (error.code !== "EEXIST") throw error; }
+if (!fs.lstatSync(probe).isFile() || fs.lstatSync(probe).isSymbolicLink() || fs.readFileSync(probe, "utf8") !== probeText) throw new Error("Invalid review read-access probe");
 config.piInfrastructureReadPaths = [...new Set([
   ...(config.piInfrastructureReadPaths ?? []),
+  fs.realpathSync(reviewRoot),
   path.join(runtimeAgentDir, "extensions"),
   path.join(managedAgentDir, "extensions"),
   path.join(managedAgentDir, "git"),
@@ -271,7 +280,7 @@ NODE
     else
       unset AGENT_TOOLKIT_CODEX_PROFILE_HOME
     fi
-    PATH=$PATH AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir PI_CODING_AGENT_DIR=$agent_dir pi "$@"
+    PATH=$PATH AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir AGENT_TOOLKIT_REVIEW_ROOT="$source_agent_dir/review-results" PI_CODING_AGENT_DIR=$agent_dir pi "$@"
     ;;
   *)
     printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2

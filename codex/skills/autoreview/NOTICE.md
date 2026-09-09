@@ -15,7 +15,10 @@ The upstream maintenance instructions are not included. Toolkit maintains this a
 - Repository discovery preserves Git errors, including guard denials, instead of reporting that the repository is missing.
 - Default-value tests cover these settings. Inference-route tests use the selected model and fallback instead of fixed upstream model names.
 
-Explicit CLI arguments and environment overrides retain their upstream behavior.
+- Pi sessions use a dedicated, read-authorized results directory. The helper supplies unique default output paths and checks policy and filesystem access before launch.
+- In Pi, explicit output paths must stay inside `AGENT_TOOLKIT_REVIEW_ROOT`. Other launchers retain the upstream output behavior.
+
+Other explicit CLI arguments and environment overrides retain their upstream behavior.
 
 ## Compatibility
 

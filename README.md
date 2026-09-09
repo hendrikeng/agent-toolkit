@@ -202,6 +202,16 @@ Automatic AI reviews run only at a requested commit, push, pull request, merge, 
 
 Explicit review requests always run.
 
+#### Review result access
+
+`pi-yolo` gives native read tools access to a dedicated results directory, normally `~/.pi/agent/review-results`. `AGENT_TOOLKIT_REVIEW_ROOT` contains its path. This exception does not permit file-tool writes or access to the whole temporary directory. Secret restrictions remain active.
+
+Before a review, the agent reads `.read-probe.txt` in that directory through the native `read` tool. A denied read stops the workflow before the reviewer starts. The `autoreview` helper also verifies the generated policy and filesystem access.
+
+In Pi, the helper creates a unique results directory by default. It prints the path and saves `report.txt`, `report.json`, and `status.json` there. Progress logs remain in the terminal output. Explicit output paths outside the approved results root fail before reviewer launch.
+
+After this update, restart existing sessions through `pi-yolo` once. `/reload` does not rebuild a running session's generated policy. Existing reports in other temporary directories still require an explicit read exception. Review completion requires a verified status and report, not merely a process ID.
+
 ### Web access
 
 ```text

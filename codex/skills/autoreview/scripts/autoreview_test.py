@@ -51,6 +51,68 @@ DRAFT_REPORT = {
 }
 
 
+class PiReviewOutputTests(unittest.TestCase):
+    def test_generated_policy_and_review_outputs_share_a_canonical_read_root(self) -> None:
+        safety = SCRIPT_PATH.resolve().parents[4] / "shared/agent-safety"
+        if not safety.is_dir():
+            self.skipTest("Toolkit launcher is not present in this standalone skill checkout")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            managed, runtime, repo = (base / name for name in ("managed", "runtime", "repo"))
+            policy = managed / "extensions/pi-permission-system/config.json"
+            output = runtime / "extensions/pi-permission-system/config.json"
+            policy.parent.mkdir(parents=True)
+            output.parent.mkdir(parents=True)
+            repo.mkdir()
+            policy.write_text((safety / "pi-permission-system.json").read_text())
+            launcher = (safety / "agent-yolo").read_text()
+            script = launcher.split('node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" <<\'NODE\'\n', 1)[1].split("\nNODE", 1)[0]
+            subprocess.run(["node", "-", str(policy), str(output)], input=script, text=True, check=True, capture_output=True)
+            root = managed / "review-results"
+            alias = base / "managed-alias"
+            alias.symlink_to(managed, target_is_directory=True)
+            environment = {"AGENT_TOOLKIT_REVIEW_ROOT": str(alias / "review-results"), "PI_CODING_AGENT_DIR": str(runtime)}
+            with mock.patch.dict(os.environ, environment):
+                args = argparse.Namespace(output=None, json_output=None, status_output=None)
+                AUTOREVIEW.prepare_pi_review_outputs(args, repo)
+                directory = Path(args.output).parent
+                self.assertEqual(directory.parent, root)
+                self.assertEqual(Path(args.json_output).name, "report.json")
+                self.assertEqual(Path(args.status_output).name, "status.json")
+                self.assertIn(str(root), json.loads(output.read_text())["piInfrastructureReadPaths"])
+                self.assertEqual((root / ".read-probe.txt").read_text(), "Pi review results read access is available.\n")
+                AUTOREVIEW.atomic_write_text(Path(args.output), "verified report\n")
+                self.assertEqual(Path(args.output).read_text(), "verified report\n")
+                again = argparse.Namespace(output=None, json_output=None, status_output=None)
+                AUTOREVIEW.prepare_pi_review_outputs(again, repo)
+                self.assertNotEqual(args.output, again.output)
+                outside = argparse.Namespace(output=str(base / "random-temp/report.txt"), json_output=None, status_output=None)
+                with self.assertRaisesRegex(SystemExit, "must stay under"):
+                    AUTOREVIEW.prepare_pi_review_outputs(outside, repo)
+                with mock.patch.object(AUTOREVIEW, "parse_args", return_value=outside), mock.patch.object(AUTOREVIEW, "reviewer_args", return_value=[]), mock.patch.object(AUTOREVIEW, "repo_root", return_value=repo), mock.patch.object(AUTOREVIEW, "run_reviewer") as reviewer:
+                    with self.assertRaisesRegex(SystemExit, "must stay under"):
+                        AUTOREVIEW.main_impl()
+                    reviewer.assert_not_called()
+                escaped = root / "escape"
+                escaped.symlink_to(repo, target_is_directory=True)
+                with self.assertRaisesRegex(SystemExit, "must stay under"):
+                    AUTOREVIEW.prepare_pi_review_outputs(argparse.Namespace(output=str(escaped / "report.txt")), repo)
+                config = json.loads(output.read_text())
+                config["piInfrastructureReadPaths"].remove(str(root))
+                output.write_text(json.dumps(config))
+                with self.assertRaisesRegex(SystemExit, "not read-authorized"):
+                    AUTOREVIEW.prepare_pi_review_outputs(argparse.Namespace(), repo)
+
+    def test_old_pi_sessions_fail_before_review_and_other_launchers_are_unchanged(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            args = argparse.Namespace()
+            AUTOREVIEW.prepare_pi_review_outputs(args, Path.cwd())
+            self.assertEqual(vars(args), {})
+            with mock.patch.dict(os.environ, {"AGENT_TOOLKIT_PI_AGENT_DIR": "/managed", "PI_CODING_AGENT_DIR": "/runtime"}):
+                with self.assertRaisesRegex(SystemExit, "Restart through the updated pi-yolo"):
+                    AUTOREVIEW.prepare_pi_review_outputs(args, Path.cwd())
+
+
 class AutoreviewCursorTests(unittest.TestCase):
     def test_parser_resource_errors_are_invalid_reports(self) -> None:
         args = argparse.Namespace(engine="codex", max_priority="P2")

@@ -6940,11 +6940,60 @@ def main() -> int:
             return exc.code
 
 
+def prepare_pi_review_outputs(args: argparse.Namespace, repo: Path) -> None:
+    value = os.environ.get("AGENT_TOOLKIT_REVIEW_ROOT")
+    if not value:
+        if os.environ.get("AGENT_TOOLKIT_PI_AGENT_DIR") and os.environ.get("PI_CODING_AGENT_DIR"):
+            raise SystemExit("Restart through the updated pi-yolo launcher to enable readable review results.")
+        return  # Other launchers retain their existing output behavior.
+    requested = Path(value).expanduser()
+    if not requested.is_absolute() or requested.is_symlink():
+        raise SystemExit("Pi review results require an absolute, non-symlink directory.")
+    root = requested.resolve(strict=True)
+    if not root.is_dir() or root.is_relative_to(repo.resolve()):
+        raise SystemExit("Pi review results must be a directory outside the reviewed repository.")
+    runtime = os.environ.get("PI_CODING_AGENT_DIR")
+    if not runtime or not Path(runtime).is_absolute():
+        raise SystemExit("Pi review policy is unavailable; restart through the updated pi-yolo launcher.")
+    try:
+        policy = json.loads((Path(runtime) / "extensions/pi-permission-system/config.json").read_text())
+        allowed = {Path(path).expanduser().resolve() for path in policy.get("piInfrastructureReadPaths", [])}
+    except (OSError, ValueError, TypeError) as exc:
+        raise SystemExit("Pi review policy cannot be verified; no reviewer was launched.") from exc
+    if root not in allowed or policy.get("permission", {}).get("read") == "deny":
+        raise SystemExit("Pi review results are not read-authorized; restart through the updated pi-yolo launcher.")
+    fields = {"output": "report.txt", "json_output": "report.json", "status_output": "status.json"}
+    for field in fields:
+        output = getattr(args, field, None)
+        if output and not Path(output).expanduser().resolve().is_relative_to(root):
+            raise SystemExit("Pi review output must stay under AGENT_TOOLKIT_REVIEW_ROOT; omit output flags to use safe defaults.")
+    reject_repo_output_paths(args, repo)
+    # Validate filesystem access before preparing evidence or launching a paid reviewer.
+    with tempfile.TemporaryFile(dir=root, mode="w+") as probe:
+        probe.write("review preflight")
+        probe.seek(0)
+        if probe.read() != "review preflight":
+            raise SystemExit("Pi review results failed the filesystem access check.")
+    if any(not getattr(args, field, None) for field in fields):
+        directory = Path(tempfile.mkdtemp(prefix="review-", dir=root))
+        for field, filename in fields.items():
+            if not getattr(args, field, None):
+                setattr(args, field, str(directory / filename))
+        print(f"review output directory: {directory}", flush=True)
+    for field in fields:
+        output = Path(getattr(args, field)).expanduser()
+        if not output.parent.is_dir() or output.exists() and (not output.is_file() or not os.access(output, os.R_OK | os.W_OK)):
+            raise SystemExit("Pi review output is not accessible; no reviewer was launched.")
+        with tempfile.TemporaryFile(dir=output.parent):
+            pass
+
+
 def main_impl() -> int:
     args = parse_args()
     reviewers = reviewer_args(args)
     with PreparationProgress("target selection"):
         repo = repo_root()
+        prepare_pi_review_outputs(args, repo)
         reject_repo_output_paths(args, repo)
         if getattr(args, "status_output", None):
             Path(args.status_output).expanduser().unlink(missing_ok=True)

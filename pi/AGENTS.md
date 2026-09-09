@@ -12,6 +12,12 @@ In Orca, launch workers through `terminal create --command 'pi-yolo --model prov
 
 Review exception: `autoreview` continues to use its Codex CLI engine with Astra at medium thinking and its documented access-only fallback. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
+## Review artifacts
+
+In `pi-yolo`, put review and Security handoff results in a unique subdirectory of `AGENT_TOOLKIT_REVIEW_ROOT`, not an arbitrary temporary directory. Before starting a reviewer, use the native `read` tool on that root's `.read-probe.txt`. If the variable is missing or the read is denied, stop before spending review quota and request a restart through the updated launcher. Do not substitute shell reads or widen permissions. `/reload` does not regenerate the runtime policy.
+
+The `autoreview` helper provides unique default report and status paths under this root. Prefer those defaults. Keep additional wrapper logs under the same root using normally authorized operations. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
+
 ## Copyable output
 
 Put text the user needs to copy (prompts, handoffs, commands, or instructions for another agent) in a fenced code block, never a Markdown blockquote (`>`). Keep explanations outside the block so the user can copy its contents unchanged.

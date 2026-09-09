@@ -33,6 +33,15 @@ PRIVATE_KEY_BEGIN_TEXT = "BEGIN " + "PRIVATE KEY"
 RSA_PRIVATE_KEY_BEGIN_TEXT = "BEGIN RSA " + "PRIVATE KEY"
 
 
+def setUpModule() -> None:
+    # Generic launcher fixtures must not inherit the invoking Pi session's output contract.
+    environment = mock.patch.dict(os.environ)
+    environment.start()
+    unittest.addModuleCleanup(environment.stop)
+    for name in ("AGENT_TOOLKIT_REVIEW_ROOT", "AGENT_TOOLKIT_PI_AGENT_DIR"):
+        os.environ.pop(name, None)
+
+
 def write_executable(path: Path, text: str) -> Path:
     path.write_text(text, encoding="utf-8")
     path.chmod(0o755)
