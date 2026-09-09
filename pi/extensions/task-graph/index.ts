@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { isDeepStrictEqual } from "node:util"
-import { getAgentDir, isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import { createBashTool, getAgentDir, isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { Type } from "typebox"
 import { defaultPiAccount, fetchCodexUsage, piAccountEmail, piProfileAccountId } from "../codex-account/index.ts"
 import {
@@ -29,16 +29,20 @@ import {
 	replacePlanStatus,
 	resolvePlanLifecyclePath,
 	reviewTaskGraph,
+	shellSegments,
 	taskGraphLockKeysForRun,
 	taskGraphOrcaRunIdsForLockRun,
 	taskGraphPlanContractsForLockRun,
 	taskGraphOrcaArgv,
 	taskGraphOrcaInvocations,
 	taskGraphOrcaOperations,
+	taskGraphStandaloneOrca,
 	taskGraphQuotaPauseReason,
 	taskGraphPrompt,
 	taskGraphTerminalTitle,
 	taskGraphWorkerAccount,
+	taskGraphWorkerEnvironment,
+	taskGraphWorkerThinking,
 	taskGraphWorkerModel,
 	TASK_GRAPH_SHORT_QUOTA_RESERVE,
 	TASK_GRAPH_USAGE,
@@ -50,6 +54,7 @@ import {
 } from "./task-graph-core.ts"
 
 import { validateRunRecovery, type RunRecoverySnapshot } from "./run-recovery.ts"
+import { assertGraphInputs, captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphGit, graphMergeHead, graphRepositoryMap, graphOwns, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, reconcileGraphLaunch, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkspaces, type GraphWorkerWorkspace, type GraphRepository } from "./workspaces.ts"
 
 const taskSchema = Type.Object({
 	id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$", description: "Stable lowercase task ID" }),
@@ -61,6 +66,7 @@ const taskSchema = Type.Object({
 	thinking: Type.Union([Type.Literal("medium"), Type.Literal("high")], { description: "Worker thinking level: medium by default; high only when the user explicitly requests it" }),
 	done_when: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 10, description: "Observable completion criteria" }),
 	validation: Type.String({ minLength: 1, description: "Smallest focused validation command or manual check" }),
+	setup: Type.Optional(Type.String({ minLength: 1, description: "Required setup command from repository rules. Run this exact command with bash in each prepared worker workspace before launch; omit only if no setup is needed." })),
 }, { additionalProperties: false })
 
 const graphSchema = Type.Object({
@@ -69,6 +75,8 @@ const graphSchema = Type.Object({
 		description: "plan-only for blocked work or execute for approved work",
 	}),
 	tasks: Type.Array(taskSchema, { minItems: 1, maxItems: 12 }),
+	inputs: Type.Optional(Type.Array(Type.Object({ repository: Type.Optional(Type.String()), paths: Type.Array(Type.String(), { maxItems: 100 }) }, { additionalProperties: false }), { maxItems: 12, description: "Exact dirty input files to capture in isolation; never import the whole dirty checkout implicitly." })),
+	current_checkout: Type.Optional(Type.Boolean({ description: "Explicit exception: use clean source checkouts for coordinator writes. Writing workers remain isolated. Requires separate human confirmation." })),
 }, { additionalProperties: false })
 
 function repositoryRoot(cwd: string): string {
@@ -134,7 +142,7 @@ function terminalReceiptFromOutput(output: string): { handle: string; repository
 				const response = JSON.parse(output.slice(start, end + 1))
 				const terminal = response?.result?.terminal ?? response?.result?.split
 				const repository = String(terminal?.worktreePath || terminal?.worktreeId || "").split("::").at(-1)
-				if (typeof terminal?.handle === "string" && repository && existsSync(repository)) return { handle: terminal.handle, repository: repositoryIdentity(repository) }
+				if (typeof terminal?.handle === "string" && repository && existsSync(repository)) return { handle: terminal.handle, repository: realpathSync(repository) }
 			} catch {}
 		}
 	}
@@ -142,8 +150,9 @@ function terminalReceiptFromOutput(output: string): { handle: string; repository
 }
 
 function orcaTerminalHandles(): Set<string> {
-	const terminals = orcaJson(["terminal", "list", "--limit", "1000", "--json"])?.result?.terminals
-	if (!Array.isArray(terminals)) throw new Error("Orca terminal listing is incomplete.")
+	const inventory = orcaJson(["terminal", "list", "--limit", "1000", "--json"])?.result
+	const terminals = inventory?.terminals
+	if (!Array.isArray(terminals) || inventory.truncated || inventory.hostScope?.omittedHostIds?.length) throw new Error("Orca terminal listing is incomplete.")
 	return new Set(terminals.flatMap((terminal: { handle?: unknown }) => typeof terminal.handle === "string" ? [terminal.handle] : []))
 }
 
@@ -192,8 +201,9 @@ function planPathsById(root: string, id: string): string[] {
 	return matches
 }
 
-function validatePlanChainPlans(plan: TaskGraphPlan, root: string, targetKey: string, repositoryRoots: string[], recovery = false): string[] {
-	const taskRoots = new Set(plan.tasks.map((task) => realpathSync(resolve(root, task.repository ?? "."))))
+function validatePlanChainPlans(plan: TaskGraphPlan, root: string, targetKey: string, repositoryRoots: string[], recovery = false, state?: GraphWorkspaces): string[] {
+	const executionRoot = (source: string) => state?.repositories.find((repo) => repo.source === source)?.workspace?.path ?? source
+	const taskRoots = new Set(plan.tasks.map((task) => executionRoot(realpathSync(resolve(root, task.repository ?? ".")))))
 	const registered = new Map<string, string[]>()
 	for (const repository of repositoryRoots) {
 		const identity = repositoryIdentity(repository)
@@ -212,7 +222,7 @@ function validatePlanChainPlans(plan: TaskGraphPlan, root: string, targetKey: st
 	if (!target) throw new Error("A plan chain must include the selected target and use each Plan-ID as its task ID.")
 
 	for (const task of plan.tasks) {
-		const taskRoot = realpathSync(resolve(root, task.repository ?? "."))
+		const taskRoot = executionRoot(realpathSync(resolve(root, task.repository ?? ".")))
 		if (planPathsById(taskRoot, task.id).length !== 1) throw new Error(`Plan-chain task ${task.id} must match exactly one Plan-ID in ${task.repository ?? "."}.`)
 		const matches = find(task.id)
 		if (matches.length !== 1) throw new Error(`Plan-ID ${task.id} must match exactly one local plan.`)
@@ -232,7 +242,7 @@ function validatePlanChainPlans(plan: TaskGraphPlan, root: string, targetKey: st
 		if (targets.length === 0) throw new Error(`Plan-chain task ${task.id} has no Spec-Targets or Implementation-Targets.`)
 		const filename = local.replace(/^docs\/(?:future|exec-plans\/(?:active|completed))\//, "")
 		const lifecycleTargets = [`docs/future/${filename}`, `docs/exec-plans/active/${filename}`, `docs/exec-plans/completed/${filename}`]
-		task.owns = [...new Set([...lifecycleTargets, ...targets])]
+		task.owns = [...new Set([...lifecycleTargets, ...targets, `docs/exec-plans/evidence-index/${task.id}.md`, `docs/exec-plans/active/evidence/${task.id}`])]
 		if (task.owns.length > 20) throw new Error(`Plan-chain task ${task.id} exceeds 20 ownership targets.`)
 		task.done_when = [acceptance, `Validation lanes: ${validation}`]
 		const recoveryTask = planningDocumentNeedsRecovery(local, markdown)
@@ -279,6 +289,31 @@ function validatePlanChainPlans(plan: TaskGraphPlan, root: string, targetKey: st
 	return [...new Set(keys)].sort()
 }
 
+export function assertGraphShell(command: string, state: GraphWorkspaces, cwd: string): void {
+	if (/\$\(|`|[<>]/.test(command)) throw new Error("Use file tools for writes and repository scripts for complex shell commands; graph shell redirection and substitution are not authorized.")
+	const segments = shellSegments(command)
+	if (!segments) throw new Error("Cannot parse the graph shell command.")
+	for (const words of segments) {
+		const git = words.findIndex((word) => basename(word) === "git")
+		if (git >= 0) {
+			const args = words.slice(git + 1).filter((word) => word !== "--no-pager")
+			if (!args.length || args[0].startsWith("-") || !["status", "diff", "log", "show", "grep", "ls-files", "ls-tree", "rev-parse", "rev-list", "merge-base", "blame", "describe", "cat-file"].includes(args[0])) throw new Error("Use checkpoint_task_graph for scoped local commits and the integration tool for merges. Shell Git is read-only, without -C or config overrides.")
+		}
+		if (words.some((word) => ["gh", "glab", "orca", "orca-dev", "orca-ide", basename(orcaExecutable())].includes(basename(word)))) throw new Error("Use standalone Orca inspection through bash. Hosting and delivery commands require a separate trusted action.")
+		if (words.some((word) => /^(?:\.\.[/\\]|~[/\\])/.test(word))) throw new Error("Use approved absolute workspace paths, not parent-relative shell paths.")
+		if (["cd", "rm", "rmdir"].includes(words[0])) for (const argument of words.slice(1).filter((word) => !word.startsWith("-"))) {
+			const path = resolve(cwd, argument)
+			if (/[`$]/.test(argument) || path !== cwd && !path.startsWith(`${cwd}${sep}`) || words[0] !== "cd" && path === cwd || argument.split(/[\\/]/).includes(".git")) throw new Error("Shell navigation and removal must remain inside the graph workspace; worktree cleanup is not authorized.")
+		}
+	}
+	if (!state.currentCheckout && state.repositories.some((repo) => command.includes(repo.source))) throw new Error("Do not reference source checkout paths in graph shell commands; use the isolated workspace paths.")
+}
+
+function graphReportingCommand(command: string): boolean {
+	const argv = taskGraphOrcaArgv(command)
+	return taskGraphStandaloneOrca(command) && argv?.[0] === "orchestration" && ["send", "ask", "check"].includes(argv[1]) && !hasOption(argv, "--from")
+}
+
 export default function taskGraphExtension(pi: ExtensionAPI): void {
 	let pending: { prompt: string; planChain: boolean; planExecutable: boolean; planOnlyRequired: boolean; recoveryOnly: boolean; recoveryPlan?: LocalPlan; workerModel: string; workerAccount?: WorkerAccount; repositoryRoots: string[]; runObjective: string } | null = null
 	let planning = false
@@ -302,9 +337,19 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	let recoveredOrcaRunId: string | undefined
 	let recoveredPlanContract: string | undefined
 	let workerTerminalTitle = ""
+	let workspaces: GraphWorkspaces | undefined
+	let workspaceFile: string | undefined
+	const workerWorkspaceFile = process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES
+	const workerTask = process.env.AGENT_TOOLKIT_GRAPH_TASK
+	const persistWorkspaces = () => {
+		if (!workspaces || !workspaceFile) throw new Error("No graph workspace contract is bound.")
+		saveGraphWorkspaces(workspaceFile, workspaces)
+	}
 	let approvedTaskMarkers: string[] = []
 	let approvedPlans: Array<{ root: string; id: string }> = []
 	let activeLocks: TaskGraphLock[] = []
+	const launchTitle = (worker: GraphWorkerWorkspace) => worker.launch?.title ?? `${workerTerminalTitle}-${worker.task}-${worker.previousTerminals?.length ?? 0}`
+	const preparedWorker = (worker: GraphWorkerWorkspace) => ({ workspace: worker, launchTitle: launchTitle(worker), repositories: graphRepositoryMap(workspaces!, worker), environment: { AGENT_TOOLKIT_GRAPH_WORKSPACES: workspaceFile, AGENT_TOOLKIT_GRAPH_TASK: worker.task } })
 	const approvedWorkerTerminals = new Set<string>()
 	const graphWorkerTerminals = new Set<string>()
 	const terminalRepositories = new Map<string, string>()
@@ -312,6 +357,20 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	const approvedTaskDependencies = new Map<string, string[]>()
 	const pendingTaskCreates = new Map<string, string>()
 	const pendingTerminalLaunches = new Set<string>()
+	const coordinatorOwners = (repository: GraphRepository) => {
+		const contract = JSON.parse(recoveredPlanContract!) as TaskGraphPlan
+		return [...contract.tasks.filter((task) => approvedTaskRepositories.get(task.id) === repository.source).flatMap((task) => task.owns), ...repository.inputs.map((input) => input.path)]
+	}
+	const verifyCoordinator = (repository: GraphRepository) => verifyGraphChanges(repository, repository.workspace!, coordinatorOwners(repository), workspaces!.mode)
+	const workerContext = (cwd: string) => {
+		if (!workerWorkspaceFile || !workerTask) throw new Error("Incomplete graph worker workspace binding.")
+		const state = readGraphWorkspaces(workerWorkspaceFile)
+		const worker = state.workers.find((item) => item.task === workerTask)
+		const repository = state.repositories.find((repo) => repo.source === worker?.source)
+		if (!worker || !repository || realpathSync(cwd) !== worker.path) throw new Error("Worker cwd does not match its recorded graph workspace.")
+		verifyGraphWorkspace(repository, worker)
+		return { state, worker, repository }
+	}
 	const pendingDispatches = new Map<string, string>()
 	const approvedLedgerIsComplete = (tasks: unknown): boolean => {
 		if (!Array.isArray(tasks) || tasks.length === 0 || tasks.some((task: { status?: unknown }) => task.status !== "completed")) return false
@@ -336,6 +395,218 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.registerTool({
+		name: "prepare_task_graph_workspace",
+		label: "Prepare Graph Workspace",
+		description: "Create or verify the approved isolated coordinator workspaces, or prepare one bound Orca task's worker worktree. Never copies inputs again on resume.",
+		parameters: Type.Object({
+			task_id: Type.Optional(Type.String({ pattern: "^task_[a-zA-Z0-9_-]+$" })),
+			owns: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: "Required exclusive ownership subset for an internal plan task." })),
+			retry: Type.Optional(Type.Boolean({ description: "One replacement terminal after a verified failed, closed dispatch; reuse its clean task worktree." })),
+		}, { additionalProperties: false }),
+		executionMode: "sequential",
+		async execute(_id, params) {
+			if (!approved || !activeOrcaRunId || !workspaces || !workspaceFile) throw new Error("Approve and bind the graph before workspace preparation.")
+			if (recoveryOnly && !workspaces.currentCheckout && !workspaces.repositories.every((repo) => !repo.workspace || repo.workspace.path)) throw new Error("Lifecycle recovery must reuse its recorded workspaces.")
+			for (const repository of workspaces.repositories) {
+				if (!repository.workspace) continue
+				const workspace = repository.workspace
+				if (workspace.path) {
+					verifyGraphWorkspace(repository, workspace, false, true)
+					if (!repository.captureComplete && !workspaces.currentCheckout) importGraphInputs(repository, persistWorkspaces)
+					continue
+				}
+				if (workspaces.currentCheckout) {
+					assertGraphInputs(repository)
+					if (graphDirtyPaths(repository.source).length) throw new Error("The current-checkout exception requires a clean source immediately before preparation.")
+					Object.assign(workspace, { path: repository.source, branch: repository.sourceBranch, id: `path:${repository.source}`, phase: "ready" })
+					persistWorkspaces()
+				} else {
+					createGraphWorkspace(repository, workspace, orcaJson, persistWorkspaces)
+					importGraphInputs(repository, persistWorkspaces)
+				}
+			}
+			approvedPlans = approvedPlans.map((plan) => ({ ...plan, root: workspaces!.repositories.find((repo) => repo.source === plan.root)?.workspace?.path ?? plan.root }))
+			if (recoveryPlan) {
+				const root = workspaces.repositories.find((repo) => repo.source === recoveryPlan!.root)?.workspace?.path
+				if (root) recoveryPlan = { ...recoveryPlan, root, target: join(root, recoveryPlan.local) }
+			}
+			if (!params.task_id) return { content: [{ type: "text", text: JSON.stringify(workspaces.repositories, null, 2) }], details: { workspaces } }
+			if (recoveryOnly) throw new Error("Lifecycle recovery cannot prepare workers.")
+			const tasks = orcaJson(["orchestration", "task-list", "--run", activeOrcaRunId, "--json"])?.result?.tasks
+			if (!Array.isArray(tasks)) throw new Error("Task inventory is incomplete.")
+			const task = tasks.find((item: any) => item.id === params.task_id)
+			let parent = task
+			const seen = new Set<string>()
+			while (parent?.parent_id && !seen.has(parent.id)) { seen.add(parent.id); parent = tasks.find((item: any) => item.id === parent.parent_id) }
+			const marker = approvedTaskMarkers.find((prefix) => String(parent?.spec ?? "").startsWith(prefix))
+			const approvedId = marker?.match(/^\[(?:plan|graph-task):([^\]]+)\]/)?.[1]
+			const contract = JSON.parse(recoveredPlanContract!) as TaskGraphPlan
+			const approvedTask = contract.tasks.find((item) => item.id === approvedId)
+			const repository = workspaces.repositories.find((repo) => repo.source === approvedTaskRepositories.get(approvedId ?? ""))
+			if (!task || !approvedTask || !repository || parent.parent_id != null || planChain && task.id === parent.id) throw new Error("Prepare only an approved graph task or its internal plan task.")
+			const existing = workspaces.workers.find((worker) => worker.task === task.id)
+			if (existing) {
+				if (!existing.path) createGraphWorkspace(repository, existing, orcaJson, persistWorkspaces)
+				verifyGraphWorkspace(repository, existing)
+				reconcileGraphLaunch(existing, orcaJson, persistWorkspaces)
+				if (params.owns && !isDeepStrictEqual(params.owns, existing.owns)) throw new Error("Resume must preserve worker ownership.")
+				if (params.retry) {
+					const dispatch = orcaJson(["orchestration", "dispatch-show", "--task", task.id, "--json"])?.result?.dispatch
+					if (dispatch?.status !== "failed" || dispatch?.assignee_handle !== existing.terminal || !existing.terminal || existing.previousTerminals?.length || graphDirtyPaths(existing.path!).length || orcaTerminalHandles().has(existing.terminal)) throw new Error("Retry requires one failed, closed dispatch and a clean retained worktree; no second replacement is allowed.")
+					existing.previousTerminals = [existing.terminal]
+					existing.terminal = undefined
+					existing.launch = undefined
+					existing.setupComplete = false
+					existing.launchBase = verifyGraphWorkspace(repository, existing)
+					persistWorkspaces()
+				}
+				return { content: [{ type: "text", text: JSON.stringify(preparedWorker(existing)) }], details: { workspace: existing } }
+			}
+			if (!["ready", "pending"].includes(task.status)) throw new Error("New worker preparation requires a ready, undispatched task.")
+			for (const entry of [task, ...(parent !== task ? [parent] : [])]) {
+				const dependencies: unknown = JSON.parse(entry.deps)
+				if (!Array.isArray(dependencies)) throw new Error("Task dependencies are invalid.")
+				for (const dependency of dependencies) {
+					const predecessor = tasks.find((item: any) => item.id === dependency)
+					if (predecessor?.status !== "completed") throw new Error("Complete prerequisite tasks before worker preparation.")
+					const predecessorId = String(predecessor.spec).match(/^\[(?:plan|graph-task):([^\]]+)\]/)?.[1]
+					if (workspaces.workers.some((worker) => (worker.task === dependency || predecessorId && worker.approvedTask === predecessorId) && worker.owns.length && !worker.integrated)) throw new Error("Integrate prerequisite worker commits before preparing dependent worktrees.")
+				}
+			}
+			const owns = parent === task ? approvedTask.owns : params.owns
+			if (!owns || owns.some((path) => !graphOwns(approvedTask.owns, path))) throw new Error("Internal worker ownership must be an explicit subset of the approved plan targets.")
+			if (workspaces.workers.some((worker) => worker.source === repository.source && !worker.integrated && worker.owns.some((path) => graphOwns(owns, path) || owns.some((owner) => graphOwns(worker.owns, owner))))) throw new Error("Worker ownership overlaps another unintegrated task.")
+			const base = repository.workspace ? verifyGraphWorkspace(repository, repository.workspace) : repository.base
+			if (repository.workspace && graphDirtyPaths(repository.workspace.path!).length) throw new Error("Checkpoint coordinator changes before creating a dependent worker.")
+			const prerequisiteIds = new Set(approvedTask.depends_on)
+			for (const id of prerequisiteIds) for (const dependency of contract.tasks.find((task) => task.id === id)?.depends_on ?? []) prerequisiteIds.add(dependency)
+			const prerequisiteSources = new Set([...prerequisiteIds].map((id) => approvedTaskRepositories.get(id)))
+			const prerequisites = Object.fromEntries(workspaces.repositories.filter((repo) => repo.source !== repository.source && prerequisiteSources.has(repo.source)).map((repo) => {
+				if (graphDirtyPaths(repo.workspace?.path ?? repo.source).length) throw new Error("Checkpoint prerequisite workspaces before preparing dependent workers.")
+				return [repo.source, repo.workspace ? verifyGraphWorkspace(repo, repo.workspace) : repo.base]
+			}))
+			const worker: GraphWorkerWorkspace = { task: task.id, approvedTask: approvedTask.id, source: repository.source, owns, name: `pi-task-${createHash("sha256").update(`${workspaces.key}:${task.id}`).digest("hex").slice(0, 24)}`, base, prerequisites, phase: "creating" }
+			workspaces.workers.push(worker)
+			persistWorkspaces()
+			if (!owns.length) {
+				Object.assign(worker, { path: repository.workspace?.path ?? repository.source, branch: repository.workspace?.branch ?? repository.sourceBranch, id: repository.workspace?.id ?? `path:${repository.source}`, phase: "ready" })
+				persistWorkspaces()
+			} else createGraphWorkspace(repository, worker, orcaJson, persistWorkspaces)
+			return { content: [{ type: "text", text: JSON.stringify(preparedWorker(worker)) }], details: { workspace: worker } }
+		},
+	})
+
+	pi.registerTool({
+		name: "integrate_task_graph_worker",
+		label: "Integrate Graph Worker",
+		description: "Verify a completed worker's scoped committed changes and merge them into this Run's isolated integration branch. Does not merge back to a source or delivery branch.",
+		parameters: Type.Object({ task_id: Type.String({ pattern: "^task_[a-zA-Z0-9_-]+$" }) }, { additionalProperties: false }),
+		executionMode: "sequential",
+		async execute(_id, params) {
+			if (!approved || !activeOrcaRunId || !workspaces) throw new Error("No approved bound graph.")
+			const worker = workspaces.workers.find((item) => item.task === params.task_id)
+			const tasks = orcaJson(["orchestration", "task-list", "--run", activeOrcaRunId, "--json"])?.result?.tasks
+			const dispatch = orcaJson(["orchestration", "dispatch-show", "--task", params.task_id, "--json"])?.result?.dispatch
+			if (!worker?.terminal || !Array.isArray(tasks) || !tasks.some((task: any) => task.id === worker.task && task.run_id === activeOrcaRunId && task.status === "completed") || dispatch?.task_id !== worker.task || dispatch?.run_id !== activeOrcaRunId || dispatch?.status !== "completed" || dispatch?.assignee_handle !== worker.terminal) throw new Error("Integrate only a completed task with its verified settled dispatch.")
+			if (orcaTerminalHandles().has(worker.terminal)) throw new Error("Close the settled worker terminal before integration.")
+			if (!worker.owns.length) {
+				const repository = workspaces.repositories.find((repo) => repo.source === worker.source)!
+				worker.integrated = verifyGraphWorkspace(repository, worker)
+			}
+			else integrateGraphWorker(workspaces, worker, persistWorkspaces)
+			const repository = workspaces.repositories.find((repo) => repo.source === worker.source)!
+			if (repository.workspace) verifyCoordinator(repository)
+			persistWorkspaces()
+			return { content: [{ type: "text", text: `Integrated ${worker.task}: ${worker.integrated}` }], details: { worker } }
+		},
+	})
+
+	const shellWorkspace = (selector: string) => {
+		if (!approved || !activeOrcaRunId || !workspaces || recoveryOnly) throw new Error("No approved writing graph workspace.")
+		const worker = workspaces.workers.find((item) => item.path === selector && item.owns.length)
+		if (worker?.terminal || worker?.launch) {
+			const dispatch = orcaJson(["orchestration", "dispatch-show", "--task", worker.task, "--json"])?.result?.dispatch
+			if (!worker.terminal || dispatch?.status !== "failed" || dispatch?.assignee_handle !== worker.terminal || orcaTerminalHandles().has(worker.terminal)) throw new Error("Worker changes belong to its live worker; coordinator repair requires a failed, closed dispatch.")
+		}
+		const repository = workspaces.repositories.find((repo) => worker ? repo.source === worker.source : selector === repo.source || selector === repo.workspace?.path)
+		const workspace = worker ?? repository?.workspace
+		if (!worker && repository && workspaces.workers.some((reader) => !reader.integrated && reader.prerequisites?.[repository.source])) throw new Error("Finish dependent workers before changing their pinned prerequisite workspace.")
+		if (!repository || !workspace || !repository.captureComplete && !workspaces.currentCheckout) throw new Error("Prepare this repository's writing workspace and input checkpoint first.")
+		verifyGraphWorkspace(repository, workspace)
+		return { repository, workspace, worker, owners: worker?.owns ?? coordinatorOwners(repository) }
+	}
+
+	// Keep the native tool name: every command still traverses Pi's normal bash permission hooks.
+	pi.registerTool({
+		name: "bash",
+		label: "bash",
+		description: "Execute a shell command with standard output limits. During a graph, set repository to an exact prepared workspace for setup and checks. Use checkpoint_task_graph for commits.",
+		parameters: Type.Object({ command: Type.String(), timeout: Type.Optional(Type.Number()), repository: Type.Optional(Type.String({ description: "Exact prepared graph workspace; omit for standalone Orca commands or ordinary non-graph shell use." })) }, { additionalProperties: false }),
+		executionMode: "sequential",
+		async execute(id, params, signal, onUpdate, ctx) {
+			if (workerWorkspaceFile || workerTask) {
+				const { state, worker, repository } = workerContext(ctx.cwd)
+				if (params.repository && params.repository !== worker.path) throw new Error("Workers cannot change shell workspaces.")
+				if (!graphReportingCommand(params.command)) {
+					if (!worker.owns.length) throw new Error("Read-only workers may run standalone reporting commands only.")
+					assertGraphShell(params.command, state, worker.path!)
+				}
+				try {
+					return await createBashTool(worker.path!, { spawnHook: (context) => ({ ...context, env: { ...context.env, AGENT_TOOLKIT_GRAPH_REPOSITORIES: graphReportingCommand(params.command) ? "{}" : JSON.stringify(graphRepositoryMap(state, worker)) } }) }).execute(id, params, signal, onUpdate)
+				} finally { if (worker.owns.length) verifyGraphChanges(repository, worker, worker.owns, state.mode) }
+			}
+			if (planning && params.repository) {
+				const { repository, workspace, worker, owners } = shellWorkspace(params.repository)
+				assertGraphShell(params.command, workspaces!, workspace.path!)
+				let result
+				try {
+					result = await createBashTool(workspace.path!, { spawnHook: (context) => ({ ...context, env: { ...context.env, AGENT_TOOLKIT_GRAPH_REPOSITORIES: JSON.stringify(graphRepositoryMap(workspaces!, worker)) } }) }).execute(id, params, signal, onUpdate)
+				} finally { verifyGraphChanges(repository, workspace, owners, workspaces!.mode) }
+				if (worker && (JSON.parse(recoveredPlanContract!) as TaskGraphPlan).tasks.find((task) => task.id === worker.approvedTask)?.setup === params.command) {
+					if (graphDirtyPaths(worker.path!).length) throw new Error("Setup changed tracked or untracked inputs; checkpoint owned changes before confirming setup again.")
+					worker.setupComplete = true
+					persistWorkspaces()
+				}
+				return result
+			}
+			if (params.repository) throw new Error("The repository selector is available only inside an approved graph.")
+			if (planning && approved && isTaskGraphWorkerLaunch(params.command)) {
+				const environment = taskGraphWorkerEnvironment(params.command)
+				const worker = workspaces?.workers.find((item) => item.task === environment?.AGENT_TOOLKIT_GRAPH_TASK)
+				if (!worker || worker.launch || worker.terminal) throw new Error("The worker launch is already attempted; reconcile it before continuing.")
+				verifyGraphWorkspace(workspaces!.repositories.find((repo) => repo.source === worker.source)!, worker, true)
+				worker.launch = { title: launchTitle(worker), command: params.command }
+				persistWorkspaces() // After permission approval, before the terminal-create RPC.
+			}
+			return createBashTool(ctx.cwd).execute(id, params, signal, onUpdate)
+		},
+	})
+
+	pi.registerTool({
+		name: "checkpoint_task_graph",
+		label: "Checkpoint Graph Changes",
+		description: "Commit explicit owned paths after required checks and reviews. Hooks remain enabled. No amend, publishing, or branch changes.",
+		parameters: Type.Object({ repository: Type.Optional(Type.String()), paths: Type.Array(Type.String(), { minItems: 1, maxItems: 100 }), message: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+		executionMode: "sequential",
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			let head: string
+			if (workerWorkspaceFile || workerTask) {
+				const { state, worker, repository } = workerContext(ctx.cwd)
+				if (params.repository && params.repository !== worker.path) throw new Error("Checkpoint only this worker's workspace.")
+				head = checkpointGraphChanges(repository, worker, worker.owns, state.mode, params.paths, params.message)
+			} else {
+				if (!params.repository) throw new Error("Choose an exact prepared workspace for the checkpoint.")
+				const { repository, workspace, worker, owners } = shellWorkspace(params.repository)
+				head = checkpointGraphChanges(repository, workspace, owners, workspaces!.mode, params.paths, params.message)
+				if (worker && !worker.launch && !worker.terminal) { worker.launchBase = head; persistWorkspaces() }
+			}
+			const path = workerWorkspaceFile ? ctx.cwd : shellWorkspace(params.repository!).workspace.path!
+			const pendingIntegration = Boolean(graphMergeHead(path))
+			return { content: [{ type: "text", text: pendingIntegration ? "Staged explicit resolution paths; retry integrate_task_graph_worker to finish the recorded merge." : `Local checkpoint: ${head}` }], details: { head, pendingIntegration } }
+		},
+	})
+
+	pi.registerTool({
 		name: "bind_task_graph_run",
 		label: "Bind Task Graph Run",
 		description: "Bind the one unfinished Orca Run selected or created for this approved graph.",
@@ -358,6 +629,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (!params.recover && run?.objective !== activeRunObjective) throw new Error("The supplied Orca Run does not match this approved graph. Use recover: true for explicitly confirmed Run-ID recovery.")
 			const tasks = orcaJson(["orchestration", "task-list", "--run", params.run_id, "--json"])?.result?.tasks
 			if (!recoveryPlan && recoveredOrcaRunId !== params.run_id && Array.isArray(tasks) && tasks.length > 0 && tasks.every((task: { status?: unknown }) => task.status === "completed")) throw new Error("The supplied Orca Run is already complete.")
+			if (workspaces?.runId && workspaces.runId !== params.run_id) throw new Error("Workspace contract belongs to a different Run.")
+			for (const repository of workspaces?.repositories ?? []) if (repository.workspace?.path) verifyGraphWorkspace(repository, repository.workspace, false, true)
+			for (const worker of workspaces?.workers ?? []) if (worker.path) verifyGraphWorkspace(workspaces!.repositories.find((repo) => repo.source === worker.source)!, worker)
 			let recoveredMarkers: string[] | undefined
 			const recoveryLocks: TaskGraphLock[] = []
 			if (params.recover) {
@@ -379,7 +653,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 					}
 					if (!Array.isArray(snapshot.tasks)) throw new Error("Recovery task inventory is incomplete.")
 					for (const task of snapshot.tasks) snapshot.dispatches[task.id] = orcaJson(["orchestration", "dispatch-show", "--task", task.id, "--json"])?.result?.dispatch
-					return validateRunRecovery(root, params.run_id, previous, JSON.parse(recoveredPlanContract!), snapshot)
+					const previousWorkspaceFile = join(lockRoot, `${createHash("sha256").update(oldKey).digest("hex")}.lock`, "workspaces.json")
+					const previousWorkspaces = existsSync(previousWorkspaceFile) ? readGraphWorkspaces(previousWorkspaceFile) : undefined
+					if (!previousWorkspaces && !workspaces?.currentCheckout) throw new Error("Legacy Run recovery requires an explicitly approved current_checkout override.")
+					return validateRunRecovery(root, params.run_id, previous, JSON.parse(recoveredPlanContract!), snapshot, previousWorkspaces)
 				}
 				const checked = readRecovery()
 				if (checked.objective !== run.objective) throw new Error("Recovery Run changed during inspection.")
@@ -393,6 +670,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 					}
 					if (!isDeepStrictEqual(checked, readRecovery())) throw new Error("Recovery state changed during confirmation; inspect it again before binding.")
 					recoveredMarkers = checked.markers
+					if (checked.workspaces) {
+						workspaces = checked.workspaces
+						workspaces.contractHash = createHash("sha256").update(recoveredPlanContract!).digest("hex")
+					}
 				} catch (error) {
 					for (const lock of recoveryLocks.reverse()) abandonTaskGraphLock(lock)
 					throw error
@@ -412,19 +693,29 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			const workers = orcaJson(["orchestration", "worker-list", "--run", params.run_id, "--json"])?.result?.workers
 			if (!Array.isArray(workers)) throw new Error("Cannot reconcile worker terminals for the selected Orca Run.")
 			const dispatchedTerminals = new Set<string>()
+			for (const worker of workspaces?.workers ?? []) reconcileGraphLaunch(worker, orcaJson, persistWorkspaces)
+			if (workspaces && !workspaces.currentCheckout) for (const worker of workers) {
+				const recorded = workspaces.workers.find((item) => item.task === worker.taskId)
+				if (!recorded || recorded.terminal !== worker.agentTerminalHandle && !recorded.previousTerminals?.includes(worker.agentTerminalHandle)) throw new Error("Recovery worker does not match the recorded workspace/terminal binding.")
+			}
 			for (const worker of workers) if (typeof worker?.agentTerminalHandle === "string") {
 				graphWorkerTerminals.add(worker.agentTerminalHandle)
 				dispatchedTerminals.add(worker.agentTerminalHandle)
 			}
 			const terminals = orcaJson(["terminal", "list", "--limit", "1000", "--json"])?.result?.terminals
 			if (!Array.isArray(terminals)) throw new Error("Cannot reconcile worker terminals for the selected Orca Run.")
-			for (const terminal of terminals.filter((candidate: { title?: unknown }) => candidate.title === workerTerminalTitle)) {
+			for (const terminal of terminals.filter((candidate: { title?: unknown; handle?: string }) => candidate.title === workerTerminalTitle || workspaces?.workers.some((worker) => worker.terminal === candidate.handle || worker.launch?.title === candidate.title))) {
 				const repository = String(terminal.worktreePath || terminal.worktreeId || "").split("::").at(-1)
 				if (typeof terminal.handle === "string" && repository && existsSync(repository)) {
 					graphWorkerTerminals.add(terminal.handle)
 					if (!dispatchedTerminals.has(terminal.handle)) approvedWorkerTerminals.add(terminal.handle)
-					terminalRepositories.set(terminal.handle, repositoryIdentity(repository))
+					terminalRepositories.set(terminal.handle, realpathSync(repository))
 				}
+			}
+			if (workspaces) {
+				if (workspaces.runId && workspaces.runId !== params.run_id) throw new Error("Workspace contract belongs to a different Run.")
+				workspaces.runId = params.run_id
+				persistWorkspaces()
 			}
 			activeOrcaRunId = params.run_id
 			return { content: [{ type: "text", text: `Bound task graph to Orca Run ${params.run_id}` }], details: { status: "bound", runId: params.run_id } }
@@ -438,7 +729,8 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		parameters: Type.Object({}, { additionalProperties: false }),
 		executionMode: "sequential",
 		async execute() {
-			if (!planning || !approved || !recoveryPlan || !activeOrcaRunId) throw new Error("No approved and bound interrupted plan lifecycle is ready for recovery.")
+			if (!planning || !approved || !recoveryPlan || !activeOrcaRunId || !workspaces) throw new Error("No approved and bound interrupted plan lifecycle is ready for recovery.")
+			graphWritePath(workspaces, recoveryPlan.target)
 			const tasks = orcaJson(["orchestration", "task-list", "--run", activeOrcaRunId, "--json"])?.result?.tasks
 			if (!approvedLedgerIsComplete(tasks)) throw new Error("Reconcile the complete approved Orca ledger before plan lifecycle recovery.")
 			const workers = orcaJson(["orchestration", "worker-list", "--run", activeOrcaRunId, "--json"])?.result?.workers
@@ -446,9 +738,15 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (recoveryPlan.local.startsWith("docs/exec-plans/active/")) {
 				if (planStatus(readFileSync(recoveryPlan.target, "utf8")) !== "completed") throw new Error("Active plan recovery requires the current Status to remain completed.")
 				const destination = join(recoveryPlan.root, recoveryPlan.local.replace("docs/exec-plans/active/", "docs/exec-plans/completed/"))
+				graphWritePath(workspaces, destination)
 				if (existsSync(destination)) throw new Error(`Recovery destination already exists: ${destination}`)
 				mkdirSync(dirname(destination), { recursive: true })
 				renameSync(recoveryPlan.target, destination)
+				const repository = workspaces.repositories.find((repo) => repo.workspace?.path === recoveryPlan!.root)!
+				const paths = [recoveryPlan.local, relative(recoveryPlan.root, destination).split(sep).join("/")]
+				// Keep the moved target in memory too, so a failed commit can be retried in this turn.
+				recoveryPlan = { ...recoveryPlan, target: destination, local: paths[1] }
+				checkpointGraphChanges(repository, repository.workspace!, coordinatorOwners(repository), workspaces.mode, paths, "Complete approved plan lifecycle recovery")
 				recoveryPlan = undefined
 				return { content: [{ type: "text", text: `Recovered completed plan move to ${destination}` }], details: { status: "recovered", destination } }
 			}
@@ -456,6 +754,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				const target = recoveryPlan.target
 				const content = readFileSync(target, "utf8")
 				if (planStatus(content) !== "completed") writeFileSync(target, replacePlanStatus(content, "completed"))
+				const repository = workspaces.repositories.find((repo) => repo.workspace?.path === recoveryPlan!.root)!
+				const filename = recoveryPlan.local.slice("docs/exec-plans/completed/".length)
+				const paths = graphDirtyPaths(recoveryPlan.root).filter((path) => [recoveryPlan!.local, `docs/exec-plans/active/${filename}`, `docs/future/${filename}`].includes(path))
+				if (paths.length) checkpointGraphChanges(repository, repository.workspace!, coordinatorOwners(repository), workspaces.mode, paths, "Complete approved plan lifecycle recovery")
 				recoveryPlan = undefined
 				return { content: [{ type: "text", text: `Recovered completed plan state in ${target}` }], details: { status: "recovered", target } }
 			}
@@ -470,6 +772,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		parameters: Type.Object({
 			run_id: Type.String({ pattern: "^run_[a-zA-Z0-9_-]+$", description: "Bound Orca Run ID" }),
 			evidence: Type.String({ minLength: 1, description: "Concise completion and closeout evidence" }),
+			delivery_pending: Type.Optional(Type.Boolean({ description: "All local work passed, but repository rules require publishing before plan completion. Leave these plans active with Status: validation; do not claim shipped completion." })),
 		}, { additionalProperties: false }),
 		executionMode: "sequential",
 		async execute(_toolCallId, params) {
@@ -484,19 +787,30 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			}
 			for (const approvedPlan of approvedPlans) {
 				const matches = planPathsById(approvedPlan.root, approvedPlan.id)
-				if (matches.length !== 1 || !relative(approvedPlan.root, matches[0]).split(sep).join("/").startsWith("docs/exec-plans/completed/") || planStatus(readFileSync(matches[0], "utf8")) !== "completed") {
-					throw new Error(`Plan ${approvedPlan.id} has not completed lifecycle closeout.`)
-				}
+				const local = matches.length === 1 ? relative(approvedPlan.root, matches[0]).split(sep).join("/") : ""
+				const status = matches.length === 1 ? planStatus(readFileSync(matches[0], "utf8")) : undefined
+				if (!(local.startsWith("docs/exec-plans/completed/") && status === "completed") && !(params.delivery_pending && local.startsWith("docs/exec-plans/active/") && status === "validation")) throw new Error(`Plan ${approvedPlan.id} has not completed local closeout. Delivery-pending plans must remain active in validation.`)
 			}
 			const workers = orcaJson(["orchestration", "worker-list", "--run", params.run_id, "--json"])?.result?.workers
 			const terminalInventory = orcaJson(["terminal", "list", "--limit", "1000", "--json"])?.result
 			const terminals = terminalInventory?.terminals
 			const liveTerminals = new Set(Array.isArray(terminals) ? terminals.map((terminal: { handle?: unknown }) => terminal.handle) : [])
 			if (terminalInventory?.truncated || terminalInventory?.hostScope?.omittedHostIds?.length) throw new Error("The live terminal inventory is incomplete; graph locks cannot be released safely.")
-			if (Array.isArray(terminals) && terminals.some((terminal: { title?: unknown }) => terminal.title === workerTerminalTitle)) throw new Error("Close every graph-owned worker terminal before finishing.")
+			if (Array.isArray(terminals) && terminals.some((terminal: { title?: unknown; handle?: string }) => terminal.title === workerTerminalTitle || workspaces?.workers.some((worker) => worker.terminal === terminal.handle || worker.launch?.title === terminal.title))) throw new Error("Close every graph-owned worker terminal before finishing.")
 			if (!Array.isArray(workers) || !Array.isArray(terminals) || workers.some((worker: { dispatchStatus?: unknown; workerState?: unknown; terminalState?: unknown; resource?: unknown; agentTerminalHandle?: unknown }) =>
 				!["completed", "failed"].includes(String(worker.dispatchStatus)) || (!["released", "closed"].includes(String(worker.workerState)) && !["released", "closed"].includes(String(worker.terminalState)) && !(worker.workerState === "unsupervised" && worker.resource == null && typeof worker.agentTerminalHandle === "string" && !liveTerminals.has(worker.agentTerminalHandle))))) {
 				throw new Error("Every Orca worker must be settled and released before graph locks are released.")
+			}
+			if (workspaces) {
+				if (workspaces.repositories.some((repo) => repo.workspace && (!repo.workspace.path || !repo.captureComplete && !workspaces!.currentCheckout))) throw new Error("Prepare or recover every approved workspace before finishing.")
+				if (workspaces.workers.some((worker) => !worker.integrated)) throw new Error("Verify and integrate every completed worker before finishing.")
+				for (const worker of workspaces.workers) if (worker.owns.length) integrateGraphWorker(workspaces, worker, persistWorkspaces)
+				for (const repository of workspaces.repositories) if (repository.workspace) {
+					verifyCoordinator(repository)
+					if (graphDirtyPaths(repository.workspace.path!).length) throw new Error("Checkpoint all approved coordinator changes before finishing.")
+				}
+				workspaces.completion = { evidence: params.evidence, deliveryPending: Boolean(params.delivery_pending) }
+				saveGraphWorkspaces(join(dirname(activeLocks[0].path), "completed", `${workspaces.key}.json`), workspaces)
 			}
 			for (const lock of activeLocks.reverse()) releaseTaskGraphLock(lock)
 			activeLocks = []
@@ -513,7 +827,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			finished = true
 			approved = false
 			planning = false
-			return { content: [{ type: "text", text: `Task graph finished: ${params.evidence}` }], details: { status: "complete", evidence: params.evidence }, terminate: true }
+			return { content: [{ type: "text", text: `Task graph finished locally: ${params.evidence}\n${workspaces?.repositories.filter((repo) => repo.workspace).map((repo) => `${repo.workspace!.branch}: ${repo.workspace!.path} (base ${repo.base})`).join("\n") ?? ""}\nWorktrees are retained. Publishing, merge-back, source reconciliation and cleanup still require separate authorization.` }], details: { status: params.delivery_pending ? "local-ready" : "complete", evidence: params.evidence, workspaces, delivery: "not-authorized", cleanup: "not-authorized" }, terminate: true }
 		},
 	})
 
@@ -530,16 +844,20 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if (planChain && params.mode !== "execute") throw new Error("A selected execution plan requires execute mode.")
 			if (planOnlyRequired && params.mode !== "plan-only") throw new Error("This plan status permits a plan-only graph, not implementation dispatch.")
 			const root = repositoryRoot(ctx.cwd)
+			workspaceFile = join(activeLocks[0].path, "workspaces.json")
+			const existingWorkspaces = existsSync(workspaceFile) ? readGraphWorkspaces(workspaceFile) : undefined
 			let plan = normalizeTaskGraphOwnership(params, root)
+			if (plan.mode === "plan-only" && plan.tasks.some((task) => task.owns.some((path) => path !== "docs" && !path.startsWith("docs/")))) throw new Error("Planning-only tasks may own documentation paths under docs/ only.")
 			validateTaskGraphRepositories(plan, root)
 			validateTaskGraph(plan, planChain)
 			const recoveredPlan = recoveredPlanContract ? JSON.parse(recoveredPlanContract) as TaskGraphPlan : undefined
-			if (recoveredPlan && !isDeepStrictEqual(recoveredPlan, plan)) throw new Error("Crash recovery must use the previously approved task graph contract.")
+			if (recoveredPlan && !isDeepStrictEqual(normalizeTaskGraphOwnership(recoveredPlan, root), plan)) throw new Error("Crash recovery must use the previously approved task graph contract.")
+			if (recoveredPlan) plan = recoveredPlan // Preserve exact task markers while accepting equivalent normalized path spelling.
 			const chainLocks: TaskGraphLock[] = []
 			let keys: string[] = []
 			if (planChain) {
 				if (!activeRunKey) throw new Error("The selected plan has no stable Run identity.")
-				keys = validatePlanChainPlans(plan, root, activeRunKey, repositoryRoots, Boolean(recoveredPlan))
+				keys = validatePlanChainPlans(plan, root, activeRunKey, repositoryRoots, Boolean(recoveredPlan), existingWorkspaces)
 				plan = normalizeTaskGraphOwnership(plan, root)
 				validateTaskGraph(plan, true)
 				if (recoveredPlan && !isDeepStrictEqual(recoveredPlan, plan)) throw new Error("Current plan metadata no longer matches the approved recovery contract.")
@@ -566,6 +884,15 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				}
 			}
 			const graph = formatTaskGraph(plan)
+			if (recoveredOrcaRunId && !existingWorkspaces && !plan.current_checkout) throw new Error("This legacy Run has no isolated workspace contract. Resume only with an explicitly approved current_checkout override; do not migrate live workers implicitly.")
+			const proposedWorkspaces = existingWorkspaces ?? captureGraphWorkspaces(root, plan, plan.inputs, plan.current_checkout)
+			if (existingWorkspaces && existingWorkspaces.contractHash !== createHash("sha256").update(proposedContract).digest("hex")) throw new Error("Workspace recovery must preserve its approved graph contract.")
+			if (planChain && !existingWorkspaces) for (const task of plan.tasks) {
+				const repo = proposedWorkspaces.repositories.find((item) => item.source === realpathSync(resolve(root, task.repository ?? ".")))!
+				const path = relative(repo.source, planPathsById(repo.source, task.id)[0]).split(sep).join("/")
+				if (graphDirtyPaths(repo.source).includes(path) && !repo.inputs.some((input) => input.path === path)) throw new Error(`Include the selected dirty plan in inputs before approval: ${path}`)
+			}
+			const workspaceSummary = `Workspace policy: ${proposedWorkspaces.currentCheckout ? "EXCEPTION: source checkout writes" : "isolated run and worker worktrees"}.\nApproval authorizes the listed input captures, scoped local commits and integration inside this Run. Input snapshots bypass commit hooks and use a temporary private index. Normal checkpoints run hooks. Orca setup hooks are skipped during creation; inspect configured default terminals before approval. Run each declared task setup command in its worker workspace before launch. Publishing, PRs, merge-back, source reconciliation and deletion require separate authorization.\n${proposedWorkspaces.repositories.map((repo) => `${repo.source}\n  base: ${repo.base} (${repo.sourceBranch}); delivery target: confirm from repository rules before publishing\n  inputs: ${repo.inputs.map((input) => `${input.path} [${input.hash ?? "deleted"}]`).join(", ") || "none"}\n  workspace: ${repo.workspace?.path ?? repo.workspace?.name ?? "read-only"}`).join("\n")}`
 			if (!ctx.hasUI) {
 				releaseChainLocks()
 				return {
@@ -576,12 +903,21 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 
 			let review: Awaited<ReturnType<typeof reviewTaskGraph>>
 			try {
-				review = await reviewTaskGraph(plan, ctx.ui, signal, planChain)
+				review = await reviewTaskGraph(plan, ctx.ui, signal, planChain, workspaceSummary)
+				if (review.status === "approved" && proposedWorkspaces.currentCheckout && !await ctx.ui.confirm("Allow source-checkout writes?", "This is an explicit exception to graph isolation. Only clean source checkouts are allowed. Local commits change these source branches.", { signal })) review = { status: "cancelled" }
+				if (review.status === "approved" && !existingWorkspaces) for (const repository of proposedWorkspaces.repositories) {
+					assertGraphInputs(repository)
+					if (proposedWorkspaces.currentCheckout && graphDirtyPaths(repository.source).length) throw new Error("The source became dirty during approval; reapprove from a clean checkout.")
+				}
 			} catch (error) {
 				releaseChainLocks()
 				throw error
 			}
 			approved = review.status === "approved"
+			if (approved) {
+				workspaces = proposedWorkspaces
+				persistWorkspaces()
+			}
 			if (approved) for (const lock of activeLocks) bindTaskGraphLockToPlanContract(lock, proposedContract)
 			recoveredPlanContract = approved ? proposedContract : recoveredPlanContract
 			approvedTaskMarkers = approved ? (recoveredPlan ?? plan).tasks.map((task) => `[${planChain ? "plan" : "graph-task"}:${task.id}][graph-contract:${createHash("sha256").update(JSON.stringify(task)).digest("hex")}]`) : []
@@ -589,7 +925,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			approvedTaskRepositories.clear()
 			approvedTaskDependencies.clear()
 			if (approved) for (const task of plan.tasks) {
-				approvedTaskRepositories.set(task.id, repositoryIdentity(resolve(root, task.repository ?? ".")))
+				approvedTaskRepositories.set(task.id, realpathSync(resolve(root, task.repository ?? ".")))
 				approvedTaskDependencies.set(task.id, task.depends_on)
 			}
 			if (!approved) releaseChainLocks()
@@ -597,16 +933,14 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			const text = review.status === "approved"
 				? `${planChain
 					? "The user approved the full plan chain. Execute every plan in dependency order without further routine approval."
-					: "The user approved this task graph. Execute it through Orca orchestration."}\nUse these exact top-level ledger prefixes:\n${approvedTaskMarkers.join("\n")}`
-				: review.status === "plan-approved"
-					? "The user approved this plan-only graph. Stop without dispatching implementation workers."
-					: review.status === "revise"
+					: "The user approved this task graph. Execute it through Orca orchestration."}\nUse these exact top-level ledger prefixes:\n${approvedTaskMarkers.join("\n")}\nAfter binding the Run, call prepare_task_graph_workspace before any repository writes. Use bash with repository set to the exact prepared workspace for coordinator checks and setup. Use checkpoint_task_graph for explicit-path local commits and returned absolute workspace paths for edits. Prepare each worker with its Orca task ID before launch. ${plan.mode === "plan-only" ? "Only approved documentation planning work is authorized; no implementation or plan promotion." : ""}`
+				: review.status === "revise"
 						? `Revise the graph and call propose_task_graph again. User feedback: ${review.feedback}`
 						: "The user cancelled task graph execution. Stop without dispatching."
 			return {
 				content: [{ type: "text", text }],
 				details: { ...review, plan },
-				terminate: review.status === "cancelled" || review.status === "plan-approved",
+				terminate: review.status === "cancelled",
 			}
 		},
 	})
@@ -641,10 +975,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify(`Plan not found: ${objective}`, "error")
 				return
 			}
-			const planChain = localPlanChain(selectedPlan)
-			const needsRecovery = Boolean(planChain && selectedPlan && planningDocumentNeedsRecovery(selectedPlan.local, selectedPlan.markdown))
-			const recoveryOnly = needsRecovery && Boolean(selectedPlan && planSecurityApproved(selectedPlan.markdown))
-			const planExecutable = !planChain || recoveryOnly || planningDocumentIsExecutable(selectedPlan!.local, selectedPlan!.markdown)
+			let planChain = localPlanChain(selectedPlan)
+			let needsRecovery = Boolean(planChain && selectedPlan && planningDocumentNeedsRecovery(selectedPlan.local, selectedPlan.markdown))
+			let recoveryOnly = needsRecovery && Boolean(selectedPlan && planSecurityApproved(selectedPlan.markdown))
+			let planExecutable = !planChain || recoveryOnly || planningDocumentIsExecutable(selectedPlan!.local, selectedPlan!.markdown)
+			if (!planExecutable) planChain = false
 			let registeredRepositories: string[] = []
 			if (planChain) {
 				try {
@@ -680,6 +1015,20 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				activeLocks = []
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning")
 				return
+			}
+			const storedWorkspaceFile = join(activeLocks[0].path, "workspaces.json")
+			if (existsSync(storedWorkspaceFile) && selectedPlan) {
+				const stored = readGraphWorkspaces(storedWorkspaceFile)
+				const executionRoot = stored.repositories.find((repo) => repo.source === selectedPlan!.root)?.workspace?.path
+				const id = planId(selectedPlan.markdown)
+				const paths = executionRoot && id ? planPathsById(executionRoot, id) : []
+				if (paths.length === 1) {
+					selectedPlan = { root: executionRoot!, target: paths[0], local: relative(executionRoot!, paths[0]).split(sep).join("/"), markdown: readFileSync(paths[0], "utf8") }
+					planChain = stored.mode === "execute" && localPlanChain(selectedPlan)
+					needsRecovery = planChain && planningDocumentNeedsRecovery(selectedPlan.local, selectedPlan.markdown)
+					recoveryOnly = needsRecovery && planSecurityApproved(selectedPlan.markdown)
+					planExecutable = !planChain || recoveryOnly || planningDocumentIsExecutable(selectedPlan.local, selectedPlan.markdown)
+				}
 			}
 			const selectedWorkerModel = `${ctx.model.provider}/${ctx.model.id}`.toLowerCase()
 			const sourceAgentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir()
@@ -750,6 +1099,22 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 	})
 
 	pi.on("tool_call", async (event, ctx) => {
+		if (workerWorkspaceFile || workerTask) {
+			if (!workerWorkspaceFile || !workerTask) return { block: true, reason: "Incomplete graph worker workspace binding." }
+			const state = readGraphWorkspaces(workerWorkspaceFile)
+			const worker = state.workers.find((item) => item.task === workerTask)
+			const repository = state.repositories.find((repo) => repo.source === worker?.source)
+			if (!worker || !repository || realpathSync(ctx.cwd) !== worker.path) return { block: true, reason: "Worker cwd does not match its recorded graph workspace." }
+			verifyGraphWorkspace(repository, worker)
+			if (event.toolName === "write" || event.toolName === "edit") graphWritePath(state, resolve(ctx.cwd, String(event.input.path).replace(/^@/, "")), worker)
+			if (event.toolName === "bash") {
+				const command = String(event.input.command)
+				if (!worker.owns.length && !graphReportingCommand(command)) return { block: true, reason: "Read-only workers use read/search tools and standalone Orca reporting only." }
+				if (!graphReportingCommand(command)) assertGraphShell(command, state, worker.path!)
+			}
+			if (!["read", "fffind", "ffgrep", "grep", "find", "ls", "bash", "write", "edit", "checkpoint_task_graph"].includes(event.toolName)) return { block: true, reason: "Graph workers may use scoped file tools and shell commands only; escalate other mutations to the coordinator." }
+			return
+		}
 		if (!planning) return
 		const powershell = event.toolName === "powershell"
 		const command = isToolCallEventType("bash", event)
@@ -758,6 +1123,29 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				? (event.input as { command: string }).command
 				: undefined
 		if (approved) {
+			if (["edit", "write"].includes(event.toolName)) {
+				if (!workspaces || !activeOrcaRunId) return { block: true, reason: "Prepare the bound graph workspace before writing." }
+				const path = resolve(ctx.cwd, String(event.input.path).replace(/^@/, ""))
+				graphWritePath(workspaces, path)
+				const repository = workspaces.repositories.find((repo) => repo.workspace?.path && path.startsWith(`${repo.workspace.path}${sep}`))!
+				if (workspaces.workers.some((reader) => !reader.integrated && reader.prerequisites?.[repository.source])) return { block: true, reason: "Finish dependent workers before changing their pinned prerequisite workspace." }
+				const contract = JSON.parse(recoveredPlanContract!) as TaskGraphPlan
+				const local = relative(repository.workspace!.path!, path).split(sep).join("/")
+				if (!contract.tasks.some((task) => approvedTaskRepositories.get(task.id) === repository.source && graphOwns(task.owns, local))) return { block: true, reason: "Coordinator write is outside the approved graph targets." }
+			}
+			if (command && typeof event.input.repository === "string") {
+				const { workspace } = shellWorkspace(event.input.repository)
+				assertGraphShell(command, workspaces!, workspace.path!)
+				return
+			}
+			if (command && !taskGraphOrcaInvocations(command).length) return { block: true, reason: "Use bash with repository set to the exact prepared workspace for graph shell commands." }
+			if (command && !taskGraphStandaloneOrca(command)) return { block: true, reason: "Use one standalone Orca invocation, without shell wrappers." }
+			if (command) {
+				const args = taskGraphOrcaArgv(command) ?? []
+				const allowed = args[0] === "orchestration" && ["run-list", "run-show", "run-create", "task-list", "task-create", "task-update", "dispatch", "dispatch-show", "worker-list", "worker-show", "worker-read", "worker-release", "worker-stop", "worker-abandon", "check", "inbox", "send", "ask", "reply", "gate-create", "gate-list"].includes(args[1]) || args[0] === "status" || args[0] === "skills" && args[1] === "get" || args[0] === "repo" && ["list", "show"].includes(args[1]) || args[0] === "worktree" && ["list", "show", "current", "ps"].includes(args[1]) || args[0] === "terminal" && ["list", "show", "read", "wait", "create", "close"].includes(args[1])
+				if (!allowed) return { block: true, reason: "This Orca operation is outside graph execution authority." }
+			}
+			if (command && /(?:^|\s)worktree\s+(?:create|rm|set|move)\b/.test(command)) return { block: true, reason: "Graph worktrees are created by prepare_task_graph_workspace; cleanup needs separate authorization." }
 			if (recoveryOnly) {
 				if (command !== undefined) {
 					if (!isTaskGraphRecoveryCommand(command)) return { block: true, reason: "Completed-plan recovery permits only read-only Orca inspection, bound-Run task reconciliation, and verified terminal cleanup commands." }
@@ -800,7 +1188,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				if (["edit", "write"].includes(event.toolName)) return { block: true, reason: "Completed-plan recovery may reconcile Orca state but cannot edit files." }
 				return
 			}
-			if (!command) return
+			if (!command) {
+				if (!["read", "fffind", "ffgrep", "grep", "find", "ls", "edit", "write", "propose_task_graph", "bind_task_graph_run", "prepare_task_graph_workspace", "integrate_task_graph_worker", "checkpoint_task_graph", "recover_plan_lifecycle", "finish_task_graph", "ask_user_question", "enable_web_access", "web_search", "fetch_content", "get_search_content"].includes(event.toolName)) return { block: true, reason: "Use the graph's scoped tools; other mutation tools are not authorized by graph approval." }
+				return
+			}
 			const operations = taskGraphOrcaOperations(command)
 			const argv = taskGraphOrcaArgv(command) ?? []
 			if (operations.includes("run-use") || activeOrcaRunId && operations.includes("run-create")) return { block: true, reason: "Use bind_task_graph_run and keep Orca on the bound Run." }
@@ -819,6 +1210,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 			if ((workerLaunch || runMutation) && !activeOrcaRunId) return { block: true, reason: "Bind this graph's Orca Run before creating tasks or workers." }
 			const mutationRunIds = optionValues(argv, "--run")
 			if (runMutation && (operations.length !== 1 || mutationRunIds.length > 1 || mutationRunIds.some((runId) => runId !== activeOrcaRunId) || optionValues(argv, "--from").length)) return { block: true, reason: "Graph mutations must remain scoped to the bound Orca Run." }
+			if (operations.includes("task-update")) {
+				const ids = optionValues(argv, "--id")
+				const tasks = orcaJson(["orchestration", "task-list", "--run", activeOrcaRunId!, "--json"])?.result?.tasks
+				if (ids.length !== 1 || !Array.isArray(tasks) || !tasks.some((task: any) => task.id === ids[0])) return { block: true, reason: "Update only a task in the bound Run." }
+			}
 			if (operations.includes("task-create")) {
 				const parents = optionValues(argv, "--parent")
 				const specs = optionValues(argv, "--spec")
@@ -844,7 +1240,24 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 					task = tasks.find((candidate: { id?: unknown }) => candidate.id === task.parent_id)
 				}
 				const approvedId = String(task?.spec ?? "").match(/^\[(?:plan|graph-task):([^\]]+)\]/)?.[1]
-				const repository = approvedId ? approvedTaskRepositories.get(approvedId) : undefined
+				const source = approvedId ? approvedTaskRepositories.get(approvedId) : undefined
+				const worker = workspaces?.workers.find((item) => item.task === taskIds[0] && item.approvedTask === approvedId)
+				const record = workspaces?.repositories.find((repo) => repo.source === source)
+				if (!worker || !record || worker.terminal !== terminals[0]) return { block: true, reason: "Dispatch requires the prepared worker's exact task, terminal and workspace binding." }
+				if (!approvedTaskMarkers.some((marker) => String(task?.spec ?? "").startsWith(marker))) return { block: true, reason: "Dispatch ledger contract changed after approval." }
+				const terminal = orcaJson(["terminal", "show", "--terminal", terminals[0], "--json"])?.result?.terminal
+				const livePath = terminal?.worktreePath || terminal?.worktreeId?.split("::").at(-1)
+				if (terminal?.handle !== terminals[0] || !livePath || realpathSync(livePath) !== worker.path) return { block: true, reason: "Live terminal moved away from the prepared task workspace." }
+				verifyGraphWorkspace(record, worker, worker.owns.length > 0 && worker.path !== record.source)
+				const dispatchedTask = tasks.find((item: any) => item.id === taskIds[0])
+				for (const dependency of JSON.parse(dispatchedTask.deps)) {
+					if (!tasks.some((item: any) => item.id === dependency && item.status === "completed")) return { block: true, reason: "Task dependencies changed before dispatch." }
+					const predecessor = workspaces!.workers.find((item) => item.task === dependency)
+					if (predecessor?.owns.length && !predecessor.integrated) return { block: true, reason: "Integrate prerequisites before dispatch." }
+					if (predecessor?.integrated && predecessor.source === worker.source) graphGit(worker.path!, "merge-base", "--is-ancestor", predecessor.integrated, "HEAD")
+				}
+				if (graphDirtyPaths(worker.path!).length && !workspaces!.currentCheckout && worker.owns.length) return { block: true, reason: "Worker workspace changed before dispatch." }
+				const repository = worker.path
 				if (terminals.length !== 1 || !approvedWorkerTerminals.has(terminals[0]) || !repository || terminalRepositories.get(terminals[0]) !== repository || planChain && taskIds[0] === task?.id || !hasOption(argv, "--inject") || hasOption(argv, "--dry-run") || hasOption(argv, "--return-preamble")) return { block: true, reason: "Dispatch only an internal plan task or approved graph task to a fresh checked worker terminal in its repository with --inject." }
 				pendingDispatches.set(event.toolCallId, terminals[0])
 			}
@@ -858,6 +1271,16 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				if (invocations.length !== 1 || closes.length !== 1 || terminals.length !== 1 || !graphWorkerTerminals.has(terminals[0]) || hasOption(closes[0], "--tab") || activeWorker) return { block: true, reason: "Close only one settled or undispatched worker terminal created by this graph." }
 			}
 			if (!workerLaunch) return
+			const environment = taskGraphWorkerEnvironment(command)
+			const worker = workspaces?.workers.find((item) => item.task === environment?.AGENT_TOOLKIT_GRAPH_TASK)
+			const repository = workspaces?.repositories.find((repo) => repo.source === worker?.source)
+			if (!worker || !repository || environment?.AGENT_TOOLKIT_GRAPH_WORKSPACES !== workspaceFile || worker.terminal || worker.launch) return { block: true, reason: "Prepare a fresh worker workspace and include its exact returned environment assignments before pi-yolo." }
+			verifyGraphWorkspace(repository, worker, worker.owns.length > 0 && worker.path !== repository.source)
+			const selector = worker.id?.startsWith("path:") ? worker.id : `id:${worker.id}`
+			if (argv[0] !== "terminal" || argv[1] !== "create" || optionValues(argv, "--worktree").length !== 1 || optionValues(argv, "--worktree")[0] !== selector) return { block: true, reason: "Launch only in the exact prepared task worktree selector." }
+			const taskContract = (JSON.parse(recoveredPlanContract!) as TaskGraphPlan).tasks.find((task) => task.id === worker.approvedTask)
+			if (taskContract?.setup && !worker.setupComplete) return { block: true, reason: "Run the approved setup command in this worker workspace through bash before launch." }
+			if (taskGraphWorkerThinking(command) !== taskContract?.thinking || Object.keys(environment!).some((key) => !["AGENT_TOOLKIT_GRAPH_WORKSPACES", "AGENT_TOOLKIT_GRAPH_TASK", "AGENT_TOOLKIT_CODEX_PROFILE_SHA256", "AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64", "AGENT_TOOLKIT_CODEX_ACCOUNT_ID", "AGENT_TOOLKIT_PI_AGENT_DIR"].includes(key))) return { block: true, reason: "Launch exactly pi-yolo with the approved --model and --thinking, required account/workspace assignments, and no other flags or environment overrides." }
 			const requestedModel = taskGraphWorkerModel(command)
 			if (!requestedModel) return { block: true, reason: `Cannot verify the worker launch command. Use one standalone orca terminal create/split invocation with exactly one --command containing 'pi-yolo --model ${workerModel} --thinking medium' (high only if explicitly requested). Keep the account environment assignments from the approved graph prompt before pi-yolo. Do not nest a shell, combine commands, or use --provider/-m. This is command-format validation, not evidence that the launcher is broken; no source inspection or launch dry-run is required. If debugging is needed, search $PI_CODING_AGENT_DIR/extensions/task-graph, not the runtime root.` }
 			if (requestedModel !== workerModel) return { block: true, reason: `Graph workers must use the approved model ${workerModel}.` }
@@ -869,11 +1292,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 				const quotaPauseReason = taskGraphQuotaPauseReason(await fetchCodexUsage(join(workerAccount.agentDir, "auth-profiles", workerAccount.profile)), TASK_GRAPH_WEEKLY_QUOTA_RESERVE, TASK_GRAPH_SHORT_QUOTA_RESERVE)
 				if (quotaPauseReason) return { block: true, reason: `${quotaPauseReason} Do not start more workers. Mark the active plan budget-exhausted and stop; resume with the same /graph command after quota resets.` }
 			}
-			if (!hasOption(argv, "--json") || optionValues(argv, "--title").length !== 1 || optionValues(argv, "--title")[0] !== workerTerminalTitle) return { block: true, reason: `Worker terminal launches require --json --title ${workerTerminalTitle} for crash recovery.` }
+			if (!hasOption(argv, "--json") || optionValues(argv, "--title").length !== 1 || optionValues(argv, "--title")[0] !== launchTitle(worker)) return { block: true, reason: `Worker terminal launches require --json --title ${launchTitle(worker)} for crash recovery.` }
 			pendingTerminalLaunches.add(event.toolCallId)
 			return
 		}
-		if (["bash", "powershell", "edit", "write"].includes(event.toolName)) {
+		if (!["read", "fffind", "ffgrep", "grep", "find", "ls", "propose_task_graph", "ask_user_question", "enable_web_access", "web_search", "fetch_content", "get_search_content"].includes(event.toolName)) {
 			return { block: true, reason: "Mutation tools are disabled until the user approves the task graph. Use read and search tools while planning." }
 		}
 	})
@@ -888,6 +1311,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 					approvedWorkerTerminals.add(receipt.handle)
 					graphWorkerTerminals.add(receipt.handle)
 					terminalRepositories.set(receipt.handle, receipt.repository)
+					const environment = typeof event.input.command === "string" ? taskGraphWorkerEnvironment(event.input.command) : undefined
+					const worker = workspaces?.workers.find((item) => item.path === receipt.repository && item.task === environment?.AGENT_TOOLKIT_GRAPH_TASK && !item.terminal)
+					if (worker) { worker.terminal = receipt.handle; persistWorkspaces() }
 				}
 			} catch {}
 		}
@@ -931,6 +1357,8 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 		pendingTerminalLaunches.clear()
 		pendingDispatches.clear()
 		pending = null
+		workspaces = undefined
+		workspaceFile = undefined
 		planning = false
 		approved = false
 		finished = false

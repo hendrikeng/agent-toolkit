@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs"
 import { posix, resolve } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import { repositoryIdentity, validateTaskGraph, validateTaskGraphRepositories, type TaskGraphPlan } from "./task-graph-core.ts"
+import { verifyGraphWorkspace, type GraphWorkspaces } from "./workspaces.ts"
 
 interface RecoveryTask {
 	id: string
@@ -39,8 +40,12 @@ export interface RunRecoverySnapshot {
 }
 
 // ponytail: recover complete top-level ledgers only; nested or partial ledgers need a separate reconciliation flow.
-export function validateRunRecovery(root: string, runId: string, previous: TaskGraphPlan, approved: TaskGraphPlan, snapshot: RunRecoverySnapshot) {
+export function validateRunRecovery(root: string, runId: string, previous: TaskGraphPlan, approved: TaskGraphPlan, snapshot: RunRecoverySnapshot, workspaces?: GraphWorkspaces) {
 	const { run, tasks, workers, dispatches, terminalInventory } = snapshot
+	if (workspaces) {
+		if (workspaces.runId !== runId) throw new Error("Recovery workspace contract belongs to another Run.")
+		for (const worker of workspaces.workers) verifyGraphWorkspace(workspaces.repositories.find((repo) => repo.source === worker.source)!, worker)
+	}
 	if (run?.id !== runId || !run.objective?.startsWith(`Pi task graph: ${repositoryIdentity(root)}::objective:`)) throw new Error("Recovery Run belongs to a different repository or graph kind.")
 	for (const plan of [previous, approved]) {
 		validateTaskGraph(plan)
@@ -83,7 +88,9 @@ export function validateRunRecovery(root: string, runId: string, previous: TaskG
 		const terminals = terminalInventory.terminals.filter((terminal) => terminal.handle === worker.agentTerminalHandle)
 		const path = terminals[0]?.worktreePath || terminals[0]?.worktreeId?.split("::").at(-1)
 		const task = approved.tasks.find((task) => task.id === previous.tasks[index].id)!
-		if (terminals.length !== 1 || !path || realpathSync(path) !== realpathSync(resolve(root, task.repository ?? "."))) throw new Error("Recovery live worker is unavailable or in a different worktree.")
+		const recorded = workspaces?.workers.find((item) => item.task === worker.taskId && item.approvedTask === task.id && item.terminal === worker.agentTerminalHandle)
+		const expectedPath = workspaces ? recorded?.path : resolve(root, task.repository ?? ".")
+		if (terminals.length !== 1 || !path || !expectedPath || realpathSync(path) !== realpathSync(expectedPath)) throw new Error("Recovery live worker is unavailable or in a different worktree.")
 	}
 	for (const task of ledger) {
 		const dispatch = dispatches[task.id]
@@ -100,6 +107,7 @@ export function validateRunRecovery(root: string, runId: string, previous: TaskG
 	// Only stable identity/authority fields enter the confirmation snapshot; heartbeats may advance while the user reads it.
 	return {
 		objective: run.objective,
+		...(workspaces ? { workspaces } : {}),
 		markers: approved.tasks.map((task) => markers[previous.tasks.findIndex((candidate) => candidate.id === task.id)]),
 		tasks: ledger.map(({ id, spec, deps, status }) => ({ id, spec, deps, status })),
 		workers: workers.map(({ dispatchId, taskId, dispatchStatus, agentTerminalHandle }) => ({ dispatchId, taskId, dispatchStatus, agentTerminalHandle })).sort((a, b) => a.dispatchId.localeCompare(b.dispatchId)),

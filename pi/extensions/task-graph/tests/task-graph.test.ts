@@ -44,6 +44,7 @@ import {
 import { createHash } from "node:crypto"
 import { registerHooks } from "node:module"
 import { validateRunRecovery, type RunRecoverySnapshot } from "../run-recovery.ts"
+import { captureGraphWorkspaces } from "../workspaces.ts"
 
 const plan: TaskGraphPlan = {
 	objective: "Build search",
@@ -127,6 +128,19 @@ test("recovers a renamed objective only with preserved repository, contracts, ta
 		const live = structuredClone(snapshot)
 		assert.equal(check().workers[0].dispatchId, "ctx_live")
 		assert.deepEqual(snapshot, live, "live dispatch and process identity must be preserved")
+		const isolated = mkdtempSync(join(tmpdir(), "graph-recovered-worker-"))
+		try {
+			execFileSync("git", ["-C", root, "commit", "--allow-empty", "-m", "Recovery base"], { env: { ...process.env, GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" } })
+			execFileSync("git", ["-C", root, "worktree", "add", "--quiet", "-b", "recovery-worker", isolated, "HEAD"])
+			const workspaces = captureGraphWorkspaces(root, previous, [], true)
+			workspaces.runId = "run_original"
+			workspaces.workers.push({ task: "task_api", approvedTask: "api", source: workspaces.repositories[0].source, owns: ["src/api"], name: "recovery-worker", branch: "recovery-worker", path: realpathSync(isolated), base: workspaces.repositories[0].base, phase: "ready", terminal: "term_live" })
+			const recovered = structuredClone(snapshot)
+			recovered.terminalInventory.terminals[0].worktreePath = isolated
+			assert.equal(validateRunRecovery(root, "run_original", previous, approved, recovered, workspaces).workers[0].agentTerminalHandle, "term_live")
+			recovered.terminalInventory.terminals[0].worktreePath = root
+			assert.throws(() => validateRunRecovery(root, "run_original", previous, approved, recovered, workspaces), /different worktree/)
+		} finally { rmSync(isolated, { recursive: true, force: true }) }
 		reject((s) => { s.workers[0].runId = "run_other" }, /orphan, duplicate or invalid/)
 		reject((s) => { s.workers[0].taskId = "task_unknown" }, /orphan, duplicate or invalid/)
 		reject((s) => { s.workers.push({ ...s.workers[0] }) }, /orphan, duplicate or invalid/)
@@ -159,7 +173,7 @@ test("explicit binding confirms and rechecks recovery before mutations, then clo
 		resolve(specifier, context, next) {
 			if (!context.parentURL?.endsWith("/task-graph/index.ts")) return next(specifier, context)
 			const mocks: Record<string, string> = {
-				"@earendil-works/pi-coding-agent": `export const getAgentDir = () => ${JSON.stringify(agentDir)}; export const isToolCallEventType = (type, event) => event.toolName === type;`,
+				"@earendil-works/pi-coding-agent": `export const createBashTool = () => { throw new Error('Unexpected shell execution'); }; export const getAgentDir = () => ${JSON.stringify(agentDir)}; export const isToolCallEventType = (type, event) => event.toolName === type;`,
 				"typebox": "export const Type = new Proxy({}, {get: () => (...args) => ({})});",
 				"../codex-account/index.ts": "export const defaultPiAccount = () => undefined; export const fetchCodexUsage = () => undefined; export const piAccountEmail = () => undefined; export const piProfileAccountId = () => undefined;",
 				"node:child_process": "export const execFileSync = (_command, args) => globalThis.graphTestRpc(args);",
@@ -170,6 +184,8 @@ test("explicit binding confirms and rechecks recovery before mutations, then clo
 	let settle: (() => void) | undefined
 	try {
 		execFileSync("git", ["init", "--quiet", root])
+		writeFileSync(join(root, ".git/info/exclude"), "agent/\n")
+		execFileSync("git", ["-C", root, "commit", "--allow-empty", "-m", "fixture"], { env: { ...process.env, GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" } })
 		process.env.AGENT_TOOLKIT_PI_AGENT_DIR = agentDir
 		const oldKey = `${repositoryIdentity(root)}::objective:docs/future/search.md old wording`
 		const oldLock = acquireTaskGraphLock(lockRoot, oldKey)
@@ -209,9 +225,9 @@ test("explicit binding confirms and rechecks recovery before mutations, then clo
 		} as never)
 		settle = events.get("agent_settled")
 		let confirm = async () => false
-		const ctx = { cwd: root, hasUI: true, isIdle: () => true, model: { provider: "test", id: "model" }, ui: { select: async () => "Approve and execute", confirm: async () => confirm(), notify: (message: string) => { throw new Error(message) } } }
+		const ctx = { cwd: root, hasUI: true, isIdle: () => true, model: { provider: "test", id: "model" }, ui: { select: async () => "Approve and execute", confirm: async (title: string) => title === "Allow source-checkout writes?" ? true : confirm(), notify: (message: string) => { throw new Error(message) } } }
 		await commands.get("graph").handler("Resume search", ctx)
-		await tools.get("propose_task_graph").execute("proposal", { ...structuredClone(plan), objective: "Resume search" }, undefined, undefined, ctx)
+		await tools.get("propose_task_graph").execute("proposal", { ...structuredClone(plan), objective: "Resume search", current_checkout: true }, undefined, undefined, ctx)
 		const bind = (recover = true) => tools.get("bind_task_graph_run").execute("bind", { run_id: run.id, recover }, undefined, undefined, ctx)
 		await assert.rejects(bind(false), /does not match/)
 		await assert.rejects(bind(), /cancelled/)
@@ -230,6 +246,7 @@ test("explicit binding confirms and rechecks recovery before mutations, then clo
 		assert.equal(calls.filter((args) => args[1] === "run-use").length, 1)
 		assert.equal((await bind()).details.runId, run.id, "repeat binding keeps the same recovery locks and ledger")
 		assert.equal(calls.some((args) => ["run-create", "task-create", "task-update", "dispatch"].includes(args[1])), false)
+		await tools.get("prepare_task_graph_workspace").execute("prepare", {})
 		tasks.forEach((task) => { task.status = "completed" })
 		run.objective += " tampered"
 		await assert.rejects(tools.get("finish_task_graph").execute("finish", { run_id: run.id, evidence: "fixture checks" }), /objective changed/)
@@ -454,6 +471,9 @@ test("normalizes ownership relative to each repository", () => {
 	assert.equal(normalized.tasks[1].repository, "../other")
 	assert.equal(normalized.tasks[1].owns[0], "src/web")
 	assert.doesNotThrow(() => validateTaskGraph(normalized))
+	const scopes = normalizeTaskGraphOwnership({ ...plan, tasks: [{ ...plan.tasks[0], owns: ["src/foo*.ts", " docs/ "] }, plan.tasks[1]] }, root)
+	assert.deepEqual(scopes.tasks[0].owns, ["src", "docs"])
+	assert.match(formatTaskGraph(scopes), /owns: src, docs/)
 	assert.throws(
 		() => validateTaskGraph(normalizeTaskGraphOwnership({
 			...plan,
@@ -515,7 +535,7 @@ test("handles interactive graph review and plan status", async () => {
 
 	assert.deepEqual(await review("Approve and execute"), { status: "approved" })
 	assert.deepEqual(await review("Approve and execute", undefined, plan, true), { status: "approved" })
-	assert.deepEqual(await review("Approve plan only", undefined, { ...plan, mode: "plan-only" }), { status: "plan-approved" })
+	assert.deepEqual(await review("Approve planning work", undefined, { ...plan, mode: "plan-only" }), { status: "approved" })
 	assert.deepEqual(await review("Revise the plan", "  split API and Web  "), { status: "revise", feedback: "split API and Web" })
 	assert.deepEqual(await review("Cancel"), { status: "cancelled" })
 	assert.equal(planRequiresPlanOnly("## Metadata\n\n- Status: blocked\n"), true)
@@ -571,7 +591,7 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(prompt, /Use medium thinking for every worker unless the user explicitly requests high/)
 	assert.match(prompt, /Task risk or complexity does not authorize high thinking/)
 	assert.match(prompt, /approve, revise, or cancel/)
-	assert.match(prompt, /Do not dispatch workers until an execute-mode graph is approved/)
+	assert.match(prompt, /Do not dispatch implementation workers until an execute-mode graph is approved/)
 	assert.match(prompt, /orca skills get orchestration/)
 	assert.match(prompt, /Every graph worker must run `pi-yolo --model provider\/model --thinking <task-thinking>`, not plain `pi`/)
 	assert.match(prompt, /Do not use `worker-start` or Orca's generic `--agent pi` launcher/)
@@ -633,7 +653,7 @@ test("builds the interactive Orca planning prompt", () => {
 	assert.match(chain, /\[plan:<Plan-ID>\]/)
 	assert.match(chain, /first unfinished ready plan in the approved order/)
 	assert.match(chain, /children of the plan task/)
-	assert.match(chain, /plan repository's current worktree/)
+	assert.match(chain, /verified isolated task worktree/)
 	assert.match(chain, /exact Orca selector/)
 	assert.match(chain, /fresh worker terminal/)
 	assert.match(chain, /never reuse a completed worker/)

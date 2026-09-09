@@ -249,6 +249,19 @@ The workflow infers values from repository evidence. It asks only for missing de
 
 ### Task graphs
 
+Task graphs coordinate approved local work across repositories. Progress lives in Git, saved workspace records, and the Orca task ledger, not only in conversation history.
+
+| Capability | Benefit |
+|---|---|
+| Cross-repository dependencies | Dependent workers wait for completed, integrated prerequisite work. |
+| Isolated coordinator and worker worktrees | Parallel workers do not share an index or committing checkout. Original checkouts remain separate by default. |
+| Explicit input snapshots | Approved dirty files enter the graph without changes to the source index or branch. |
+| Repository paths and pinned prerequisite HEADs | Builds use the graph's dependency versions instead of accidental source-checkout paths. |
+| Saved task, workspace, and launch identities | Interrupted runs resume existing work instead of duplicating workers or recapturing later source edits. |
+| Checked checkpoints and integration | Each imported commit must stay within approved ownership, even if a later commit reverts it. |
+| Conflict, lifecycle, and quota recovery | Long graphs preserve progress across interruptions and continue after the blocker is resolved. |
+| Local readiness separate from publication | A graph can finish local work without claiming that the product shipped. |
+
 Keep Orca open. Enable its orchestration experimental feature.
 
 `/graph` has one command form:
@@ -280,7 +293,7 @@ A target without unfinished dependencies produces a plan chain of one. Completed
 
 Dependencies can span local Git repositories available to Orca. Each Plan-ID must match exactly one plan across those repositories. Every execution plan must declare a Plan-ID.
 
-Missing or duplicate Plan-IDs stop planning. Draft plans, blocked plans, ambiguous scope, and unresolved external approvals also stop planning.
+Missing or duplicate Plan-IDs stop execution. Draft or blocked targets permit documentation-only planning work, not implementation. Unresolved dependencies and external approvals still block execution.
 
 #### Planning and approval
 
@@ -294,7 +307,29 @@ The planner reads every plan, its repository rules, acceptance criteria, targets
 
 The planner orders prerequisites before dependent plans. If several plans are ready, it uses priority first and Plan-ID second.
 
-The approval screen shows the complete top-to-bottom execution order. One approval authorizes the displayed plan chain and its required local commits.
+The approval screen shows the execution order, local base commits, input files and hashes, and workspace permissions. Approval authorizes isolated worktrees, the listed input captures, scoped local commits, and integration within the Run.
+
+#### Isolated workspaces
+
+Every writing run uses isolated Orca worktrees by default. This includes planning documents, preparation, plan moves, implementation, and closeout. Read-only work does not need another worktree.
+
+The source checkout can remain dirty. The proposal lists each required dirty input file explicitly. Capture uses working-file contents, not the staged version. It preserves the source files, index, and branch.
+
+The runtime records approved inputs in an immutable raw-byte snapshot before it changes the destination. A private temporary index preserves the source index. Raw snapshots skip commit hooks and file filters. The final input checkpoint applies normal Git file conversions, including CRLF normalization, without commit hooks. Normal task checkpoints still run required hooks.
+
+Interrupted capture resumes from the saved snapshot, not from later source edits. Recovery accepts only the base or approved version of each destination file. Other destination changes stop recovery without rollback. Symlinks and nested repositories also stop capture. Unrelated dirty files stay outside the run.
+
+The coordinator uses `prepare_task_graph_workspace` before any writes. File tools use the returned absolute paths. The native `bash` tool accepts the exact workspace path in its `repository` parameter. Its normal Pi permission hooks remain active. `checkpoint_task_graph` commits explicit owned paths without broad staging or history rewrites.
+
+Each writing worker receives a separate task worktree. Launch and dispatch checks verify its repository, path, branch, starting commit, ownership, and terminal. The launch command also pins the workspace contract. Workers cannot disable extensions through extra launch flags. A saved launch intent and unique terminal title prevent automatic relaunch after a lost result.
+
+Required setup belongs in the approved task's `setup` field. The coordinator runs that exact command through `bash` in each prepared worker workspace before launch. Ignored setup outputs do not transfer between worktrees. Orca creation skips setup hooks, but configured default terminals can still start. Inspect that repository configuration before approval.
+
+The returned repository map and `AGENT_TOOLKIT_GRAPH_REPOSITORIES` identify each repository's execution path and HEAD. Cross-repository builds must use these paths instead of implicit sibling paths. Declared prerequisite repositories stay at their recorded HEADs until dependent workers finish. Coordinator writes and integration wait while a dependent worker pins that repository. Existing scripts can require explicit setup configuration for this layout.
+
+A `current_checkout` proposal requires separate human approval and clean source checkouts. It changes coordinator placement only. Writing workers still receive separate worktrees.
+
+Planning-work approval permits Markdown changes under `docs/`, except `docs/exec-plans/`. It does not permit implementation or plan promotion.
 
 #### Execution
 
@@ -312,17 +347,25 @@ A ready future plan moves to `docs/exec-plans/active/` immediately before execut
 
 The coordinator splits the active plan into one to six internal worker tasks. Independent tasks start together after ownership validation.
 
-Each task gets a fresh `pi-yolo` worker in that plan repository's current worktree. Completed workers never receive another task.
+Each task gets a fresh `pi-yolo` worker in its verified task worktree. Completed workers never receive another task.
 
 Every worker launch pins the coordinator's selected provider and model. Codex launches also pin its selected account, so the quota gate checks the worker's subscription.
 
-Workers use medium thinking for bounded work. Architecture, security, concurrency, migration, API-contract, and difficult debugging work uses high thinking.
+Workers use medium thinking unless the user explicitly requests high. Task risk does not authorize a higher thinking level.
 
-The coordinator supervises every dispatch and releases every completed worker. One failed medium worker can receive one fresh high-thinking replacement.
+The coordinator supervises every dispatch and releases every completed worker. One failed worker can receive one replacement at the same thinking level. A replacement requires a failed, closed dispatch and a clean retained worktree.
 
-Workers do not commit or push. The coordinator integrates results, resolves mechanical conflicts, and runs the plan's complete validation and closeout.
+Workers use `checkpoint_task_graph` for scoped local commits after required checks and risk-gated reviews. They cannot push or merge into the source branch. After the worker terminal closes, `integrate_task_graph_worker` verifies every imported commit and merges it into the run branch. Dependent workers start from integrated prerequisite changes.
+
+For merge conflicts, file tools edit the resolution and `checkpoint_task_graph` stages its explicit paths. A repeated integration call completes the recorded merge. Lifecycle recovery also creates its own local checkpoint, including during recovery-only sessions.
+
+Validation and required reviews cover the complete proposed delivery diff, including captured inputs. Worker commits do not replace plan closeout.
 
 The coordinator moves a plan to `completed` only after all requirements pass. It records evidence, completes the plan task, and selects the next ready plan.
+
+Graph approval never authorizes publication, merge-back, or destructive cleanup. If repository rules require publication for completion, the plan remains active with `Status: validation`. `finish_task_graph` accepts `delivery_pending: true` after all local work and validation pass. It records local readiness without a shipped-completion claim.
+
+These checks constrain agent operations but do not provide an operating-system sandbox. Trusted setup scripts and hooks retain their usual filesystem access. Existing secret and destructive-operation permissions remain in force.
 
 A blocker, failed validation, unresolved decision, or trusted external boundary stops the plan chain. The current Orca state remains available for recovery.
 
@@ -348,15 +391,34 @@ Other targets cannot take those plan locks while crash-surviving workers may sti
 
 Successful closeout explicitly releases every lock. If a coordinator turn ends without closeout, `/graph` abandons the locks but preserves their target identity for recovery.
 
-Recovery preserves completed tasks and existing task IDs. It continues live dispatches, processes settled results, and creates only missing tasks.
+Recovery preserves completed tasks, task IDs, and workspace records. It continues live dispatches, processes settled results, and creates only missing tasks. It verifies recorded worktrees instead of creating replacements or copying source inputs again.
 
-Completed-plan recovery can only bind an existing Run and reconcile its ledger. It cannot create a Run, edit files, or launch workers.
+An incomplete input capture requires reconciliation. The runtime does not overwrite it on resume. Legacy Runs without workspace records require an explicit current-checkout exception.
 
-Orca does not provide cross-host Run leases, event triggers for stopped coordinators, or scoped CLI credentials. The command guards assume a trusted coordinator and are not a sandbox against an agent that deliberately wraps Orca calls in another interpreter. When Orca provides these APIs, `/graph` will add cross-host locking, automatic restart, and Orca-side mutation scopes.
+Successful closeout preserves the worktrees and archives their records beside the graph locks. Local completion does not mean published or merged. Publishing, PR creation, merge-back, source reconciliation, and worktree deletion remain separate authorized actions. The runtime does not assume a branch name or hosting provider.
+
+Source reconciliation is not automatic. Original dirty inputs remain in the source checkout, including any later user edits.
+
+Completed-plan recovery can only bind an existing Run and reconcile its ledger. A checked lifecycle tool handles the missing status or move inside the recorded workspace. Recovery cannot create a Run or launch workers.
+
+#### Intentional boundaries
+
+The graph coordinates approved local work. It does not expand its own authority or replace the execution environment.
+
+- **Publication and cleanup require separate authorization.** Graph approval does not authorize pushes, publication, merge-back, or worktree deletion.
+- **Existing permissions stay active.** The graph does not bypass secret or destructive-operation permissions.
+- **Script sandboxing belongs to the execution environment.** Worktrees share Git metadata, and scripts and hooks retain host filesystem access. Workflow guards cannot contain a hostile program.
+- **Cross-host coordination belongs to Orca or a shared service.** Graph locks are host-local. They do not prevent a second coordinator on another host.
+
+These boundaries are deliberate, not a promise to add broader authority to the extension.
 
 The toolkit does not use scheduled polling. Polling consumes quota and can race with a live coordinator.
 
 Trusted push, pull-request, merge, release, credential, and permission boundaries remain interactive. The plan chain stops with completed local work at these boundaries.
+
+#### Validation coverage
+
+The focused suite covers capture recovery, CRLF conversion, staged-file preservation, multi-repository execution, prerequisite pinning, worker retries, integration conflicts, and lifecycle closeout. Git operations use disposable real repositories. Orca operations and permission-hook routing use test doubles. Live Orca and installed-permission integration remain unverified.
 
 ## Skills
 

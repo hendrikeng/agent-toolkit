@@ -82,7 +82,7 @@ function shellWords(command: string): string[] | undefined {
 	return words
 }
 
-function shellSegments(command: string): string[][] | undefined {
+export function shellSegments(command: string): string[][] | undefined {
 	const words = shellWords(command)
 	if (!words) return undefined
 	const segments: string[][] = [[]]
@@ -100,6 +100,12 @@ export function taskGraphOrcaInvocations(command: string): string[][] {
 		const orca = segment.findIndex((word) => orcaExecutableNames().has(basename(word).toLowerCase()))
 		return orca >= 0 ? [segment.slice(orca + 1)] : []
 	}) ?? []
+}
+
+export function taskGraphStandaloneOrca(command: string): boolean {
+	if (/\$\(|`|[<>]/.test(command)) return false
+	const segments = shellSegments(command)
+	return Boolean(segments?.length === 1 && orcaExecutableNames().has(basename(segments[0][0]).toLowerCase()))
 }
 
 export function taskGraphOrcaArgv(command: string): string[] | undefined {
@@ -176,6 +182,26 @@ export function taskGraphWorkerModel(command: string): string | undefined {
 	if (options.some((argument) => argument === "--provider" || argument.startsWith("--provider=") || argument === "-m" || argument.startsWith("-m="))) return undefined
 	const models = options.flatMap((argument, index) => argument === "--model" ? [options[index + 1]] : argument.startsWith("--model=") ? [argument.slice(8)] : [])
 	return models.length === 1 && models[0] ? models[0].toLowerCase() : undefined
+}
+
+export function taskGraphWorkerThinking(command: string): "medium" | "high" | undefined {
+	const argv = taskGraphWorkerArgv(command)
+	if (!argv) return undefined
+	const executable = argv.findIndex((argument) => basename(argument) === "pi-yolo")
+	if (executable < 0) return undefined
+	const options = argv.slice(executable + 1)
+	if (options.length !== 4 || !["--model", "--thinking"].includes(options[0]) || !["--model", "--thinking"].includes(options[2]) || options[0] === options[2]) return undefined
+	const thinking = options[options.indexOf("--thinking") + 1]
+	return thinking === "medium" || thinking === "high" ? thinking : undefined
+}
+
+export function taskGraphWorkerEnvironment(command: string): Record<string, string> | undefined {
+	const argv = taskGraphWorkerArgv(command)
+	if (!argv) return undefined
+	const executable = argv.findIndex((argument) => ["pi-yolo", "agent-yolo"].includes(basename(argument)))
+	const entries = argv.slice(0, executable).map((argument) => [argument.slice(0, argument.indexOf("=")), argument.slice(argument.indexOf("=") + 1)])
+	if (new Set(entries.map(([name]) => name)).size !== entries.length) return undefined
+	return Object.fromEntries(entries)
 }
 
 export function taskGraphWorkerAccount(command: string): { profileHash: string; email: string; accountId: string; agentDir: string } | undefined {
@@ -401,12 +427,25 @@ export interface TaskGraphTask {
 	thinking: "medium" | "high"
 	done_when: string[]
 	validation: string
+	setup?: string
 }
 
 export interface TaskGraphPlan {
 	objective: string
 	mode: "plan-only" | "execute"
 	tasks: TaskGraphTask[]
+	inputs?: Array<{ repository?: string; paths: string[] }>
+	current_checkout?: boolean
+}
+
+export function taskGraphOwnershipRoot(owner: string): string {
+	let path = posix.normalize(owner.trim().replaceAll("\\", "/"))
+	const glob = path.search(/[*?[\]{}]/)
+	if (glob >= 0) {
+		const slash = path.slice(0, glob).lastIndexOf("/")
+		path = slash >= 0 ? path.slice(0, slash) : "."
+	}
+	return path.replace(/\/$/, "") || "."
 }
 
 export function normalizeTaskGraphOwnership(plan: TaskGraphPlan, repositoryRoot: string): TaskGraphPlan {
@@ -419,12 +458,14 @@ export function normalizeTaskGraphOwnership(plan: TaskGraphPlan, repositoryRoot:
 				...task,
 				repository: relative(repositoryRoot, taskRoot).split(sep).join("/") || ".",
 				owns: task.owns.map((owner) => {
-					const raw = owner.trim()
-					if (!isAbsolute(raw)) return owner
-					const local = relative(taskRoot, raw)
-					return local && local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local)
-						? local.split(sep).join("/")
-						: owner
+					let raw = owner.trim()
+					if (!raw) return raw
+					if (isAbsolute(raw)) {
+						const local = relative(taskRoot, raw)
+						if (!local || local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local)) return raw
+						raw = local.split(sep).join("/")
+					}
+					return taskGraphOwnershipRoot(raw)
 				}),
 			}
 		}),
@@ -452,6 +493,7 @@ export function validateTaskGraph(plan: TaskGraphPlan, planChain = false): void 
 		if (!task.goal.trim() || !task.specialty.trim() || !task.validation.trim() || task.done_when.length === 0 || task.done_when.some((criterion) => !criterion.trim())) {
 			throw new Error(`Task ${task.id} needs a goal, specialty, non-empty completion criteria, and validation.`)
 		}
+		if (task.setup !== undefined && (!task.setup.trim() || !task.owns.length)) throw new Error(`Task ${task.id} setup requires a non-empty command and writing ownership.`)
 		ids.add(task.id)
 		const repository = posix.normalize((task.repository ?? ".").trim().replaceAll("\\", "/"))
 		if (!repository || posix.isAbsolute(repository)) throw new Error(`Task ${task.id} repository must be relative to the current repository: ${task.repository || "(empty)"}`)
@@ -462,12 +504,7 @@ export function validateTaskGraph(plan: TaskGraphPlan, planChain = false): void 
 			if (posix.isAbsolute(normalized) || normalized === ".." || normalized.startsWith("../")) {
 				throw new Error(`Write ownership must be repository-relative: ${owner}`)
 			}
-			const globIndex = normalized.search(/[*?[\]{}]/)
-			if (globIndex >= 0) {
-				const slash = normalized.slice(0, globIndex).lastIndexOf("/")
-				normalized = slash >= 0 ? normalized.slice(0, slash) : "."
-			}
-			normalized = normalized.replace(/\/$/, "") || "."
+			normalized = taskGraphOwnershipRoot(normalized)
 			owners.push({
 				taskId: task.id,
 				path: posix.resolve("/workspace/current", repository, normalized),
@@ -520,7 +557,7 @@ export function validateTaskGraph(plan: TaskGraphPlan, planChain = false): void 
 export function formatTaskGraph(plan: TaskGraphPlan): string {
 	return [
 		`${plan.objective}\nmode: ${plan.mode}`,
-		...plan.tasks.map((task) => `${task.id} [${task.specialty}, ${task.thinking}]${task.depends_on.length ? ` ← ${task.depends_on.join(", ")}` : ""}\n  ${task.goal}\n  repo: ${task.repository ?? "."}\n  owns: ${task.owns.join(", ") || "read-only"}\n  done: ${task.done_when.join("; ")}\n  validate: ${task.validation}`),
+		...plan.tasks.map((task) => `${task.id} [${task.specialty}, ${task.thinking}]${task.depends_on.length ? ` ← ${task.depends_on.join(", ")}` : ""}\n  ${task.goal}\n  repo: ${task.repository ?? "."}\n  owns: ${task.owns.join(", ") || "read-only"}\n  done: ${task.done_when.join("; ")}\n  setup: ${task.setup || "not required"}\n  validate: ${task.validation}`),
 	].join("\n\n")
 }
 
@@ -530,17 +567,17 @@ interface TaskGraphReviewUi {
 }
 
 export type TaskGraphReview =
-	| { status: "approved" | "plan-approved" }
+	| { status: "approved" }
 	| { status: "revise"; feedback: string }
 	| { status: "cancelled" }
 
-export async function reviewTaskGraph(plan: TaskGraphPlan, ui: TaskGraphReviewUi, signal?: AbortSignal, planChain = false): Promise<TaskGraphReview> {
+export async function reviewTaskGraph(plan: TaskGraphPlan, ui: TaskGraphReviewUi, signal?: AbortSignal, planChain = false, workspaceSummary = ""): Promise<TaskGraphReview> {
 	validateTaskGraph(plan, planChain)
-	const approveLabel = plan.mode === "execute" ? "Approve and execute" : "Approve plan only"
+	const approveLabel = plan.mode === "execute" ? "Approve and execute" : "Approve planning work"
 	const options = signal ? { signal } : undefined
 	const title = planChain ? "Review plan chain (top to bottom execution order)" : "Review task graph"
-	const choice = await ui.select(`${title}\n\n${formatTaskGraph(plan)}`, [approveLabel, "Revise the plan", "Cancel"], options)
-	if (choice === approveLabel) return { status: plan.mode === "plan-only" ? "plan-approved" : "approved" }
+	const choice = await ui.select(`${title}\n\n${formatTaskGraph(plan)}${workspaceSummary ? `\n\n${workspaceSummary}` : ""}`,  [approveLabel, "Revise the plan", "Cancel"], options)
+	if (choice === approveLabel) return { status: "approved" }
 	if (choice === "Revise the plan") {
 		const feedback = (await ui.input("Plan revisions", "What must change?", options))?.trim()
 		if (feedback) return { status: "revise", feedback }
@@ -655,11 +692,12 @@ export function taskGraphPrompt(
 	workerAccount?: { profileHash: string; email: string; accountId: string; agentDir: string },
 ): string {
 	const runObjective = `${planChain ? "Pi plan chain" : "Pi task graph"}: ${runKey}`
-	const terminalTitle = taskGraphTerminalTitle(runObjective)
+	const terminalTitle = "<returned-launchTitle>"
 	const quotaPolicy = `Before each new worker launch, obey the Codex quota gate. Reserve ${TASK_GRAPH_WEEKLY_QUOTA_RESERVE}% of the long window and ${TASK_GRAPH_SHORT_QUOTA_RESERVE}% of the short window. Long-window data is required. Check the short-window reserve only when Codex reports that window. If the gate blocks a launch, do not treat it as a task failure. Mark the active plan budget-exhausted, preserve the Run and task state, and stop. The same /graph command resumes after quota resets.`
 	const workerCommand = `${workerAccount ? `AGENT_TOOLKIT_CODEX_PROFILE_SHA256=${workerAccount.profileHash} AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=${Buffer.from(workerAccount.email).toString("base64url")} AGENT_TOOLKIT_CODEX_ACCOUNT_ID=${JSON.stringify(workerAccount.accountId)} AGENT_TOOLKIT_PI_AGENT_DIR=${JSON.stringify(workerAccount.agentDir)} ` : ""}pi-yolo --model ${workerModel} --thinking <task-thinking>`
 	const workerAccountNote = workerAccount ? `Graph workers are pinned to the selected Codex account ${workerAccount.email}. ` : ""
-	if (planChain) return `Coordinate this objective as an unattended plan chain:
+	const isolation = `Workspace contract: inspect with read/search tools before approval. In propose_task_graph, list exact dirty input files under inputs (repository plus paths); include selected dirty plans and necessary supporting documents, not unrelated changes. Approval authorizes isolated run/task worktrees, these input captures, scoped local commits and integration within the Run. Source checkouts and indexes remain untouched. current_checkout is an explicit, separately confirmed clean-checkout exception, never a fallback.\nAfter binding, call prepare_task_graph_workspace without task_id before any preparation documents, plan moves, setup or other writes. Use the returned absolute paths for file tools. For shell checks and setup, use bash with repository set to the exact returned workspace path; Pi's normal bash permission gates remain active. Use checkpoint_task_graph with exact paths for local commits, never shell git add/commit. Do not create worktrees manually. Capture uses immutable Git objects and a private temporary index, without commit hooks. Ordinary checkpoints still run required hooks and reviews. Declare required setup in each task's setup field and run that exact command in the prepared worker workspace before launch. Ignored setup outputs do not transfer from coordinator to worker.\nBefore each worker, create its Orca task, then call prepare_task_graph_workspace with the task_id and an explicit owns subset for internal plan tasks. Launch in the exact returned worktree selector and prepend both returned AGENT_TOOLKIT_GRAPH_WORKSPACES and AGENT_TOOLKIT_GRAPH_TASK environment assignments to the pinned worker command. Use its exact returned launchTitle. Launch intent is durable; after an uncertain result reconcile the existing terminal, never launch another. The returned repositories map and the AGENT_TOOLKIT_GRAPH_REPOSITORIES JSON environment expose each approved repository's execution path and HEAD. Cross-repository builds must use these explicit paths, not assume ../sibling resolves to isolation. Inspect local dependency configuration before approval and include required setup mappings in the task. Declare cross-repository dependencies in the DAG. A dependent worker pins its prerequisite repositories until integration; coordinator writes and other integrations into those repositories must wait. Workers may commit only scoped changes after required checks and risk-gated reviews; never push or merge back. After successful settlement call integrate_task_graph_worker before preparing dependents, so they receive integrated prerequisite commits. Reuse verified workspaces on recovery; never silently recopy inputs or migrate legacy live workers.\nReview the complete delivery diff, including captured inputs, against the approved base and intended target. Local completion does not authorize publishing, PR creation, merge-back, source reconciliation or worktree deletion. Report one coherent delivery unit per executable plan and affected repository, without assuming a hosting provider or branch name. Preserve all workspaces at closeout for separately authorized delivery and cleanup.`
+	if (planChain) return `${isolation}\n\nCoordinate this objective as an unattended plan chain:
 
 ${objective}
 
@@ -679,23 +717,23 @@ Reconcile the approved plan chain with the bound Run before implementation. Star
 
 Use Orca's ready-task state to find eligible plans. Select the first unfinished ready plan in the approved order. Immediately before that plan starts, re-read its status, dependencies, approval gates, and repository rules. If a lifecycle move was interrupted, reconcile its existing Run and finish only the missing status or move step without implementation workers. Promote a ready future plan into \`docs/exec-plans/active/\` only when its dependencies are complete, then change its status to \`queued\` and \`in-progress\`. Never promote later plans early.
 
-For each active plan, derive the smallest internal DAG of one to six worker tasks from its must-land checklist and targets. Create these internal tasks as children of the plan task directly in Orca without another propose_task_graph approval. ${quotaPolicy} Start every ready independent task before waiting. Every task gets a fresh worker terminal in that plan repository's current worktree; never reuse a completed worker. Resolve and use the repository's exact Orca selector. ${workerAccountNote}Start the quoted \`${workerCommand}\` command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\`, because it cannot prove the required wrapper before launch. Use medium thinking for every worker unless the user explicitly requests high. Task risk or complexity does not authorize high thinking. Specialize each worker through its task brief.
+For each active plan, derive the smallest internal DAG of one to six worker tasks from its must-land checklist and targets. Create these internal tasks as children of the plan task directly in Orca without another propose_task_graph approval. ${quotaPolicy} Start every ready independent task before waiting. Every task gets a fresh worker terminal in its verified isolated task worktree; never reuse a completed worker. Resolve and use the repository's exact Orca selector. ${workerAccountNote}Start the quoted \`${workerCommand}\` command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\`, because it cannot prove the required wrapper before launch. Use medium thinking for every worker unless the user explicitly requests high. Task risk or complexity does not authorize high thinking. Specialize each worker through its task brief.
 
-Supervise every dispatch until it settles. Release each completed worker before continuing. Workers must not commit or push. If a worker fails or escalates, make one replacement attempt with a fresh worker at the same thinking level. Do not increase thinking unless the user explicitly requests high. Stop the plan chain after any unresolved failure, blocker, required external decision, or failed validation. Leave every affected plan in a truthful status.
+Supervise every dispatch until it settles. Release each completed worker before continuing. Workers may make scoped local commits after required checks and risk-gated review; they must not push. If a worker fails or escalates, make one replacement attempt with a fresh worker at the same thinking level. Do not increase thinking unless the user explicitly requests high. Stop the plan chain after any unresolved failure, blocker, required external decision, or failed validation. Leave every affected plan in a truthful status.
 
 After each plan's workers finish, integrate their work and complete that plan's full closeout. Run all required validation, reviews, approval gates, evidence updates, and plan-closeout checks. Move the plan to completed only after every requirement passes. Mark its plan task completed with concise evidence. Then read the ready-task state again and continue automatically.
 
-The plan-chain approval authorizes required local commits after the repository's risk-gated closeout. Do not bypass trusted push, pull-request, merge, release, credential, or permission boundaries. If a plan reaches one of these boundaries without prior authorization, stop with the completed local work and report the required action.
+The plan-chain approval authorizes required local commits and checked integration inside the Run after the repository's risk-gated checks. Do not bypass trusted push, pull-request, merge, release, credential, or permission boundaries. If a plan reaches one of these boundaries without prior authorization, stop with the completed local work and report the required action.
 
 Call finish_task_graph with the bound Run ID and concise evidence only after every dispatch is settled and released and every plan has passed closeout. Do not call it after a blocker, failure, or incomplete recovery.`
 
-	return `Coordinate this objective with a task graph:
+	return `${isolation}\n\nCoordinate this objective with a task graph:
 
 ${objective}
 
-First inspect the repository and the real execution path with read and search tools. Mutation tools stay blocked until an executable graph is approved. Do not move a ready future plan before approval. After approval, move it from \`docs/future/\` to \`docs/exec-plans/active/\`, change only that plan's \`Status\` from \`ready-for-promotion\` to \`queued\`, and start the workers. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
+First inspect the repository and the real execution path with read and search tools. Mutation tools stay blocked until an executable graph is approved. Do not move a ready future plan before approval. After execute approval and workspace preparation, move it from \`docs/future/\` to \`docs/exec-plans/active/\`, change only that plan's \`Status\` from \`ready-for-promotion\` to \`queued\`, and start the workers. If the objective names a future or active plan file, read that file and its repository planning rules first. Treat its status, dependencies, must-land checklist, approval gates, and write targets as authoritative.
 
-A draft or blocked plan permits planning and blocker-resolution work only. Set graph mode to plan-only and do not dispatch implementation workers. Promote a ready future after execute approval and before dispatch. Set mode to execute only for an active executable slice whose dependencies and approval gates are satisfied.
+A draft or blocked plan permits planning and blocker-resolution work only. Set graph mode to plan-only and dispatch only approved documentation workers in isolation. Do not dispatch implementation workers. Promote a ready future after execute approval and before dispatch. Set mode to execute only for an active executable slice whose dependencies and approval gates are satisfied.
 
 Keep one future file per executable slice. If one future contains independent outcomes, propose separate future files linked by Dependencies. Use graph tasks only for parallel work inside one executable slice; do not use them to hide multiple durable slices in one plan.
 
@@ -703,13 +741,13 @@ Then decide whether parallel workers provide a clear benefit. If the work is sma
 
 If a graph helps, call propose_task_graph with plan-only or execute mode and a DAG of two to six bounded tasks. A graph may span local Git repositories. For each task outside the current repository, set its repository to that Git root relative to the current repository (for example, \`../tracn-api\`), and keep its owned paths relative to that repository. Give each task an id, goal, dependencies, repository, owned files or areas, specialty, thinking level, completion criteria, and validation. Use medium thinking for every worker unless the user explicitly requests high. Task risk or complexity does not authorize high thinking. Keep dependency chains at most four tasks deep. Include integration and focused validation work when necessary.
 
-The tool validates the graph and asks the user to approve, revise, or cancel it. If the user requests revisions, update the graph and call propose_task_graph again. Do not dispatch workers until an execute-mode graph is approved.
+The tool validates the graph and asks the user to approve, revise, or cancel it. If the user requests revisions, update the graph and call propose_task_graph again. Do not dispatch implementation workers until an execute-mode graph is approved. Planning-work approval permits Markdown documentation under docs/, excluding docs/exec-plans/. It does not permit lifecycle promotion.
 
-After execute approval, run \`orca skills get orchestration\` and follow that version-matched guide. Confirm Orca is ready. Use the exact Run objective ${JSON.stringify(runObjective)}. List Runs with that exact objective before creation. Bind and reconcile one unfinished match, stop on multiple unfinished matches, and create a Run only when none exists. Call bind_task_graph_run with the selected Run ID before creating or updating tasks. Preserve matching task IDs and settled or live dispatches during recovery. For active-plan execution, the coordinator owns plan lifecycle updates; set the plan's truthful execution status before dispatch instead of delegating that state to a worker. Create missing tasks with their dependencies, start every top-level task spec with its \`[graph-task:<task-id>]\` marker, and start every ready independent worker before waiting. ${workerAccountNote}Every graph worker must run \`${workerCommand}\`, not plain \`pi\`. Start this quoted command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\` or Orca's generic \`--agent pi\` launcher, because neither proves the required wrapper before launch. Use Orca for task state, dispatch, worker lifecycle, and messages. Do not recreate those features in Pi or in project files.
+After execute or planning-work approval, run \`orca skills get orchestration\` and follow that version-matched guide. Confirm Orca is ready. Use the exact Run objective ${JSON.stringify(runObjective)}. List Runs with that exact objective before creation. Bind and reconcile one unfinished match, stop on multiple unfinished matches, and create a Run only when none exists. Call bind_task_graph_run with the selected Run ID before creating or updating tasks. Preserve matching task IDs and settled or live dispatches during recovery. For active-plan execution, the coordinator owns plan lifecycle updates; set the plan's truthful execution status before dispatch instead of delegating that state to a worker. Create missing tasks with their dependencies, start every top-level task spec with its \`[graph-task:<task-id>]\` marker, and start every ready independent worker before waiting. ${workerAccountNote}Every graph worker must run \`${workerCommand}\`, not plain \`pi\`. Start this quoted command through low-level Orca terminal creation with \`--json --title ${terminalTitle}\`. After readiness, attach the task with low-level \`dispatch --inject\`. After an accepted settlement, close that exact coordinator-created terminal. Do not use \`worker-start\` or Orca's generic \`--agent pi\` launcher, because neither proves the required wrapper before launch. Use Orca for task state, dispatch, worker lifecycle, and messages. Do not recreate those features in Pi or in project files.
 
 ${quotaPolicy}
 
-Launch each worker with \`${workerCommand}\` in the task's repository. Resolve that repository's exact Orca selector and pass it when the worker is outside the current repository. Specialize workers through their task briefs and tools instead of permanent role classes. Keep work in each repository's current worktree unless the user requested another worktree or a concrete file conflict requires isolation. Supervise until every dispatch settles. Release completed workers, integrate the results, and run the smallest focused checks. If a worker fails or requests escalation, keep the same thinking level for its one replacement attempt. Do not increase thinking unless the user explicitly requests high. Replan only a failed or blocked task, and allow at most one replacement attempt unless the user approves more.
+Launch each worker with \`${workerCommand}\` in the task's repository. Resolve that repository's exact Orca selector and pass it when the worker is outside the current repository. Specialize workers through their task briefs and tools instead of permanent role classes. Keep work in each repository's verified isolated workspaces. The source checkout is not an execution workspace unless the user explicitly approved that exception. Supervise until every dispatch settles. Release completed workers, integrate the results, and run the smallest focused checks. If a worker fails or requests escalation, keep the same thinking level for its one replacement attempt. Do not increase thinking unless the user explicitly requests high. Replan only a failed or blocked task, and allow at most one replacement attempt unless the user approves more.
 
 For active-plan execution, focused task checks do not replace plan closeout. After integration, re-read the active plan and repository planning rules. Complete every must-land item, satisfy review and approval gates, run the exact validation lanes and required full verification, record evidence, update Done-Evidence and status, move the plan from active to completed, update any required evidence index, and run the repository's plan-closeout check. Do not report completion unless all required checks pass and the plan is closed. If closeout cannot finish, leave the plan in a truthful active status and report the blocker. Never close or edit dependent future plans; they remain future work until separately promoted.
 

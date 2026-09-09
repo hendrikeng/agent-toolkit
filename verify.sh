@@ -212,6 +212,8 @@ cmp "$repo_dir/pi/extensions/side-question/side-core.ts" "$pi_agent_dir/extensio
 cmp "$repo_dir/pi/extensions/skills-update/index.ts" "$pi_agent_dir/extensions/skills-update/index.ts"
 cmp "$repo_dir/pi/extensions/task-graph/index.ts" "$pi_agent_dir/extensions/task-graph/index.ts"
 cmp "$repo_dir/pi/extensions/task-graph/task-graph-core.ts" "$pi_agent_dir/extensions/task-graph/task-graph-core.ts"
+cmp "$repo_dir/pi/extensions/task-graph/run-recovery.ts" "$pi_agent_dir/extensions/task-graph/run-recovery.ts"
+cmp "$repo_dir/pi/extensions/task-graph/workspaces.ts" "$pi_agent_dir/extensions/task-graph/workspaces.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -327,7 +329,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/test
 node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/tests/simple-english.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/side-question/tests/side-question.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/skills-update/tests/skills-update.test.ts"
-node --experimental-strip-types --test "$repo_dir/pi/extensions/task-graph/tests/task-graph.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/task-graph/tests/"*.test.ts
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
