@@ -27,6 +27,32 @@ command=${args[i]:-}
 case $command in
   status|diff|diff-tree|log|show|add|commit|fetch|merge|merge-base|rebase|cherry-pick|revert|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|remote|init|clone|version|help)
     ;;
+  config)
+    # Explicit reads only. Never let an option or extra operand turn a query into a write.
+    action=
+    operands=0
+    for ((j = i + 1; j < ${#args[@]}; j++)); do
+      case ${args[j]} in
+        --get|--get-all|--get-regexp|--get-urlmatch|--list|-l)
+          [[ -z $action && $operands -eq 0 ]] || { printf 'git yolo guard: one Git config read action must precede all operands\n' >&2; exit 126; }
+          action=${args[j]}
+          ;;
+        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes) ;;
+        -*) printf 'git yolo guard: unsupported Git config read option: %s\n' "${args[j]}" >&2; exit 126 ;;
+        *)
+          if [[ -z $action && $operands -eq 0 && ( ${args[j]} == get || ${args[j]} == list ) ]]; then
+            action=${args[j]}
+          else
+            operands=$((operands + 1))
+          fi
+          ;;
+      esac
+    done
+    case $action:$operands in
+      --get:1|--get:2|--get-all:1|--get-all:2|--get-regexp:1|--get-regexp:2|--get-urlmatch:2|--list:0|-l:0|get:1|list:0) ;;
+      *) printf 'git yolo guard: only explicit read-only Git config queries are allowed\n' >&2; exit 126 ;;
+    esac
+    ;;
   switch)
     [[ ${#args[@]} -eq $((i + 3)) && ${args[i+1]:-} == -c && -n ${args[i+2]:-} && ${args[i+2]} != -* ]] || { printf 'git yolo guard: only git switch -c <new-branch> is allowed unattended\n' >&2; exit 126; }
     ;;

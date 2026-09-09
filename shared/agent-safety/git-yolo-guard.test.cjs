@@ -1,9 +1,60 @@
 const assert = require('node:assert/strict')
 const { execFileSync, spawnSync } = require('node:child_process')
-const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs')
+const { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, rmSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const test = require('node:test')
+
+test('allows explicit config reads and GitHub CLI repository resolution without config writes', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'git-guard-config-'))
+  const guard = join(__dirname, 'git-yolo-guard')
+  const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8' })
+  try {
+    assert.equal(run('init').status, 0)
+    const config = join(cwd, '.git/config')
+    const content = readFileSync(config, 'utf8') + '\n[remote "origin"]\n\turl = https://github.com/example/project.git\n\tgh-resolved = base\n[test]\n\tvalue = first\n\tvalue = second\n'
+    writeFileSync(config, content)
+    for (const args of [
+      ['--get', 'remote.origin.url'], ['--local', '--get-all', 'test.value'],
+      ['--get-regexp', '^remote\\..*\\.gh-resolved$'], ['--null', '--get-regexp', 'remote.*.url'],
+      ['--get', 'test.value', 'second'], ['--get-all', 'test.value', 'first'],
+      ['--get-urlmatch', 'http.proxy', 'https://github.com'],
+      ['--list'], ['-l', '--show-origin'], ['get', 'remote.origin.url'], ['list', '--local'],
+    ]) {
+      const result = run('config', ...args)
+      assert.ok(result.status === 0 || result.status === 1, result.stderr)
+      assert.equal(result.stderr, '')
+    }
+    assert.equal(run('config', '--get', 'remote.origin.url').stdout.trim(), 'https://github.com/example/project.git')
+    assert.equal(run('config', '--get-regexp', '^remote\\..*\\.gh-resolved$').stdout.trim(), 'remote.origin.gh-resolved base')
+    for (const args of [
+      [], ['test.value', 'replacement'], ['--get', 'test.value', 'first', 'extra'],
+      ['test.single', '--get'], ['test.single', '--get-all'], ['test.single', '--get-regexp'],
+      ['--local', 'test.single', '--get'], ['test.single', 'replacement', '--get-urlmatch'],
+      ['--get', 'test.value', '--replace-all', 'test.value', 'replacement'],
+      ['--list', '--unset', 'test.value'], ['--get', '--get-all', 'test.value'],
+      ['--add', 'test.value', 'third'], ['--unset-all', 'test.value'],
+      ['--rename-section', 'test', 'other'], ['--remove-section', 'test'], ['--edit'], ['-e'],
+      ['set', 'test.value', 'replacement'], ['unset', 'test.value'], ['edit'],
+      ['get', 'test.value', '--append', 'replacement'], ['list', '--file', config],
+      ['--file', config, '--get', 'test.value'], ['--get', 'test.value', '--unknown'],
+    ]) assert.equal(run('config', ...args).status, 126, JSON.stringify(args))
+    // No network or account needed: gh resolves the marked default repository through Git.
+    if (!spawnSync('gh', ['--version']).error) {
+      const bin = join(cwd, 'bin')
+      mkdirSync(bin)
+      symlinkSync(guard, join(bin, 'git'))
+      const result = spawnSync('gh', ['repo', 'set-default', '--view'], {
+        cwd, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 'fixture-token', GH_HOST: 'github.com', GH_REPO: '', GH_CONFIG_DIR: join(cwd, 'gh-config') },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      assert.equal(result.stdout.trim(), 'example/project')
+    }
+    assert.equal(readFileSync(config, 'utf8'), content)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
 
 test('allows read-only ancestry queries and new-branch switch while preserving local work', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'git-guard-test-'))
