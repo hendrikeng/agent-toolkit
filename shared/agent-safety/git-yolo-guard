@@ -7,16 +7,24 @@ for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
 done
 [[ -n $real_git ]] || { printf 'git yolo guard: real Git executable is unavailable\n' >&2; exit 126; }
 
+# Inherited selectors/configuration can redirect even an apparently read-only command.
+for name in ${!GIT_@}; do
+  case $name in
+    GIT_CONFIG|GIT_CONFIG_*|GIT_DIR|GIT_COMMON_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_NAMESPACE|GIT_EXEC_PATH|GIT_EXTERNAL_DIFF|GIT_SSH|GIT_SSH_COMMAND|GIT_PROXY_COMMAND)
+      printf 'git yolo guard: unset inherited %s\n' "$name" >&2; exit 126 ;;
+  esac
+done
 args=("$@")
 i=0
 while ((i < ${#args[@]})); do
   case ${args[i]} in
-    -C|--git-dir|--work-tree|--namespace|--super-prefix) i=$((i + 2)) ;;
+    -C) [[ -n ${args[i+1]:-} && ${args[i+1]} != -* ]] || exit 126; i=$((i + 2)) ;;
+    --git-dir|--work-tree|--namespace|--super-prefix|--git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*) printf 'git yolo guard: shared metadata selectors are disabled\n' >&2; exit 126 ;;
     -c)
       case ${args[i+1]:-} in core.fsmonitor=false|core.pager=cat|diff.external=|diff.renames=false|diff.suppressBlankEmpty=false|pager.diff=cat|pager.log=cat|pager.show=cat) i=$((i + 2)) ;; *) printf 'git yolo guard: Git config override is not allowlisted\n' >&2; exit 126 ;; esac
       ;;
     --config-env=*|--exec-path|--exec-path=*) printf 'git yolo guard: executable overrides are disabled\n' >&2; exit 126 ;;
-    --git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--html-path|--man-path|--info-path|-p|-P|--paginate|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-advice|--no-lazy-fetch) i=$((i + 1)) ;;
+    --html-path|--man-path|--info-path|-P|--no-pager|--no-replace-objects|--literal-pathspecs|--noglob-pathspecs|--no-optional-locks|--no-advice|--no-lazy-fetch) i=$((i + 1)) ;;
     --) i=$((i + 1)); break ;;
     -*) printf 'git yolo guard: unsupported global option: %s\n' "${args[i]}" >&2; exit 126 ;;
     *) break ;;
@@ -24,6 +32,21 @@ while ((i < ${#args[@]})); do
 done
 
 command=${args[i]:-}
+for argument in "${args[@]:i+1}"; do
+  if [[ $argument == --?* && ( --no-verify == "$argument"* || --amend == "$argument"* || $argument == --no-no-* ) ]]; then
+    printf 'git yolo guard: hook bypass/history replacement is disabled\n' >&2; exit 126
+  fi
+done
+if [[ $command == commit ]]; then
+  for argument in "${args[@]:i+1}"; do
+    [[ $argument == -?* && $argument != --* ]] || continue
+    short=${argument:1}
+    while [[ -n $short ]]; do
+      case ${short:0:1} in n) exit 126 ;; m|F|C|c|t|S|u) break ;; esac
+      short=${short:1}
+    done
+  done
+fi
 case $command in
   status|diff|diff-tree|log|show|add|commit|fetch|merge|merge-base|rebase|cherry-pick|revert|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|remote|init|clone|version|help)
     ;;
@@ -37,7 +60,8 @@ case $command in
           [[ -z $action && $operands -eq 0 ]] || { printf 'git yolo guard: one Git config read action must precede all operands\n' >&2; exit 126; }
           action=${args[j]}
           ;;
-        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes) ;;
+        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes)
+          [[ $operands -eq 0 ]] || { printf 'git yolo guard: config options must precede operands\n' >&2; exit 126; } ;;
         -*) printf 'git yolo guard: unsupported Git config read option: %s\n' "${args[j]}" >&2; exit 126 ;;
         *)
           if [[ -z $action && $operands -eq 0 && ( ${args[j]} == get || ${args[j]} == list ) ]]; then
@@ -57,14 +81,25 @@ case $command in
     [[ ${#args[@]} -eq $((i + 3)) && ${args[i+1]:-} == -c && -n ${args[i+2]:-} && ${args[i+2]} != -* ]] || { printf 'git yolo guard: only git switch -c <new-branch> is allowed unattended\n' >&2; exit 126; }
     ;;
   branch)
-    [[ ${args[i+1]:-} == --show-current ]] || { printf 'git yolo guard: unsupported unattended git branch operation\n' >&2; exit 126; }
+    [[ ${#args[@]} -eq $((i + 2)) && ${args[i+1]:-} == --show-current ]] || { printf 'git yolo guard: unsupported unattended git branch operation\n' >&2; exit 126; }
     ;;
   worktree)
-    case ${args[i+1]:-list} in add|list|lock|unlock|repair|move) ;; *) printf 'git yolo guard: blocked git worktree %s\n' "${args[i+1]:-}" >&2; exit 126 ;; esac
+    case ${args[i+1]:-list} in add|list) ;; *) printf 'git yolo guard: blocked git worktree %s\n' "${args[i+1]:-}" >&2; exit 126 ;; esac
     ;;
   *)
     printf 'git yolo guard: unsupported unattended git command: %s\n' "$command" >&2
     exit 126
     ;;
 esac
-exec "$real_git" "$@"
+case $command in
+  diff|diff-tree|log|show|blame)
+    for argument in "${args[@]:i+1}"; do
+      option=${argument%%=*}
+      if [[ $option == --?* && ( --output == "$option"* || --ext-diff == "$option"* || --textconv == "$option"* ) ]]; then
+        printf 'git yolo guard: read command output/executable override is disabled\n' >&2; exit 126
+      fi
+    done
+    args=("${args[@]:0:i+1}" --no-ext-diff --no-textconv "${args[@]:i+1}")
+    ;;
+esac
+exec "$real_git" --no-pager -c core.fsmonitor=false -c diff.external= "${args[@]}"

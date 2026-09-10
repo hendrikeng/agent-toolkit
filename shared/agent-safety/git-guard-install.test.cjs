@@ -7,7 +7,7 @@ const { join, resolve } = require('node:path')
 const test = require('node:test')
 
 test('guard-only installation updates managed copies without replacing local policy', (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'git-guard-install-'))
+  const home = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'git-guard-install-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const repo = resolve(__dirname, '../..')
   const target = join(home, '.local/libexec/agent-toolkit/git')

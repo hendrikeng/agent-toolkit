@@ -4,6 +4,14 @@
 
 When Pi runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
 
+## Task graphs
+
+`/graph` uses one coordinator-owned worktree per writing repository. The coordinator writes tasks sequentially. Tasks do not imply spawned agents.
+Planning permits documentation only and ends without implementation. Execution requires a separate `/graph execute` approval with explicit foundation commits and new execution worktrees.
+Use the graph's scoped tools for task starts, exact checks, checkpoints, and closeout. Keep source checkouts, indexes, planning commits, and all retained worktrees unchanged.
+Repeat the exact graph command to resume its version-2 record. Never recapture later source edits or recreate a missing resource without its recorded identity.
+Legacy graph records are evidence, not an execution path. Do not migrate, retire, delete, complete, or restart them. State retirement needs separate scope, verification, and authorization.
+
 ## Agent delegation
 
 Use `pi-yolo` for all spawned task workers and full handoffs, including ordinary tasks outside `/graph`. Use the current Pi provider/model with an explicit `--model provider/model` and `--thinking medium`; use high only when the user explicitly requests it, never automatically on retries.

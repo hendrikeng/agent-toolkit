@@ -6,7 +6,7 @@ const { execFileSync } = require('node:child_process')
 const test = require('node:test')
 
 test('runtime policy authorizes persistent scratch without opening temporary or runtime directories', () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-runtime-policy-')))
+  const root = realpathSync(mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'pi-runtime-policy-')))
   try {
     const managed = join(root, 'managed')
     const runtime = join(root, 'runtime')

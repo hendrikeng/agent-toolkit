@@ -37,8 +37,8 @@ initialize_blueprint_submodule() {
     fi
   done
   [[ -n $git_bin ]] || { printf 'Git is required to initialize agent-project-blueprint.\n' >&2; return 1; }
-  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -C "$repo_dir" submodule sync --recursive -- "$blueprint_path"
-  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -C "$repo_dir" submodule update --init --recursive --depth 1 -- "$blueprint_path"
+  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c protocol.ext.allow=never -C "$repo_dir" submodule sync --recursive -- "$blueprint_path"
+  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c protocol.ext.allow=never -C "$repo_dir" submodule update --init --recursive --depth 1 -- "$blueprint_path"
 }
 
 install_link() {

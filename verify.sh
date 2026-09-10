@@ -155,8 +155,7 @@ test ! -L "$HOME/.local/libexec/agent-toolkit/git"
 cmp "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git"
 test -x "$HOME/.local/libexec/agent-toolkit/git"
 test "$(<"$HOME/.local/libexec/agent-toolkit/git.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.local/libexec/agent-toolkit/git" | awk '{print $1}')"
-absolute_git_dir=$(git -C "$repo_dir" rev-parse --absolute-git-dir)
-"$repo_dir/shared/agent-safety/git-yolo-guard" --git-dir="$absolute_git_dir" --work-tree="$repo_dir" status >/dev/null
+"$repo_dir/shared/agent-safety/git-yolo-guard" -C "$repo_dir" status >/dev/null
 if "$repo_dir/shared/agent-safety/git-yolo-guard" -C "$repo_dir" clean -nd >/dev/null 2>&1; then
   printf 'git yolo guard allowed git clean\n' >&2
   exit 1
@@ -212,9 +211,9 @@ cmp "$repo_dir/pi/extensions/side-question/side-core.ts" "$pi_agent_dir/extensio
 cmp "$repo_dir/pi/extensions/skills-update/index.ts" "$pi_agent_dir/extensions/skills-update/index.ts"
 cmp "$repo_dir/pi/extensions/task-graph/index.ts" "$pi_agent_dir/extensions/task-graph/index.ts"
 cmp "$repo_dir/pi/extensions/task-graph/task-graph-core.ts" "$pi_agent_dir/extensions/task-graph/task-graph-core.ts"
-cmp "$repo_dir/pi/extensions/task-graph/run-recovery.ts" "$pi_agent_dir/extensions/task-graph/run-recovery.ts"
 cmp "$repo_dir/pi/extensions/task-graph/workspaces.ts" "$pi_agent_dir/extensions/task-graph/workspaces.ts"
-cmp "$repo_dir/pi/extensions/task-graph/cleanup.ts" "$pi_agent_dir/extensions/task-graph/cleanup.ts"
+test ! -e "$pi_agent_dir/extensions/task-graph/run-recovery.ts"
+test ! -e "$pi_agent_dir/extensions/task-graph/cleanup.ts"
 test ! -L "$pi_web_config_dir/web-search.json"
 node -e '
   const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -323,7 +322,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/te
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-fast/tests/codex-fast.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/context-filter.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/status-format/tests/status-format.test.ts"
-node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/git-push.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/"*.test.ts
 node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/project-blueprint/tests/"*.test.ts
 node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
@@ -331,6 +330,7 @@ node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/t
 node --experimental-strip-types --test "$repo_dir/pi/extensions/side-question/tests/side-question.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/skills-update/tests/skills-update.test.ts"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/task-graph/tests/"*.test.ts
+node --test "$repo_dir/shared/agent-safety/git-graph-boundaries.test.cjs"
 node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
 npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
 test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
