@@ -5,7 +5,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphFile, graphGit, graphInput, graphRepositoryMap, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkerWorkspace } from "../workspaces.ts"
-import { cleanupGraphWorkers } from "../cleanup.ts"
+import { cleanupGraphWorkers, verifyUndispatchedGraphRun } from "../cleanup.ts"
+import { createHash } from "node:crypto"
 import { abandonTaskGraphLock, acquireTaskGraphLock, acquireTaskGraphMutationLock, bindTaskGraphLockToOrcaRun, bindTaskGraphLockToPlanContract, releaseTaskGraphLock, taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.ts"
 
 Object.assign(process.env, { GIT_AUTHOR_NAME: "Graph Test", GIT_AUTHOR_EMAIL: "graph@example.com", GIT_COMMITTER_NAME: "Graph Test", GIT_COMMITTER_EMAIL: "graph@example.com" })
@@ -157,11 +158,90 @@ test("cleanup follows secondary locks to an unrelated Run and preserves abandone
 	} finally { other.cleanup(); f.cleanup() }
 })
 
+function undispatchedFixture() {
+	const key = "orphaned-objective", runId = "run_orphaned"
+	const contract = structuredClone(plan)
+	contract.tasks[1].depends_on = [contract.tasks[0].id]
+	const run = { id: runId, objective: `Pi task graph: ${key}`, coordinator_handle: "term_old" }
+	const tasks = { tasks: contract.tasks.map((task) => ({ id: `task_old_${task.id}`, run_id: runId, parent_id: null, spec: `[graph-task:${task.id}][graph-contract:${createHash("sha256").update(JSON.stringify(task)).digest("hex")}]\nBrief`, deps: JSON.stringify(task.depends_on.map((id) => `task_old_${id}`)), status: "pending", result: null, completed_at: null })), count: 2 }
+	const workers: any = { workers: [], counts: {} }
+	const terminals: any = { terminals: [], totalCount: 0, truncated: false, hostScope: { omittedHostIds: [] } }
+	const dispatches: Record<string, any> = Object.fromEntries(tasks.tasks.map((task) => [task.id, { dispatch: null }]))
+	const calls: string[][] = []
+	const orca = (args: string[]) => {
+		calls.push(args)
+		let result: any
+		if (args[1] === "run-show") result = { run }
+		else if (args[1] === "task-list") result = tasks
+		else if (args[1] === "worker-list") result = workers
+		else if (args[0] === "terminal") result = terminals
+		else if (args[1] === "dispatch-show") result = dispatches[args[args.indexOf("--task") + 1]]
+		else throw new Error(`Unexpected recovery mutation: ${args.join(" ")}`)
+		return { result: structuredClone(result) }
+	}
+	return { key, runId, contract, run, tasks, workers, terminals, dispatches, calls, orca }
+}
+
+test("undispatched recovery requires exact approval, empty dispatch history and complete stable runtime evidence", () => {
+	const f = undispatchedFixture()
+	verifyUndispatchedGraphRun(f.orca, f.key, f.runId, JSON.stringify(f.contract))
+	for (const change of [
+		(f: ReturnType<typeof undispatchedFixture>) => { f.run.objective = "different" },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.tasks.tasks[0].spec = "changed approval" },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.tasks.tasks[1].deps = "[]" },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.tasks.tasks[0].status = "completed" },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.tasks.tasks[0].status = "dispatched" },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.tasks.tasks.pop() },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.workers.workers.push({ dispatchStatus: "completed" }) },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.dispatches.task_old_a = { dispatch: { status: "failed" } } },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.dispatches.task_old_a = {} },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.workers.truncated = true },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.terminals.hostScope.omittedHostIds = ["offline"] },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.terminals.totalCount = 1 },
+		(f: ReturnType<typeof undispatchedFixture>) => { f.terminals.terminals.push({ handle: "term_old" }); f.terminals.totalCount = 1 },
+	]) {
+		const candidate = undispatchedFixture()
+		change(candidate)
+		assert.throws(() => verifyUndispatchedGraphRun(candidate.orca, candidate.key, candidate.runId, JSON.stringify(candidate.contract)))
+	}
+	let reads = 0
+	assert.throws(() => verifyUndispatchedGraphRun((args) => {
+		if (args[1] === "run-show" && ++reads === 2) f.run.coordinator_handle = "term_new"
+		return f.orca(args)
+	}, f.key, f.runId, JSON.stringify(f.contract)), /changed during reconciliation/)
+})
+
+for (const revived of [false, true]) test(`cleanup reconciles dormant bound Runs without deleting records and rechecks before removal (revived=${revived})`, () => {
+	const f = completedFixture()
+	const orphan = undispatchedFixture()
+	try {
+		const lock = acquireTaskGraphLock(f.lockRoot, orphan.key)
+		bindTaskGraphLockToPlanContract(lock, JSON.stringify(orphan.contract))
+		bindTaskGraphLockToOrcaRun(lock, orphan.runId)
+		abandonTaskGraphLock(lock)
+		const before = readFileSync(join(lock.path, "owner.json"), "utf8")
+		const result = cleanupGraphWorkers(f.state, f.lockRoot, (args) => {
+			if (args.includes(orphan.runId) || args.some((arg) => arg.startsWith("task_old_")) || args[0] === "terminal" && !args.includes("--worktree")) return orphan.orca(args)
+			const result = f.orca(args)
+			if (revived && args[0] === "worktree" && args[1] === "show") orphan.workers.workers.push({ dispatchStatus: "active" })
+			return result
+		}, f.persist)
+		assert.deepEqual(result.removed, revived ? [] : [f.worker.path])
+		if (revived) {
+			assert.match(result.retained[0].reason, /worker history/)
+			assert.equal(f.commands.some((args) => args[1] === "rm"), false)
+		} else assert.deepEqual(result.retained, [])
+		assert.equal(readFileSync(join(lock.path, "owner.json"), "utf8"), before)
+		assert.equal(existsSync(join(lock.path, "workspaces.json")), false)
+		assert.equal(orphan.tasks.tasks[0].status, "pending")
+	} finally { f.cleanup() }
+})
+
 test("cleanup names live, bound and malformed missing-workspace locks rather than deleting them", () => {
 	const f = completedFixture()
 	try {
 		const lock = acquireTaskGraphLock(f.lockRoot, "missing-workspace")
-		const clean = () => cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist)
+		const clean = () => cleanupGraphWorkers(f.state, f.lockRoot, (args) => args[1] === "run-show" ? { result: {} } : f.orca(args), f.persist)
 		const blocked = (reason: RegExp) => {
 			const result = clean()
 			assert.deepEqual(result.removed, [])
@@ -174,7 +254,7 @@ test("cleanup names live, bound and malformed missing-workspace locks rather tha
 		bindTaskGraphLockToPlanContract(lock, JSON.stringify(plan))
 		bindTaskGraphLockToOrcaRun(lock, "run_recover_me")
 		abandonTaskGraphLock(lock)
-		blocked(/Run run_recover_me.*approved or bound work/)
+		blocked(/Run run_recover_me/)
 		writeFileSync(join(lock.path, "owner.json"), "invalid json")
 		blocked(/invalid ownership metadata/)
 		const owner = { key: "missing-workspace", runKey: "missing-workspace", token: "fixture", pid: process.pid, processStart: 42 }

@@ -1,9 +1,51 @@
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync } from "node:fs"
+import { isDeepStrictEqual } from "node:util"
 import { join } from "node:path"
-import { acquireTaskGraphMutationLock, releaseTaskGraphLock, taskGraphWorkspaceRecordForLock } from "./task-graph-core.ts"
+import { acquireTaskGraphMutationLock, releaseTaskGraphLock, taskGraphTerminalTitle, taskGraphWorkspaceRecordForLock, validateTaskGraph, type TaskGraphPlan } from "./task-graph-core.ts"
 import { graphDirtyPaths, graphGit, readGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkspaces } from "./workspaces.ts"
 
 type OrcaJson = (args: string[]) => any
+
+// Reconcile only dormant Runs whose entire approved ledger never reached dispatch.
+// No fabricated workspace manifest, terminal closure, task mutation or lock deletion.
+export function verifyUndispatchedGraphRun(orca: OrcaJson, runKey: string, runId: string, contract: string): void {
+	const plan = JSON.parse(contract) as TaskGraphPlan
+	validateTaskGraph(plan)
+	const read = (args: string[]) => {
+		const response = orca([...args, "--json"])
+		const result = response?.result
+		if (response?.ok === false || !result || result.truncated || result.hostScope?.omittedHostIds?.length) throw new Error(`Undispatched Run ${runId} has unavailable or incomplete ${args[1]} evidence.`)
+		return result
+	}
+	const snapshot = () => ({
+		run: read(["orchestration", "run-show", "--id", runId]).run,
+		tasks: read(["orchestration", "task-list", "--run", runId]),
+		workers: read(["orchestration", "worker-list", "--run", runId]),
+	})
+	const before = snapshot()
+	const { run, tasks, workers } = before
+	if (run?.id !== runId || ![`Pi task graph: ${runKey}`, `Pi plan chain: ${runKey}`].includes(run.objective) || typeof run.coordinator_handle !== "string" || !run.coordinator_handle) throw new Error(`Undispatched Run ${runId} identity or coordinator metadata does not match its lock.`)
+	if (!Array.isArray(tasks.tasks) || tasks.tasks.length !== plan.tasks.length || tasks.count !== undefined && tasks.count !== tasks.tasks.length || new Set(tasks.tasks.map((task: any) => task.id)).size !== tasks.tasks.length) throw new Error(`Undispatched Run ${runId} requires a complete, unique approved task ledger.`)
+	if (!Array.isArray(workers.workers) || workers.workers.length || Object.values(workers.counts ?? {}).some((count) => count !== 0)) throw new Error(`Run ${runId} has worker history; workspace recovery is required.`)
+	const terminals = read(["terminal", "list", "--limit", "1000"])
+	if (!Array.isArray(terminals.terminals) || terminals.totalCount !== undefined && terminals.totalCount !== terminals.terminals.length || terminals.terminals.some((terminal: any) => typeof terminal.handle !== "string" || terminal.handle === run.coordinator_handle || terminal.title?.startsWith(taskGraphTerminalTitle(run.objective)))) throw new Error(`Run ${runId} still has a coordinator/graph terminal, or terminal evidence is incomplete.`)
+	const kind = run.objective.startsWith("Pi plan chain:") ? "plan" : "graph-task"
+	const ledger = plan.tasks.map((task) => {
+		const marker = `[${kind}:${task.id}][graph-contract:${createHash("sha256").update(JSON.stringify(task)).digest("hex")}]`
+		const matches = tasks.tasks.filter((entry: any) => entry.parent_id === null && typeof entry.spec === "string" && entry.spec.startsWith(marker))
+		if (matches.length !== 1) throw new Error(`Run ${runId} task ${task.id} has missing or changed approval evidence.`)
+		return matches[0]
+	})
+	for (const [index, task] of ledger.entries()) {
+		if (typeof task.id !== "string" || !/^task_[a-zA-Z0-9_-]+$/.test(task.id) || task.run_id !== runId || !["pending", "ready"].includes(task.status) || task.result != null || task.completed_at != null) throw new Error(`Run ${runId} task ${task.id} is not demonstrably undispatched.`)
+		const expected = plan.tasks[index].depends_on.map((id) => ledger[plan.tasks.findIndex((task) => task.id === id)].id).sort()
+		const deps = JSON.parse(task.deps)
+		if (!Array.isArray(deps) || !isDeepStrictEqual([...deps].sort(), expected)) throw new Error(`Run ${runId} task ${task.id} changed dependencies.`)
+		if (read(["orchestration", "dispatch-show", "--task", task.id]).dispatch !== null) throw new Error(`Run ${runId} task ${task.id} has dispatch history or missing dispatch evidence.`)
+	}
+	if (!isDeepStrictEqual(before, snapshot())) throw new Error(`Run ${runId} changed during reconciliation; retry cleanup.`)
+}
 
 // Cleanup only reads completed records. Active graph recovery never needs missing worker paths.
 export function cleanupGraphWorkers(state: GraphWorkspaces, lockRoot: string, orca: OrcaJson, persist: () => void) {
@@ -18,7 +60,7 @@ function cleanupGraphWorkersLocked(state: GraphWorkspaces, lockRoot: string, orc
 	const retained: Array<{ path: string; reason: string }> = []
 	const assertNoActiveGraph = (identity: string) => {
 		for (const entry of readdirSync(lockRoot).filter((name) => name.endsWith(".lock"))) {
-			const file = taskGraphWorkspaceRecordForLock(lockRoot, entry)
+			const file = taskGraphWorkspaceRecordForLock(lockRoot, entry, (key, run, contract) => verifyUndispatchedGraphRun(orca, key, run, contract))
 			if (!file) continue
 			let active: GraphWorkspaces
 			try { active = readGraphWorkspaces(file) }

@@ -258,7 +258,7 @@ function processIsAlive(pid: number): boolean {
 }
 
 // Only the primary Run lock owns workspaces.json; plan-chain locks point to it.
-export function taskGraphWorkspaceRecordForLock(root: string, entry: string): string | undefined {
+export function taskGraphWorkspaceRecordForLock(root: string, entry: string, verifyUndispatchedRun?: (runKey: string, runId: string, contract: string) => void): string | undefined {
 	const directory = join(root, entry)
 	const local = join(directory, "workspaces.json")
 	if (existsSync(local)) return local
@@ -277,8 +277,6 @@ export function taskGraphWorkspaceRecordForLock(root: string, entry: string): st
 	const workspace = join(primary, "workspaces.json")
 	if (primaryOwner && existsSync(workspace)) return workspace
 	for (const record of [owner, primaryOwner].filter(Boolean)) {
-		// A dead process is not proof that its approved workers/resources are gone.
-		if (record.orcaRunId !== undefined || record.planContract !== undefined) throw new Error(`${blocker} has approved or bound work but no workspace record at ${workspace}; resume that graph before cleanup.`)
 		if (record.pid === 0) {
 			if (typeof record.abandonedAt !== "string" || !Number.isFinite(Date.parse(record.abandonedAt))) throw new Error(`${blocker} has no verified abandonment record; cleanup must wait.`)
 		} else if (processIsAlive(record.pid)) {
@@ -286,7 +284,16 @@ export function taskGraphWorkspaceRecordForLock(root: string, entry: string): st
 			if (!record.processStart || !started || record.processStart === started) throw new Error(`${blocker} is still planning (PID ${record.pid}) without a workspace record; cleanup must wait.`)
 		}
 	}
-	// Stale pre-approval locks cannot own workers. Preserve their records for recovery.
+	if ([owner, primaryOwner].some((record) => record && (record.orcaRunId !== undefined || record.planContract !== undefined))) {
+		// A dead coordinator alone says nothing about its workers. Require live Orca evidence.
+		const runId = owner.orcaRunId ?? primaryOwner?.orcaRunId
+		const contract = owner.planContract ?? primaryOwner?.planContract
+		if (!verifyUndispatchedRun || typeof runId !== "string" || !/^run_[a-zA-Z0-9_-]+$/.test(runId) || typeof contract !== "string" || !contract) throw new Error(`${blocker} has approved or bound work but no workspace record at ${workspace}; resume that graph before cleanup.`)
+		try { verifyUndispatchedRun(owner.runKey, runId, contract) }
+		catch (error) { throw new Error(`${blocker}: ${error instanceof Error ? error.message : String(error)}`) }
+		if (existsSync(local) || existsSync(workspace) || JSON.stringify(readOwner(directory)) !== JSON.stringify(owner) || primaryOwner && JSON.stringify(readOwner(primary)) !== JSON.stringify(primaryOwner) || !primaryOwner && existsSync(primary)) throw new Error(`${blocker} changed during reconciliation; retry cleanup.`)
+	}
+	// Preserve dormant records for resume; this neither completes a Run nor deletes its locks.
 	return undefined
 }
 
