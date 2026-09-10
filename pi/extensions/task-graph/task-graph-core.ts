@@ -257,6 +257,39 @@ function processIsAlive(pid: number): boolean {
 	}
 }
 
+// Only the primary Run lock owns workspaces.json; plan-chain locks point to it.
+export function taskGraphWorkspaceRecordForLock(root: string, entry: string): string | undefined {
+	const directory = join(root, entry)
+	const local = join(directory, "workspaces.json")
+	if (existsSync(local)) return local
+	const readOwner = (path: string) => {
+		try {
+			const owner = JSON.parse(readFileSync(join(path, "owner.json"), "utf8"))
+			if (typeof owner.key !== "string" || !owner.key || typeof owner.runKey !== "string" || !owner.runKey || typeof owner.token !== "string" || !owner.token || !Number.isSafeInteger(owner.pid) || owner.pid < 0 || owner.processStart !== undefined && (typeof owner.processStart !== "string" || !owner.processStart) || basename(path) !== `${createHash("sha256").update(owner.key).digest("hex")}.lock`) throw new Error()
+			return owner
+		} catch { throw new Error(`Graph lock ${path} has missing or invalid ownership metadata; cleanup must wait.`) }
+	}
+	const owner = readOwner(directory)
+	const primary = join(root, `${createHash("sha256").update(owner.runKey).digest("hex")}.lock`)
+	const primaryOwner = primary === directory ? owner : existsSync(primary) ? readOwner(primary) : undefined
+	const blocker = `Graph lock ${directory} (target ${owner.runKey}, Run ${owner.orcaRunId ?? primaryOwner?.orcaRunId ?? "unbound"})`
+	if (primaryOwner && (primaryOwner.key !== owner.runKey || primaryOwner.runKey !== owner.runKey || owner.orcaRunId && primaryOwner.orcaRunId !== owner.orcaRunId || owner.planContract && primaryOwner.planContract !== owner.planContract)) throw new Error(`${blocker} disagrees with its primary lock ${primary}; cleanup must wait.`)
+	const workspace = join(primary, "workspaces.json")
+	if (primaryOwner && existsSync(workspace)) return workspace
+	for (const record of [owner, primaryOwner].filter(Boolean)) {
+		// A dead process is not proof that its approved workers/resources are gone.
+		if (record.orcaRunId !== undefined || record.planContract !== undefined) throw new Error(`${blocker} has approved or bound work but no workspace record at ${workspace}; resume that graph before cleanup.`)
+		if (record.pid === 0) {
+			if (typeof record.abandonedAt !== "string" || !Number.isFinite(Date.parse(record.abandonedAt))) throw new Error(`${blocker} has no verified abandonment record; cleanup must wait.`)
+		} else if (processIsAlive(record.pid)) {
+			const started = processStartToken(record.pid)
+			if (!record.processStart || !started || record.processStart === started) throw new Error(`${blocker} is still planning (PID ${record.pid}) without a workspace record; cleanup must wait.`)
+		}
+	}
+	// Stale pre-approval locks cannot own workers. Preserve their records for recovery.
+	return undefined
+}
+
 function taskGraphLockValuesForRun(root: string, runKey: string, field: string): string[] {
 	if (!existsSync(root)) return []
 	return [...new Set(readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name.endsWith(".lock")).flatMap((entry) => {

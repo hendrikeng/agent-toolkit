@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
-import { acquireTaskGraphMutationLock, releaseTaskGraphLock } from "./task-graph-core.ts"
+import { acquireTaskGraphMutationLock, releaseTaskGraphLock, taskGraphWorkspaceRecordForLock } from "./task-graph-core.ts"
 import { graphDirtyPaths, graphGit, readGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkspaces } from "./workspaces.ts"
 
 type OrcaJson = (args: string[]) => any
@@ -18,10 +18,12 @@ function cleanupGraphWorkersLocked(state: GraphWorkspaces, lockRoot: string, orc
 	const retained: Array<{ path: string; reason: string }> = []
 	const assertNoActiveGraph = (identity: string) => {
 		for (const entry of readdirSync(lockRoot).filter((name) => name.endsWith(".lock"))) {
-			const file = join(lockRoot, entry, "workspaces.json")
-			if (!existsSync(file)) throw new Error("An unfinished graph has no workspace record; cleanup must wait.")
-			const active = JSON.parse(readFileSync(file, "utf8")) as GraphWorkspaces
-			if (active.repositories.some((repo) => repo.identity === identity)) throw new Error("An unfinished graph uses this repository; cleanup must wait.")
+			const file = taskGraphWorkspaceRecordForLock(lockRoot, entry)
+			if (!file) continue
+			let active: GraphWorkspaces
+			try { active = readGraphWorkspaces(file) }
+			catch { throw new Error(`Graph workspace record ${file} is invalid; cleanup must wait.`) }
+			if (active.repositories.some((repo) => repo.identity === identity)) throw new Error(`An unfinished graph uses this repository (Run ${active.runId ?? "unbound"}, workspace record ${file}); cleanup must wait.`)
 		}
 	}
 	const tasks = orca(["orchestration", "task-list", "--run", state.runId, "--json"])?.result

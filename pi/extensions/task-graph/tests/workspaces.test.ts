@@ -6,7 +6,7 @@ import { join } from "node:path"
 import test from "node:test"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphFile, graphGit, graphInput, graphRepositoryMap, graphWritePath, importGraphInputs, integrateGraphWorker, readGraphWorkspaces, saveGraphWorkspaces, verifyGraphChanges, verifyGraphWorkspace, type GraphWorkerWorkspace } from "../workspaces.ts"
 import { cleanupGraphWorkers } from "../cleanup.ts"
-import { acquireTaskGraphMutationLock, releaseTaskGraphLock, taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.ts"
+import { abandonTaskGraphLock, acquireTaskGraphLock, acquireTaskGraphMutationLock, bindTaskGraphLockToOrcaRun, bindTaskGraphLockToPlanContract, releaseTaskGraphLock, taskGraphStandaloneOrca, type TaskGraphPlan } from "../task-graph-core.ts"
 
 Object.assign(process.env, { GIT_AUTHOR_NAME: "Graph Test", GIT_AUTHOR_EMAIL: "graph@example.com", GIT_COMMITTER_NAME: "Graph Test", GIT_COMMITTER_EMAIL: "graph@example.com" })
 const plan: TaskGraphPlan = { objective: "Fixture", mode: "execute", tasks: ["a", "b"].map((id) => ({ id, goal: id, repository: ".", depends_on: [], owns: [`src/${id}.ts`], specialty: "test", thinking: "medium", done_when: ["checked"], validation: "test" })) }
@@ -126,6 +126,84 @@ test("approved cleanup removes only integrated workers, including approved ignor
 		assert.ok(existsSync(f.repo.workspace!.path!))
 		assert.equal(readFileSync(join(f.repo.workspace!.path!, "src/a.ts"), "utf8"), "implemented\n")
 		assert.equal(readGraphWorkspaces(f.file).workers[0].cleanup, "removed")
+	} finally { f.cleanup() }
+})
+
+test("cleanup follows secondary locks to an unrelated Run and preserves abandoned pre-approval records", () => {
+	const f = completedFixture()
+	const other = fixture()
+	try {
+		const stale = acquireTaskGraphLock(f.lockRoot, "abandoned-planning")
+		abandonTaskGraphLock(stale)
+		const before = readFileSync(join(stale.path, "owner.json"), "utf8")
+		const runKey = "unrelated-plan-chain"
+		const primary = acquireTaskGraphLock(f.lockRoot, runKey)
+		const secondary = acquireTaskGraphLock(f.lockRoot, "unrelated-plan", process.pid, runKey)
+		for (const lock of [primary, secondary]) {
+			bindTaskGraphLockToOrcaRun(lock, "run_other")
+			bindTaskGraphLockToPlanContract(lock, JSON.stringify(plan))
+		}
+		const active = captureGraphWorkspaces(other.source, plan)
+		active.runId = "run_other"
+		saveGraphWorkspaces(join(primary.path, "workspaces.json"), active)
+		assert.equal(existsSync(join(secondary.path, "workspaces.json")), false)
+		const result = cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist)
+		assert.deepEqual(result.removed, [f.worker.path])
+		assert.deepEqual(result.retained, [])
+		assert.equal(result.deliveries.length, 1)
+		assert.equal(readFileSync(join(stale.path, "owner.json"), "utf8"), before)
+		assert.ok(existsSync(join(primary.path, "workspaces.json")))
+		assert.ok(existsSync(join(secondary.path, "owner.json")))
+	} finally { other.cleanup(); f.cleanup() }
+})
+
+test("cleanup names live, bound and malformed missing-workspace locks rather than deleting them", () => {
+	const f = completedFixture()
+	try {
+		const lock = acquireTaskGraphLock(f.lockRoot, "missing-workspace")
+		const clean = () => cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist)
+		const blocked = (reason: RegExp) => {
+			const result = clean()
+			assert.deepEqual(result.removed, [])
+			assert.match(result.retained[0].reason, reason)
+			assert.ok(result.retained[0].reason.includes(lock.path))
+			assert.ok(existsSync(f.worker.path!))
+			assert.equal(f.commands.some((args) => args[1] === "rm"), false)
+		}
+		blocked(/still planning/)
+		bindTaskGraphLockToPlanContract(lock, JSON.stringify(plan))
+		bindTaskGraphLockToOrcaRun(lock, "run_recover_me")
+		abandonTaskGraphLock(lock)
+		blocked(/Run run_recover_me.*approved or bound work/)
+		writeFileSync(join(lock.path, "owner.json"), "invalid json")
+		blocked(/invalid ownership metadata/)
+		const owner = { key: "missing-workspace", runKey: "missing-workspace", token: "fixture", pid: process.pid, processStart: 42 }
+		writeFileSync(join(lock.path, "owner.json"), JSON.stringify(owner))
+		blocked(/invalid ownership metadata/)
+	} finally { f.cleanup() }
+})
+
+test("secondary locks still block shared repositories and inconsistent or missing primary records", () => {
+	const f = completedFixture()
+	try {
+		// Insert the secondary first so it must resolve the primary rather than fail on enumeration order.
+		const secondary = acquireTaskGraphLock(f.lockRoot, "shared-plan", process.pid, "shared-run")
+		const primary = acquireTaskGraphLock(f.lockRoot, "shared-run")
+		const active = structuredClone(f.state)
+		active.runId = "run_shared"
+		saveGraphWorkspaces(join(primary.path, "workspaces.json"), active)
+		const clean = () => cleanupGraphWorkers(f.state, f.lockRoot, f.orca, f.persist)
+		assert.match(clean().retained[0].reason, /unfinished graph uses this repository.*run_shared/)
+		writeFileSync(join(primary.path, "workspaces.json"), "{}")
+		assert.match(clean().retained[0].reason, /workspace record .* is invalid/)
+		rmSync(join(primary.path, "workspaces.json"))
+		bindTaskGraphLockToOrcaRun(secondary, "run_shared")
+		assert.match(clean().retained[0].reason, /disagrees|still planning/)
+		releaseTaskGraphLock(primary)
+		abandonTaskGraphLock(secondary)
+		assert.match(clean().retained[0].reason, /approved or bound work/)
+		assert.ok(existsSync(f.worker.path!))
+		assert.equal(f.commands.some((args) => args[1] === "rm"), false)
 	} finally { f.cleanup() }
 })
 
