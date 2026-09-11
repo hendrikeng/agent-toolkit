@@ -1,16 +1,15 @@
 const assert = require('node:assert/strict')
-const { spawnSync } = require('node:child_process')
+const { execFileSync, spawnSync } = require('node:child_process')
 const { mkdtempSync, readFileSync, writeFileSync, existsSync } = require('node:fs')
 const { join } = require('node:path')
 const { tmpdir } = require('node:os')
 const test = require('node:test')
 
 test('guard rejects adjacent metadata selectors, hook bypasses, output writes and inherited executable overrides', () => {
- const cwd = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'git-graph-boundaries-'))
+ const cwd = JSON.parse(execFileSync('git-test', ['create'], { encoding: 'utf8' })).path
  const guard = join(__dirname, 'git-yolo-guard')
- const environment = { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' }
+ const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' }
  const run = (args, env = {}) => spawnSync(guard, args, { cwd, encoding: 'utf8', env: { ...environment, ...env } })
- assert.equal(run(['init', '--quiet']).status, 0)
  writeFileSync(join(cwd, 'file'), 'keep\n')
  assert.equal(run(['add', '--', 'file']).status, 0)
  assert.equal(run(['commit', '-m', 'fixture']).status, 0)
@@ -50,12 +49,50 @@ test('guard rejects adjacent metadata selectors, hook bypasses, output writes an
   ['diff', '--textcon'], ['diff', '--ext-dif'], ['diff', '--out=forbidden'],
   ['diff', '--output=forbidden'], ['log', '--output', 'forbidden'], ['show', '--ext-diff'], ['diff', '--textconv'],
   ['push', '--dry-run'], ['-C', cwd, 'push', '--force'], ['clean', '-fdx'], ['reset', '--hard'],
+  ['rebase'], ['rebase', '--exec', driver], ['rebase', '-x', driver],
+  ['init', '--template=elsewhere'], ['init', '--separate-git-dir=elsewhere'],
+  ['remote', 'set-url', 'origin', cwd], ['remote', '-v', 'set-url', 'origin', cwd],
+  ['remote', '--verbose', 'remove', 'origin'], ['remote', 'add', 'other', cwd],
+  ['clone', '-c', 'core.hooksPath=elsewhere', cwd, 'clone'],
+  ['clone', '-qcprotocol.file.allow=always', cwd, 'clone'],
+  ['clone', '--conf=core.hooksPath=elsewhere', cwd, 'clone'],
+  ['clone', '--tem=elsewhere', cwd, 'clone'], ['clone', '--separate-git-dir=elsewhere', cwd, 'clone'],
+  ['clone', '-u', driver, cwd, 'clone'], ['clone', '-qu' + driver, cwd, 'clone'],
+  ['fetch', '--upload-pack', driver, cwd], ['fetch', '--upload-p=' + driver, cwd],
+  ['fetch', '--exec=' + driver, cwd], ['fetch', '--update-head-ok', cwd],
  ]) assert.equal(run(args).status, 126, args.join(' '))
- for (const name of ['GIT_CONFIG', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_GLOBAL', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_EXTERNAL_DIFF', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH']) assert.equal(run(['status', '--short'], { [name]: 'fixture-override' }).status, 126, name)
+ for (const name of ['GIT_CONFIG', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM', 'GIT_GRAFT_FILE', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_EXTERNAL_DIFF', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH']) assert.equal(run(['status', '--short'], { [name]: 'fixture-override' }).status, 126, name)
+ const reviewEnv = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_GRAFT_FILE: '/dev/null' }
+ for (const args of [['status', '--short'], ['diff'], ['config', '--local', '--path', '--get', 'alias.x']]) {
+  const result = run(args, reviewEnv)
+  assert.equal(result.status, 0, result.stderr)
+ }
+ assert.equal(run(['status'], { ...reviewEnv, GIT_CONFIG_GLOBAL: configPath }).status, 126)
+ assert.equal(run(['status'], { ...reviewEnv, GIT_CONFIG_NOSYSTEM: '0' }).status, 126)
+ assert.equal(run(['status'], { ...reviewEnv, GIT_CONFIG_COUNT: '0' }).status, 0)
+ assert.equal(run(['status'], { GIT_CONFIG_COUNT: '0', GIT_CONFIG_KEY_0: 'core.sshCommand', GIT_CONFIG_VALUE_0: driver }).status, 126)
+ for (const keys of [['credential.interactive', 'credential.guiPrompt'], ['credential.guiPrompt', 'credential.interactive']]) {
+  const transport = { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: keys[0], GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: keys[1], GIT_CONFIG_VALUE_1: 'false' }
+  assert.equal(run(['status', '--short'], transport).status, 0, 'safe settings injected after launcher startup must work')
+  for (const key of keys) {
+   const result = run(['config', '--get', key], transport)
+   assert.equal(result.status, 0, result.stderr)
+   assert.equal(result.stdout.trim(), 'false', 'the guard must retain fixed non-interactive credentials')
+  }
+  for (const extra of [
+   { GIT_CONFIG_COUNT: '3' }, { GIT_CONFIG_VALUE_0: 'true' }, { GIT_CONFIG_KEY_0: 'core.sshCommand' },
+   { GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: driver }, { GIT_CONFIG_PARAMETERS: 'unsafe' },
+  ]) assert.equal(run(['status'], { ...transport, ...extra }).status, 126, 'other inherited configuration remains denied')
+ }
  assert.equal(run(['rev-parse', 'HEAD']).stdout, head)
  assert.equal(readFileSync(configPath, 'utf8'), config)
  assert.deepEqual(readFileSync(join(cwd, '.git/index')), index)
  assert.equal(readFileSync(join(cwd, 'file'), 'utf8'), 'changed for driver checks\n')
  assert.equal(existsSync(join(cwd, 'forbidden-driver')), false)
  assert.equal(existsSync(join(cwd, 'forbidden')), false)
+ const clone = join(cwd, 'clone')
+ const result = run(['clone', '--no-hardlinks', '-b', run(['branch', '--show-current']).stdout.trim(), cwd, clone])
+ assert.equal(result.status, 0, result.stderr)
+ assert.equal(run(['-C', clone, 'rev-parse', 'HEAD']).stdout, head)
+ assert.equal(run(['fetch', cwd]).status, 0)
 })

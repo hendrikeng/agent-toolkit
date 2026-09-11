@@ -1,0 +1,58 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { readFileSync, mkdirSync, mkdtempSync, writeFileSync } = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const { join } = require('node:path')
+const launcher = readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
+const installer = readFileSync(join(__dirname, '../../install.sh'), 'utf8')
+function checkHeredocs(source) {
+ const blocks = [...source.matchAll(/<<'([A-Z_]+)'\n([\s\S]*?)\n\1\b/g)]
+ assert.ok(blocks.length)
+ for (const [, delimiter, body] of blocks) assert.equal((body.match(/'/g) || []).length % 2, 0, `Unbalanced apostrophe in ${delimiter} heredoc`)
+}
+test('launcher avoids macOS Bash 3.2 unmatched-heredoc-apostrophe regression', () => {
+ checkHeredocs(launcher)
+ assert.throws(() => checkHeredocs(launcher.replace('const scratchRoot =', "// Orca's workspace\nconst scratchRoot =")), /Unbalanced apostrophe/)
+})
+test('installer requires an explicit defaults or restrictions choice for an existing policy', () => {
+ const root = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT, 'install-choice-'))
+ mkdirSync(join(root, 'shared/agent-safety'), { recursive: true })
+ for (const name of ['agent-yolo', 'git-yolo-guard']) writeFileSync(join(root, 'shared/agent-safety', name), readFileSync(join(__dirname, name)))
+ // Exercise the unchanged argument parser only; never run installation side effects.
+ const parser = installer.slice(0, installer.indexOf('initialize_blueprint_submodule()'))
+ writeFileSync(join(root, 'install.sh'), parser + '\nprintf "%s|%s" "$use_defaults" "$restrictions"\n')
+ const agent = join(root, 'agent'), policy = join(agent, 'extensions/pi-permission-system/config.json')
+ mkdirSync(join(agent, 'extensions/pi-permission-system'), { recursive: true })
+ writeFileSync(policy, '{"custom":"preserve"}')
+ const run = args => spawnSync('/bin/bash', [join(root, 'install.sh'), ...args], { env: { ...process.env, HOME: root, AGENT_TOOLKIT_PI_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent }, encoding: 'utf8' })
+ assert.equal(run([]).status, 2)
+ assert.equal(run(['--accept-development-roots']).status, 1)
+ const defaults = run(['--accept-development-roots', '--use-defaults'])
+ assert.equal(defaults.status, 0, defaults.stderr)
+ assert.match(defaults.stdout, /custom restrictions will NOT be imported/)
+ assert.ok(defaults.stdout.endsWith('true|'))
+ const restrictions = join(root, 'reviewed.json'); writeFileSync(restrictions, '{}')
+ const custom = run(['--accept-development-roots', '--restrictions', restrictions])
+ assert.equal(custom.status, 0, custom.stderr)
+ assert.ok(custom.stdout.endsWith(`false|${restrictions}`))
+ assert.equal(run(['--accept-development-roots', '--use-defaults', '--restrictions', restrictions]).status, 2)
+ assert.equal(readFileSync(policy, 'utf8'), '{"custom":"preserve"}')
+})
+
+test('source verifier reports a missing scratch prerequisite before running checks', () => {
+ const result = spawnSync('/bin/bash', [join(__dirname, '../../verify.sh'), '--source', 'unused-package'], { env: { ...process.env, AGENT_TOOLKIT_SCRATCH_ROOT: '' }, encoding: 'utf8' })
+ assert.equal(result.status, 2)
+ assert.match(result.stderr, /AGENT_TOOLKIT_SCRATCH_ROOT is required/)
+})
+
+test('installer validates shell files before side effects and selects the complete bundle atomically', () => {
+ const gate = installer.indexOf('/bin/bash -n "$script"')
+ assert.ok(gate > 0 && gate < installer.indexOf('timestamp='))
+ const activation = installer.indexOf('activate "$permission_bundle" "$target"')
+ assert.ok(activation > installer.lastIndexOf('\ninstall_pi_packages\n'))
+ assert.ok(activation > installer.indexOf('verify "$permission_bundle"'))
+ assert.ok(activation > installer.indexOf('Refusing an unmanaged Pi launcher'))
+ assert.doesNotMatch(installer, /install_pi_policy\(\)|repository-trust|permission-current/)
+ assert.doesNotMatch(launcher, /ENFORCE_REPOSITORY_TRUST|approvedExecution|trustedRepositories/)
+ assert.match(installer, /--accept-development-roots/)
+})

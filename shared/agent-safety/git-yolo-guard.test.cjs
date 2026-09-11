@@ -4,13 +4,17 @@ const { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, rmSync
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const test = require('node:test')
+// Fixtures own their Git configuration; inherited launcher settings are not test inputs.
+const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
 
 test('allows explicit config reads and GitHub CLI repository resolution without config writes', () => {
   const cwd = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'git-guard-config-'))
   const guard = join(__dirname, 'git-yolo-guard')
-  const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8' })
+  const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8', env: fixtureEnv })
   try {
     assert.equal(run('init').status, 0)
+    assert.equal(run('config', '--get', 'credential.interactive').stdout.trim(), 'false')
+    assert.equal(run('config', '--get', 'credential.guiPrompt').stdout.trim(), 'false')
     const config = join(cwd, '.git/config')
     const content = readFileSync(config, 'utf8') + '\n[remote "origin"]\n\turl = https://github.com/example/project.git\n\tgh-resolved = base\n[test]\n\tvalue = first\n\tvalue = second\n'
     writeFileSync(config, content)
@@ -45,7 +49,7 @@ test('allows explicit config reads and GitHub CLI repository resolution without 
       mkdirSync(bin)
       symlinkSync(guard, join(bin, 'git'))
       const result = spawnSync('gh', ['repo', 'set-default', '--view'], {
-        cwd, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 'fixture-token', GH_HOST: 'github.com', GH_REPO: '', GH_CONFIG_DIR: join(cwd, 'gh-config') },
+        cwd, encoding: 'utf8', env: { ...fixtureEnv, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 'fixture-token', GH_HOST: 'github.com', GH_REPO: '', GH_CONFIG_DIR: join(cwd, 'gh-config') },
       })
       assert.equal(result.status, 0, result.stderr)
       assert.equal(result.stdout.trim(), 'example/project')
@@ -59,8 +63,8 @@ test('allows explicit config reads and GitHub CLI repository resolution without 
 test('allows read-only ancestry queries and new-branch switch while preserving local work', () => {
   const cwd = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'git-guard-test-'))
   const guard = join(__dirname, 'git-yolo-guard')
-  const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' } }).trim()
-  const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8' })
+  const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...fixtureEnv, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' } }).trim()
+  const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8', env: fixtureEnv })
   try {
     git('init')
     writeFileSync(join(cwd, 'tracked'), 'original\n')
@@ -72,7 +76,8 @@ test('allows read-only ancestry queries and new-branch switch while preserving l
     writeFileSync(join(cwd, 'untracked'), 'keep\n')
     const before = git('status', '--porcelain')
     const head = git('rev-parse', 'HEAD')
-    git('remote', 'add', 'origin', cwd)
+    const config = join(cwd, '.git/config')
+    writeFileSync(config, readFileSync(config, 'utf8') + `\n[remote "origin"]\n\turl = ${JSON.stringify(cwd)}\n`)
     git('fetch', 'origin', 'HEAD:refs/remotes/origin/dev')
     git('fetch', 'origin', 'HEAD:refs/remotes/origin/main')
     for (const prefix of [[], ['-C', cwd], ['-c', 'diff.suppressBlankEmpty=false']]) {

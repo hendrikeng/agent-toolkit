@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { createRequire } from 'node:module'
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, join, resolve } from "node:path"
@@ -20,17 +21,28 @@ export interface TaskGraphPlan {
  tasks: TaskGraphTask[]
  foundations: Array<{ repository: string; commit: string }>
  inputs?: Array<{ repository: string; paths: string[] }>
+ resources?: Array<{ id: string; type: "postgres" | "storage" | "scanner"; image: string; purpose: string; memoryMiB: number; storageMiB: number; lifetimeSeconds: number; reset?: string; targets?: string[]; database?: string; downloads?: string[] }>
 }
 export type Orca = (args: string[]) => any
 export const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex")
-export function gitEnvironment(): NodeJS.ProcessEnv {
- return { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))), GIT_OPTIONAL_LOCKS: "0", GIT_LITERAL_PATHSPECS: "1", ...Object.fromEntries(Object.entries(process.env).filter(([key]) => /^GIT_(AUTHOR|COMMITTER)_/.test(key))) }
+export function gitEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+ return { ...Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith("GIT_"))), GIT_OPTIONAL_LOCKS: "0", GIT_LITERAL_PATHSPECS: "1", GIT_TERMINAL_PROMPT: "0", ...Object.fromEntries(Object.entries(env).filter(([key]) => /^GIT_(AUTHOR|COMMITTER)_/.test(key))) }
+}
+export function graphDevelopmentPath(value: string, base = process.cwd()): string {
+ const bundle = process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE
+ if (!bundle) throw new Error('Installation [development-roots-v1]: missing selected bundle')
+ const policy = createRequire(import.meta.url)(join(bundle, 'development-policy.cjs'))
+ const literal = isAbsolute(value) ? value : `${base}/${value}`
+ const physical = policy.assertDevelopmentPath(literal, policy.developmentRoots(process.env.HOME))
+ if (physical !== resolve(literal)) throw new Error('Select a physical graph path without a symlink alias.')
+ return physical
 }
 export function graphGit(root: string, ...args: string[]): string {
- return execFileSync("git", ["--no-replace-objects", "-C", root, ...args], { encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: gitEnvironment() }).trimEnd()
+ root = graphDevelopmentPath(root)
+ return execFileSync("git", ["--no-replace-objects", "-C", root, ...args], { encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...gitEnvironment(), AGENT_TOOLKIT_GIT_INSPECTION_ONLY: "false" } }).trimEnd()
 }
 export function repositoryIdentity(root: string): string {
- return realpathSync(resolve(root, graphGit(root, "rev-parse", "--git-common-dir")))
+ return graphDevelopmentPath(graphGit(root, "rev-parse", "--git-common-dir"), root)
 }
 export function repositoryRoot(root: string): string {
  return realpathSync(graphGit(root, "rev-parse", "--show-toplevel"))
@@ -50,26 +62,13 @@ export function owns(owners: string[], path: string): boolean {
 export function assertGraphMode(mode: TaskGraphPlan["mode"], path: string): void {
  if (mode === "plan-only" && (!path.startsWith("docs/") || !path.endsWith(".md") || path.toLowerCase().startsWith("docs/exec-plans/"))) throw new Error("Planning-only writes require Markdown under docs/, outside docs/exec-plans/. No implementation or promotion.")
 }
-// No shell language: these are approved repository checks, not an alternate command channel.
+// This validates the evidence contract, not a second command language. The
+// native parser and operation policy authorize every execution separately.
 export function assertGraphShell(command: string): void {
- if (!command.trim() || /[\n\r;&|`$<>\\]/.test(command)) throw new Error("Graph checks must be a single command without chaining, substitution, redirection or escapes.")
- let words = command.match(/"[^"\n]*"|'[^'\n]*'|[^\s"']+/g)
- if (!words || words.join(" ") !== command.trim().replace(/ +/g, " ") || words.some(word => /^(?:[A-Za-z_][A-Za-z0-9_]*=|\.\.[/\\]|~\/)/.test(word))) throw new Error("Graph checks do not accept environment overrides or parent-relative paths.")
- if (!/^(?:node|npm|pnpm|yarn|bun|uv|pytest|cargo|go|make)$/.test(words[0])) throw new Error("Graph shell permits declared repository checks only. Git, gh, shells, workers, publishing and deletion need separate tools or authorization.")
- const tokens = words
- words = words.map(word => /^["']/.test(word) ? word.slice(1, -1) : word)
- if (words.some(word => /^(?:[A-Za-z_][A-Za-z0-9_]*=|\.\.[/\\]|~\/)/.test(word))) throw new Error("Graph checks do not accept quoted environment overrides or parent-relative paths.")
- if (words[0] === "uv") {
-  if (words[1] === "run") {
-   let executable = 2
-   while (["--locked", "--frozen", "--no-sync"].includes(words[executable])) executable++
-   assertGraphShell(tokens.slice(executable).join(" "))
-  } else if (words[1] !== "sync") throw new Error("Graph uv checks support sync or run with an approved check executable only.")
- }
- if (words.some(word => /^-(?:e|p|c|C)/.test(word) || ["node", "bun"].includes(words![0]) && /^-r/.test(word)) || words.some(word => /^(?:-e|-p|--eval|--print|--require|--import|--loader|--experimental-loader|--prefix|--dir|--directory|--cwd|-C|--config|--git-dir|--work-tree)(?:=|$)/.test(word)) || words.some(word => /^(?:publish|pub|deploy|release|exec|explore|dlx|x|remove|uninstall)$/.test(word))) throw new Error("Executable/config/path overrides and publishing are not graph checks.")
+ if (typeof command !== "string" || !command.trim() || command.includes("\0")) throw new Error("A nonempty validation command is required.")
 }
 export function validateTaskGraph(plan: TaskGraphPlan, root: string): void {
- if (Object.keys(plan).some(key => !["objective", "mode", "tasks", "foundations", "inputs"].includes(key))) throw new Error("Unsupported graph option. Workers, cleanup and source-checkout execution were removed.")
+ if (Object.keys(plan).some(key => !["objective", "mode", "tasks", "foundations", "inputs", "resources"].includes(key))) throw new Error("Unsupported graph option. Workers, cleanup and source-checkout execution were removed.")
  if (!plan.objective?.trim() || !["plan-only", "execute"].includes(plan.mode) || !Array.isArray(plan.tasks) || !plan.tasks.length || plan.tasks.length > 12) throw new Error("A graph needs an objective, mode and one to twelve tasks.")
  const ids = new Set(plan.tasks.map(task => task.id))
  if (ids.size !== plan.tasks.length) throw new Error("Duplicate task IDs.")
@@ -78,7 +77,7 @@ export function validateTaskGraph(plan: TaskGraphPlan, root: string): void {
   if (Object.keys(task).some(key => !["id", "goal", "repository", "depends_on", "owns", "done_when", "validation", "setup"].includes(key)) || !/^[a-z0-9][a-z0-9-]*$/.test(task.id) || !task.goal?.trim() || !task.repository || !Array.isArray(task.owns) || !Array.isArray(task.depends_on) || !task.done_when?.length || task.done_when.some(item => !item.trim())) throw new Error("Invalid task contract.")
   if (task.depends_on.some(id => !completed.has(id)) || new Set(task.depends_on).size !== task.depends_on.length) throw new Error("List tasks in dependency order; dependencies must be unique earlier tasks.")
   completed.add(task.id)
-  const source = realpathSync(resolve(root, task.repository))
+  const source = graphDevelopmentPath(task.repository, root)
   if (repositoryRoot(source) !== source || source !== resolve(root, task.repository)) throw new Error("Select an exact physical Git repository root, without a symlink alias.")
   for (const path of task.owns) {
    literalPath(path)

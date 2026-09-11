@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# The installed launcher is the single atomic bundle selector. No second pointer
+# can expose a launcher and dependency set from different installations.
+selected=$(readlink "${BASH_SOURCE[0]}") || { printf 'Installation [development-roots-v1]: invoke the installed pi-yolo selector\n' >&2; exit 1; }
+bundle=${selected%/dispatch}
+[[ $selected == "$bundle/dispatch" && $bundle == "$HOME/.local/libexec/agent-toolkit/permission-bundles/"* && -f $bundle/manifest.json ]] || { printf 'Installation [development-roots-v1]: invalid bundle selection\n' >&2; exit 1; }
+AGENT_TOOLKIT_PERMISSION_BUNDLE=$bundle exec "$bundle/pi-yolo" "$@"

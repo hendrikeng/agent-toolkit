@@ -17,9 +17,28 @@ test("literal ownership and planning boundary", () => {
  assert.doesNotThrow(() => assertGraphMode("plan-only", "docs/future/plan.md"))
  for (const path of ["src/code.ts", "docs/code.ts", "docs/exec-plans/active/plan.md", "docs/EXEC-PLANS/active/plan.md", "docs/exec-plans/completed/plan.md"]) assert.throws(() => assertGraphMode("plan-only", path), /Planning-only/)
 })
-test("approved command grammar blocks adjacent shell, environment, selectors and publishing forms", () => {
- for (const command of ["node check.cjs", "node 'check file.cjs'", "npm 'run' 'verify:full'", "pnpm test", "npm run verify:full", "cargo test", "uv run pytest", "uv run --locked pytest -q", "uv sync --locked", "make check"]) assert.doesNotThrow(() => assertGraphShell(command))
- for (const command of ["node check.cjs; git push", "node check.cjs && node other.cjs", "node check.cjs\ngit push", "node $(git push)", "node `git push`", "node check.cjs > ../file", "node check.cjs | tee file", "NODE_OPTIONS=evil node check.cjs", "env node check.cjs", "command node check.cjs", "bash -c 'node check.cjs'", "node -e 'process.exit()'", "node --import=evil check.cjs", "node --require evil check.cjs", "pnpm --dir ../repo test", "pnpm --config=evil test", "npm --prefix=/elsewhere test", "npm publish", "uv run python -c 'print(1)'", "uv run sh -c 'gh pr create'", "uv run --locked sh script.sh", "uv --offline run sh script.sh", "uv tool run sh script.sh", "npm explore package -- sh script.sh", "npm 'publish'", "npm 'pub'", "node '--eval' 'process.exit(0)'", "node '-e0'", "node -e0", "node -rmodule check.cjs", "node '../source/check.cjs'", "npm '--prefix=/elsewhere' test", "pnpm 'exec' gh pr create", "pnpm exec gh pr create", "pnpm dlx tool", "git status", "git -C repo status", "git -c alias.x=push x", "gh repo view", "gh api -X POST /repo", "orca orchestration dispatch --task x", "/usr/bin/git push", "rm file", "node ../source/check.cjs", "node \"unterminated"]) assert.throws(() => assertGraphShell(command), undefined, command)
+test("graph declaration shape does not introduce another shell language", () => {
+ for (const command of [
+  "node check.cjs", "node 'check file.cjs'", "npm run verify:full", "cargo test", "make check",
+  "sh scripts/check.sh", "bash -n scripts/check.sh", "./scripts/check.sh --fast",
+  "node --import tsx scripts/check.ts", "node --require local-module check.cjs",
+  "python -m pytest", "python3 -B -S tools/offline_pytest.py feeds -q",
+  "uv run --locked sh scripts/check.sh", "pnpm exec local-checker --config test.config.ts",
+  "pnpm exec node check.cjs", "pnpm exec bash scripts/check.sh", "tsc -p tsconfig.json",
+  "pnpm --filter @booking-os/api exec vitest run test/integration/kysely-schema.integration.test.ts",
+ ]) assert.doesNotThrow(() => assertGraphShell(command), command)
+ for (const command of [
+  "node check.cjs; git push", "node check.cjs && node other.cjs", "node check.cjs\ngit push",
+  "node $(git push)", "node `git push`", "node check.cjs > ../file", "node check.cjs | tee file",
+  "NODE_OPTIONS=evil node check.cjs", "bash -c 'node check.cjs'", "node -e 'process.exit()'",
+  "uv run python -c 'print(1)'", "node '--eval' 'process.exit(0)'", "node '-e0'",
+  "node '../source/check.cjs'", "npm '--prefix=/elsewhere' test", "pnpm --dir=/outside test",
+  "npm publish", "npm 'pub'", "pnpm run deploy:staging", "pnpm exec gh pr create",
+  "git status", "git -C repo status", "gh repo view", "/usr/bin/git push", "GH pr create", "ENV GH pr create",
+  "orca orchestration dispatch --task x", "rm file", "psql database", "docker compose up",
+  "node \"unterminated",
+ ]) assert.doesNotThrow(() => assertGraphShell(command), 'Only native parsed-shell policy classifies operations: ' + command)
+ for (const command of ['', '  ', 'node\0check']) assert.throws(() => assertGraphShell(command))
 })
 test("legacy evidence remains unchanged; unrelated known scope is neither resumed nor presumed settled", () => {
  const root = scratch(), locks = join(root, "task-graph-locks")

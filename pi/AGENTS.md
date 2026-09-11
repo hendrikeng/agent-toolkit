@@ -8,8 +8,8 @@ When Pi runs in Orca, use the Orca CLI and its embedded browser for browser inte
 
 `/graph` uses one coordinator-owned worktree per writing repository. The coordinator writes tasks sequentially. Tasks do not imply spawned agents.
 Planning permits documentation only and ends without implementation. Execution requires a separate `/graph execute` approval with explicit foundation commits and new execution worktrees.
-Use the graph's scoped tools for task starts, exact checks, checkpoints, and closeout. Keep source checkouts, indexes, planning commits, and all retained worktrees unchanged.
-Repeat the exact graph command to resume its version-2 record. Never recapture later source edits or recreate a missing resource without its recorded identity.
+Use the graph's scoped tools for task starts, declared validation, checkpoints, and closeout. Native-policy-safe diagnostics can run in the active writing workspace after setup. Only declared validation on the clean checkpoint counts as completion evidence. Keep source checkouts, indexes, planning commits, and all retained worktrees unchanged.
+Repeat the exact graph command to resume its version-3 record. Version-2 approvals remain unchanged evidence and receive no expanded authority. Never recapture later source edits or recreate a missing resource without its recorded identity.
 Legacy graph records are evidence, not an execution path. Do not migrate, retire, delete, complete, or restart them. State retirement needs separate scope, verification, and authorization.
 
 ## Agent delegation
@@ -27,6 +27,38 @@ Use `AGENT_TOOLKIT_SCRATCH_ROOT` for temporary source copies, archive extraction
 For sessions started before this variable existed, use `~/Code/.agent-toolkit-scratch` directly: check that it is not a symlink, create it with mode `700` if missing, then create a unique task subdirectory. This location is already authorized by the existing launcher; no restart is needed. Keep unfinished validation files for resume. Do not delete them automatically on exit or bypass deletion guards for cleanup.
 
 A hard permission denial is not an approval prompt. Chat approval does not update the runtime policy. Do not retry an unchanged denied command, ask for ineffective chat approval, or claim that restarting the same launcher will fix it. For ordinary scratch work, use the authorized scratch directory. If the task requires the denied location itself, report the exact missing permission; do not change policy from inside the session or work around the restriction with another tool.
+
+## Development-root execution
+
+These instructions describe the explicitly installed `development-roots-v1` bundle. Source edits and `/reload` do not activate it. Earlier sessions retain their existing permissions. Never infer active authority from these instructions alone.
+
+After human acceptance, ordinary local builds, tests, lint, scripts, interpreters, and dependencies can run within physical `~/Code` and `~/orca/workspaces` roots. This includes future non-Git directories and sibling worktrees. Do not create repository-trust approvals or per-script exceptions. Symlink aliases do not grant authority outside the roots.
+Graph approval adds active-task ownership without replacing native shell policy. Use absolute workspace paths and select the exact repository for shell calls. Keep native asks and denials authoritative.
+Dependencies and hooks run as the local account. These workflow guards are not an OS sandbox. Root acceptance does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
+Use the declared local-resource tools for new task-owned resources. Resume by recorded identity. Only an authoritative loss permits a linked replacement. Uncertain state requires inspection, not recreation. Do not delete retained resources. Older PostgreSQL and Git helper notes below describe separately bounded legacy capabilities, not an expansion of root authority.
+Before service or database tests, inspect target selection, credentials, resource ownership, and cleanup. Stop if those boundaries are unclear. Git-history or database-administration fixtures need a separately bounded capability over newly created, identity-checked disposable resources. Do not weaken database guards to pass a test.
+
+## Disposable PostgreSQL tests
+
+After a full toolkit installation and a fresh `pi-yolo` session, use the managed `pg-test` helper for disposable PostgreSQL 17 tests:
+
+```sh
+pg-test start
+pg-test start-admin
+pg-test status <id>
+pg-test stop <id>
+```
+
+Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
+The default helper uses private scratch and an unprivileged database role. `start-admin` creates a separate new cluster with a non-superuser role that can create test databases and roles. It cannot upgrade or target an existing database. Neither profile grants superuser, replication, RLS bypass, or server-file/program privileges.
+The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
+Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
+A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.
+
+## Disposable Git-history tests
+
+After full reviewed installation, use `git-test create` to obtain a fresh fixture ID and repository path. Only `git-test run <id> <operation> <arguments>` can provide its bounded checkout, lightweight tag, commit-tree, and update-ref operations. Existing repositories, publishing, signing, and cleanup are not supported. Ordinary Git remains guarded.
+The helper checks exact directory identities, unchanged configuration, and unshared Git metadata before each operation. Do not forge fixture records, adapt it to an existing checkout, or use system Git after an ordinary guard denial. Keep all fixture files for diagnostics.
 
 ## Review artifacts
 

@@ -1,0 +1,75 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { patchFile, upgradeFromBackup } = require('./patch-permission-tool-visibility.cjs')
+
+// Synthetic patch anchors: no reads of denied installed package files.
+const file = 'handlers/gates/bash-command.ts'
+const original = [
+  '  resolver: ScopedPermissionResolver,\n): PermissionCheckResult {',
+  '    const base = resolver.resolve({',
+  '    const result =',
+  '      state: "ask",\n      toolName: "bash",',
+  '            state: "ask" as const,',
+].join('\n')
+
+test('pinned patch accepts clean or fully patched files, not mixed or obsolete patches', () => {
+  const patched = patchFile(file, original)
+  assert.notEqual(patched, original)
+  assert.equal(patchFile(file, patched), patched)
+  const obsolete = patched.replace('<approved-execution>', '<approved-graph-command>')
+  assert.throws(() => patchFile(file, obsolete), /Partial or incompatible/)
+  const mixed = patched.replace('            state: "deny" as const,', '            state: "ask" as const,')
+  assert.throws(() => patchFile(file, mixed), /Partial or incompatible/)
+  assert.throws(() => patchFile(file, patched + '\n            state: "deny" as const,'), /Partial or incompatible/)
+  assert.throws(() => patchFile(file, 'unknown upstream contents'), /Unexpected pinned source/)
+  assert.equal(patchFile('untouched.ts', 'unchanged'), 'unchanged')
+})
+
+test('only the complete graph-only patch can upgrade from its upstream backup', () => {
+  const pipeline = 'handlers/gates/tool-call-gate-pipeline.ts'
+  const pipelineOriginal = [
+    'import type { PathNormalizer } from "#src/path-normalizer";',
+    '    const normalizer = this.inputs.getPathNormalizer();',
+    '          normalizer,\n        );',
+    '    normalizer: PathNormalizer,\n  ): { toolCheck:',
+    '            this.resolver,\n          ),',
+  ].join('\n')
+  const pipelinePrevious = [
+    'import { PathNormalizer } from "#src/path-normalizer";',
+    `    const baseNormalizer = this.inputs.getPathNormalizer();
+    const scope = (globalThis as Record<symbol, unknown>)[Symbol.for("agent-toolkit.graph-permission-cwd")];
+    const cwd = typeof scope === "function" ? scope(tcc.toolName, tcc.input) : undefined;
+    if (cwd !== undefined && (typeof cwd !== "string" || !baseNormalizer.isAbsolute(cwd))) throw new Error("Invalid approved graph execution context");
+    const normalizer = cwd === undefined ? baseNormalizer : new PathNormalizer(baseNormalizer.flavor, cwd);
+    if (cwd !== undefined) tcc = { ...tcc, cwd };`,
+    '          normalizer,\n          cwd !== undefined && tcc.toolName === "bash",\n        );',
+    '    normalizer: PathNormalizer,\n    approvedGraph = false,\n  ): { toolCheck:',
+    '            this.resolver,\n            approvedGraph,\n          ),',
+  ].join('\n')
+  const bashPrevious = [
+    '  resolver: ScopedPermissionResolver,\n  approvedGraph = false,\n): PermissionCheckResult {',
+    '    const resolved = resolver.resolve({',
+    `    // Only the launcher-owned missing-trust fallback is replaced by exact task approval.
+    // Explicit global/project/agent/session denials and wrapper checks still apply.
+    const base = approvedGraph && resolved.state === "deny" && resolved.origin === "global" &&
+      resolved.matchedPattern === "*" && resolved.reason === "agent-toolkit: repository execution requires trust"
+      ? { ...resolved, state: "allow" as const, reason: undefined, matchedPattern: "<approved-graph-command>" }
+      : resolved;
+    const result =`,
+    '      state: "deny",\n      toolName: "bash",',
+    '            state: "deny" as const,',
+  ].join('\n')
+  for (const [name, upstream, previous] of [
+    [pipeline, pipelineOriginal, pipelinePrevious], [file, original, bashPrevious],
+  ]) {
+    const current = patchFile(name, upstream)
+    assert.throws(() => patchFile(name, previous), /Partial or incompatible/)
+    assert.equal(upgradeFromBackup(name, previous, upstream), current)
+    assert.equal(patchFile(name, current), current)
+    assert.throws(() => upgradeFromBackup(name, previous + '\nunknown edit', upstream), /Unrecognized/)
+    assert.throws(() => upgradeFromBackup(name, previous.replace('approvedGraph', 'approvedExecution'), upstream), /Unrecognized/)
+    assert.throws(() => upgradeFromBackup(name, previous, upstream + '\nother backup'), /Unrecognized/)
+    assert.throws(() => upgradeFromBackup(name, previous, current), /unpatched upstream backup/)
+    assert.throws(() => upgradeFromBackup(name, previous, 'unknown backup'), /Unexpected pinned source/)
+  }
+})

@@ -1,0 +1,230 @@
+// Read-only installed-parser integration against a generated scratch policy, never live policy.
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const { join } = require('node:path')
+const { homedir } = require('node:os')
+const { pathToFileURL, fileURLToPath } = require('node:url')
+const { registerHooks, stripTypeScriptTypes } = require('node:module')
+const { execFileSync } = require('node:child_process')
+const { VERSION, BEFORE, AFTER, FILES, patchSource, patchFile, install } = require('./patch-permission-tool-visibility.cjs')
+const { updateStore } = require('./repository-trust.cjs')
+
+async function main() {
+  const installed = join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR || join(homedir(), '.pi/agent'), 'npm/node_modules/@gotgenes/pi-permission-system')
+  assert.equal(JSON.parse(fs.readFileSync(join(installed, 'package.json'))).version, VERSION)
+  assert.equal(fs.readFileSync(join(__dirname, 'PI_PERMISSION_SYSTEM_VERSION'), 'utf8').trim(), VERSION)
+  const source = pathToFileURL(join(installed, 'src/')).href
+  // Node does not directly load this package's extensionless TypeScript imports.
+  // Transform only the inspected package; no dependency install or live file writes.
+  const hooks = registerHooks({
+    resolve(specifier, context, next) {
+      if (context.parentURL?.startsWith(source) && (specifier.startsWith('#src/') || specifier.startsWith('.'))) {
+        const url = specifier.startsWith('#src/') ? new URL(specifier.slice(5), source) : new URL(specifier, context.parentURL)
+        for (const suffix of ['', '.ts', '/index.ts']) {
+          const candidate = new URL(url.href + suffix)
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return { url: candidate.href, shortCircuit: true }
+        }
+      }
+      return next(specifier, context)
+    },
+    load(url, context, next) {
+      if (url.startsWith(source) && url.endsWith('.ts')) return {
+        format: 'module', shortCircuit: true,
+        source: stripTypeScriptTypes(patchFile(decodeURIComponent(url.slice(source.length)), fs.readFileSync(fileURLToPath(url), 'utf8')), { mode: 'transform' }),
+      }
+      return next(url, context)
+    },
+  })
+  const load = file => import(new URL(file, source).href)
+  try {
+    const { BashProgram } = await load('access-intent/bash/program.ts')
+    const { PathNormalizer } = await load('path-normalizer.ts')
+    const { posixPathFlavor } = await load('path/path-flavor.ts')
+    const { normalizeFlatConfig } = await load('normalize.ts')
+    const { evaluate, rewriteAsksToYolo } = await load('rule.ts')
+    const { resolveBashCommandCheck } = await load('handlers/gates/bash-command.ts')
+    const { resolveShellInvocation } = await load('access-intent/tool-kind.ts')
+    // Compile the actual visibility functions without loading Pi's host-dependent
+    // config/UI modules. This is not a full Pi lifecycle integration test.
+    const installedText = fs.readFileSync(join(installed, 'src/permission-manager.ts'), 'utf8')
+    const method = patchSource(installedText).match(/^  getToolPermission\([^;\n]+\{[\s\S]*?^  }/m)?.[0]
+    assert.ok(method, 'Expected pinned getToolPermission method')
+    const managerCode = stripTypeScriptTypes(`class PermissionManager {\n${method}\n}`)
+    const PermissionManager = new Function('evaluate', `${managerCode}\nreturn PermissionManager;`)(evaluate)
+    const prepText = fs.readFileSync(join(installed, 'src/handlers/before-agent-start.ts'), 'utf8')
+    const expose = prepText.match(/^export function shouldExposeTool\([\s\S]*?^}/m)?.[0]
+    assert.ok(expose, 'Expected pinned shouldExposeTool function')
+    const exposeCode = stripTypeScriptTypes(expose.replace('export function', 'function'))
+    const shouldExposeTool = new Function(`${exposeCode}\nreturn shouldExposeTool;`)()
+    const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || join(homedir(), 'Code/.agent-toolkit-scratch')
+    fs.mkdirSync(scratch, { recursive: true, mode: 0o700 })
+    assert.equal(fs.lstatSync(scratch).isSymbolicLink(), false, 'Scratch root must not be a symlink')
+    const root = fs.mkdtempSync(join(scratch, 'installed-permission-'))
+    const fixturePackage = join(root, 'package-fixture')
+    fs.mkdirSync(join(fixturePackage, 'src'), { recursive: true })
+    const fixtureMetadata = join(fixturePackage, 'package.json')
+    const fixtureSource = join(fixturePackage, 'src/permission-manager.ts')
+    const metadata = { name: '@gotgenes/pi-permission-system', version: VERSION }
+    fs.writeFileSync(fixtureMetadata, JSON.stringify(metadata))
+    const originalText = installedText.replace(AFTER, BEFORE)
+    const liveSources = new Map(FILES.map(name => [name, fs.readFileSync(join(installed, 'src', name), 'utf8')]))
+    for (const [name, text] of liveSources) {
+      const target = join(fixturePackage, 'src', name)
+      fs.mkdirSync(require('node:path').dirname(target), { recursive: true })
+      fs.writeFileSync(target, name === 'permission-manager.ts' ? originalText : text)
+      assert.equal(patchFile(name, patchFile(name, text)), patchFile(name, text), `idempotence: ${name}`)
+    }
+    install(fixturePackage)
+    install(fixturePackage)
+    assert.equal(fs.readFileSync(fixtureSource, 'utf8'), patchSource(originalText))
+    assert.equal(fs.readFileSync(`${fixtureSource}.agent-toolkit-original`, 'utf8'), originalText)
+    assert.equal(patchSource(patchSource(originalText)), patchSource(originalText))
+    assert.throws(() => patchSource('unexpected source'), /unexpected upstream/)
+    assert.throws(() => patchSource(`${BEFORE}\n${BEFORE}`), /unexpected upstream/)
+    fs.writeFileSync(fixtureMetadata, JSON.stringify({ ...metadata, version: '0.0.0' }))
+    assert.throws(() => install(fixturePackage), /reviewed package version/)
+    assert.equal(fs.readFileSync(fixtureSource, 'utf8'), patchSource(originalText))
+    const managed = join(root, 'managed/extensions/pi-permission-system')
+    const runtime = join(root, 'runtime/extensions/pi-permission-system')
+    fs.mkdirSync(managed, { recursive: true })
+    fs.mkdirSync(runtime, { recursive: true })
+    const input = join(managed, 'config.json'), output = join(runtime, 'config.json')
+    const basePolicy = JSON.parse(fs.readFileSync(join(__dirname, 'pi-permission-system.json'), 'utf8'))
+    // Existing entries must not retain their earlier insertion order over the new gh boundary.
+    Object.assign(basePolicy.permission.bash, { 'gh *': 'allow', 'gh pr view *': 'allow', 'gh pr create *': 'allow' })
+    fs.writeFileSync(input, JSON.stringify(basePolicy))
+    const launcher = fs.readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
+    const script = launcher.match(/node - "\$policy" "\$agent_dir\/extensions\/pi-permission-system\/config.json" "\$trust_helper" <<'NODE'\n([\s\S]*?)\nNODE/)[1]
+    const home = join(root, 'home')
+    const cwd = join(home, 'Code/current')
+    fs.mkdirSync(join(cwd, '.git/objects'), { recursive: true })
+    updateStore(join(root, 'managed/repository-trust.json'), 'approve', [cwd])
+    execFileSync(process.execPath, ['-', input, output, join(__dirname, 'repository-trust.cjs')], { cwd, input: script, env: { ...process.env, HOME: home } })
+    const policy = JSON.parse(fs.readFileSync(output, 'utf8'))
+    const composedRules = normalizeFlatConfig(policy.permission).map(rule => ({ ...rule, origin: 'global' }))
+    // Use the real method with only config loading stubbed. No constructor side effects.
+    const manager = Object.create(PermissionManager.prototype)
+    manager.flavor = posixPathFlavor
+    manager.resolvePermissions = () => ({ composedRules })
+    assert.equal(evaluate('bash', '*', composedRules, posixPathFlavor).action, 'deny', 'startup trust must not leak into a later untrusted repository')
+    assert.equal(manager.getToolPermission('bash'), 'ask')
+    assert.equal(shouldExposeTool('bash', null, name => manager.getToolPermission(name)), true)
+    for (const [permission, expected] of [
+      [{ bash: 'deny' }, 'deny'],
+      [{ bash: { '*': 'deny', 'git *': 'allow' } }, 'ask'],
+      [{ bash: { '*': 'deny', 'git *': 'ask' } }, 'ask'],
+      [{ bash: { '*': 'deny', 'git *': 'deny' }, read: 'allow' }, 'deny'],
+      [{ bash: { 'git *': 'allow', '*': 'deny' } }, 'deny'],
+      [{ bash: { '*': 'deny', 'git *': 'allow', 'g*': 'deny' } }, 'deny'],
+      [{ bash: 'allow' }, 'allow'],
+    ]) {
+      manager.resolvePermissions = () => ({ composedRules: normalizeFlatConfig(permission) })
+      assert.equal(manager.getToolPermission('bash'), expected, JSON.stringify(permission))
+    }
+    manager.resolvePermissions = () => ({ composedRules: [
+      ...composedRules, ...normalizeFlatConfig({ bash: 'deny', read: 'deny' }),
+    ] })
+    assert.equal(shouldExposeTool('bash', null, name => manager.getToolPermission(name)), false, 'later scoped blanket deny')
+    assert.equal(manager.getToolPermission('read'), 'deny', 'other tools unchanged')
+    const rules = rewriteAsksToYolo(composedRules)
+    const resolverFor = selectedRules => ({ resolve(intent) {
+      const rule = evaluate(intent.surface, intent.input.command, selectedRules, posixPathFlavor)
+      return { state: rule.action, matchedPattern: rule.pattern, origin: rule.origin, reason: rule.reason }
+    } })
+    const resolver = resolverFor(rules)
+    const normalizer = new PathNormalizer(posixPathFlavor, cwd)
+    const selected = join(home, 'orca/workspaces/selected')
+    fs.mkdirSync(selected, { recursive: true })
+    fs.writeFileSync(join(selected, 'check.cjs'), '// path-resolution fixture; never executed\n')
+    const invocation = resolveShellInvocation('bash', { command: 'node ./check.cjs', repository: selected }, undefined)
+    assert.equal(invocation.workdir, selected)
+    const routed = await BashProgram.parse(invocation.command, normalizer, undefined, { workdir: invocation.workdir })
+    assert.ok(routed.externalPaths().some(value => value.boundaryValue() === selected), 'workspace still requires external-directory authority')
+    assert.ok(routed.pathRuleCandidates().some(value => value.path.boundaryValue() === join(selected, 'check.cjs')), 'relative path follows selected workspace: ' + JSON.stringify(routed.pathRuleCandidates().map(value => value.path.boundaryValue())))
+    // Exercise the installed pipeline's exact context-selection block without its UI imports.
+    const pipelineText = patchFile('handlers/gates/tool-call-gate-pipeline.ts', liveSources.get('handlers/gates/tool-call-gate-pipeline.ts'))
+    const contextBlock = pipelineText.match(/    const baseNormalizer = [\s\S]*?(?=    const bashProgram =)/)?.[0]
+    assert.ok(contextBlock)
+    const selectContext = new Function('PathNormalizer', 'globalThis', 'tcc', stripTypeScriptTypes(contextBlock) + '\nreturn { normalizer, tcc };')
+    const key = Symbol.for('agent-toolkit.graph-permission-cwd')
+    const inputs = { inputs: { getPathNormalizer: () => normalizer } }
+    const originalContext = { toolName: 'bash', input: { command: 'node ./check.cjs', repository: selected }, cwd }
+    const scoped = selectContext.call(inputs, PathNormalizer, { [key]: () => selected }, originalContext)
+    assert.equal(scoped.normalizer.isOutsideWorkingDirectory(join(selected, 'check.cjs')), false)
+    assert.equal(scoped.normalizer.isOutsideWorkingDirectory(join(home, 'orca/workspaces/other/check.cjs')), true)
+    assert.equal(scoped.tcc.cwd, selected)
+    assert.equal(originalContext.cwd, cwd, 'do not mutate the session context')
+    assert.equal(selectContext.call(inputs, PathNormalizer, {}, originalContext).normalizer, normalizer)
+    assert.throws(() => selectContext.call(inputs, PathNormalizer, { [key]: () => 'relative' }, originalContext), /Invalid approved/)
+    const check = async (command, approvedExecution = true, selectedResolver = resolver) => {
+      const program = await BashProgram.parse(command, normalizer)
+      return resolveBashCommandCheck(command, program.commands(), undefined, selectedResolver, approvedExecution).state
+    }
+    const inspection = 'git rev-parse HEAD && git status && git log -5 --oneline && git diff --stat && git rev-parse -q --verify MERGE_HEAD'
+    for (const command of [inspection, 'git status --short --branch', 'git status; git diff --stat', 'git rev-parse -q --verify MERGE_HEAD', 'git log --oneline -10']) {
+      assert.equal(await check(command, false), 'allow', `inspection without repository trust: ${command}`)
+    }
+    for (const command of [inspection + ' && node check.cjs', 'git status; node check.cjs', 'git status && git merge topic', 'git status && git push', 'node check.cjs', "git status $(node check.cjs)"]) {
+      assert.equal(await check(command, false), 'deny', `inspection must not authorize sibling execution: ${command}`)
+    }
+    for (const origin of ['global', 'project', 'agent', 'session']) {
+      const denied = resolverFor([...rules, { surface: 'bash', pattern: 'git status*', action: 'deny', origin }])
+      assert.equal(await check(inspection, false, denied), 'deny', 'explicit inspection denial stays authoritative')
+    }
+    const graphRules = normalizeFlatConfig({ ...policy.permission, bash: { ...policy.permission.bash,
+      '*': { action: 'deny', reason: 'agent-toolkit: repository execution requires trust' },
+    } }).map(rule => ({ ...rule, origin: 'global' }))
+    const graphResolver = resolverFor(graphRules)
+    assert.equal(await check('node check.cjs', false, graphResolver), 'deny')
+    assert.equal(await check('node check.cjs', true, graphResolver), 'allow', 'a recorded graph needs no general worktree trust')
+    for (const command of ['gh pr create', 'env node check.cjs', "bash -c 'node check.cjs'", 'rm file']) assert.equal(await check(command, true, graphResolver), 'deny')
+    const projectResolver = resolverFor([...graphRules, { surface: 'bash', pattern: '*', action: 'deny', origin: 'project' }])
+    assert.equal(await check('node check.cjs', true, projectResolver), 'deny')
+    // Parse review commands only: never launch a reviewer from this policy fixture.
+    for (const suffix of ['', ' --dry-run']) {
+      const command = 'codex/skills/autoreview/scripts/autoreview --mode local --engine codex --model gpt-6-astra --thinking medium' + suffix
+      assert.equal(await check(command), 'allow', 'review scripts use ordinary repository trust')
+      assert.equal(await check(command, false, graphResolver), 'deny', 'untrusted repositories cannot launch review scripts')
+      assert.equal(await check(command, false, projectResolver), 'deny', 'explicit operator denials remain authoritative')
+    }
+    for (const command of [
+      'git status --short', 'git diff', 'node check.cjs', 'pnpm exec vitest run',
+      'gh pr view 12', 'gh pr list --state open', 'gh pr diff 12', 'gh issue view 3',
+      'gh repo view', 'gh run list', 'gh release view v1', 'printf ok; gh pr list',
+      'sh scripts/check.sh', 'bash -n scripts/check.sh', 'pnpm exec arbitrary-local-check',
+      'node --import tsx scripts/check.ts', 'python3 -m pytest', 'unlisted-command argument',
+    ]) assert.equal(await check(command), 'allow', command)
+    for (const command of [
+      'gh pr create', 'gh pr create --title test', 'gh pr merge 12', 'gh pr close 12', 'gh issue comment 3 --body test',
+      'gh repo delete owner/repo', 'gh repo sync', 'gh release create v1', 'gh run rerun 1',
+      'gh workflow run build', 'gh api repos/owner/repo -X DELETE',
+      'gh api graphql -f query=mutation', 'gh api repos/owner/repo -f name=changed',
+      'gh alias set x pr', 'gh extension exec x', 'gh -R owner/repo pr create',
+      "'gh' pr create", 'g"h" pr create', 'gh pr "create"', '/opt/homebrew/bin/gh pr create',
+      'GH pr create', '/opt/homebrew/bin/GH pr create', 'ENV gh pr create',
+      'GH_HOST=example.invalid gh pr create', 'printf ok; gh pr create',
+      'printf "%s" "$(gh pr create)"', 'printf "%s" <(gh pr create)', '(gh pr create)',
+      '{ gh pr create; }', 'if true; then gh pr create; fi', 'for x in 1; do gh pr create; done',
+      'env gh pr create', 'command gh pr create', "bash -c 'gh pr create'",
+      'git clean -fd', 'git reset --hard', 'rm file', 'find . -delete', 'find . -exec gh pr create ;',
+      'postgres', 'initdb', 'pg_ctl', 'psql', 'pg-test start', 'git-test create',
+      'docker compose up', 'infisical run --env production -- node app.js',
+      'npm publish', 'pnpm publish', 'git push',
+    ]) assert.equal(await check(command), 'deny', command)
+    const external = path => evaluate('external_directory', normalizer.forPath(path).boundaryValue(), rules, posixPathFlavor).action
+    assert.equal(normalizer.isOutsideWorkingDirectory(join(cwd, 'file')), false)
+    assert.equal(external(join(home, 'Code/other/file')), 'allow')
+    assert.equal(external(join(home, 'Code/.agent-toolkit-scratch/task/file')), 'allow')
+    assert.equal(external(join(home, 'orca/workspaces/fixture/file')), 'allow')
+    assert.equal(external(join(home, 'private/file')), 'deny')
+    fs.mkdirSync(join(home, 'private'))
+    fs.symlinkSync(join(home, 'private'), join(cwd, 'escape'))
+    assert.equal(normalizer.isOutsideWorkingDirectory(join(cwd, 'escape/file')), true)
+    assert.equal(external(join(cwd, 'escape/file')), 'deny')
+    const paths = (await BashProgram.parse(`node ${join(home, 'private/check.cjs')}`, normalizer)).externalPaths()
+    assert.ok(paths.some(path => evaluate('external_directory', path.boundaryValue(), rules, posixPathFlavor).action === 'deny'))
+    for (const [name, text] of liveSources) assert.equal(fs.readFileSync(join(installed, 'src', name), 'utf8'), text, `live package unchanged: ${name}`)
+    console.log(`Installed ${VERSION} visibility patch and parser/matcher checks passed. Generated policy retained: ${output}`)
+  } finally { hooks.deregister() }
+}
+main().catch(error => { console.error(error); process.exitCode = 1 })

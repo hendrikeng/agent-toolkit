@@ -1,0 +1,164 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+const { createHash } = require('node:crypto')
+const { spawnSync } = require('node:child_process')
+
+test('launcher replaces only fixed credential transport settings and keeps Pi assignments separate', () => {
+  const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || path.join(os.homedir(), 'Code/.agent-toolkit-scratch')
+  fs.mkdirSync(scratch, { recursive: true, mode: 0o700 })
+  assert.ok(fs.lstatSync(scratch).isDirectory() && !fs.lstatSync(scratch).isSymbolicLink())
+  const root = fs.mkdtempSync(path.join(scratch, 'launcher-git-env-'))
+  const home = path.join(root, 'home')
+  const guard = path.join(home, '.local/libexec/agent-toolkit/git')
+  fs.mkdirSync(path.dirname(guard), { recursive: true })
+  const guardSource = fs.readFileSync(path.join(__dirname, 'git-yolo-guard'), 'utf8')
+  function installGuard(source) {
+    fs.writeFileSync(guard, source, { mode: 0o700 })
+    fs.writeFileSync(`${guard}.agent-toolkit.sha256`, createHash('sha256').update(source).digest('hex') + '\n')
+  }
+  installGuard(guardSource)
+  const launcher = fs.readFileSync(path.join(__dirname, 'agent-yolo'), 'utf8')
+  const setup = launcher.match(/enable_git_guard\(\) \{\n[\s\S]*?\n\}/)?.[0]
+  const invocation = launcher.match(/^    PATH=\$PATH \\\n[\s\S]*?      pi "\$@"/m)?.[0]
+  assert.ok(setup)
+  assert.ok(invocation, 'Pi invocation must use separate continued environment assignments')
+  const probe = path.join(root, 'probe.cjs')
+  fs.writeFileSync(probe, `
+const { execFileSync } = require('node:child_process');
+const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+console.log(JSON.stringify({
+  count: process.env.GIT_CONFIG_COUNT ?? null,
+  interactive: git('config', '--get', 'credential.interactive'),
+  gui: git('config', '--get', 'credential.guiPrompt'),
+  scratch: process.env.AGENT_TOOLKIT_SCRATCH_ROOT,
+  agent: process.env.PI_CODING_AGENT_DIR,
+}));
+`)
+  const entry = path.join(root, 'launcher-fixture')
+  fs.writeFileSync(entry, `#!/usr/bin/env bash
+set -euo pipefail
+${setup}
+enable_git_guard
+account_profile=
+source_agent_dir="$HOME/managed"
+source_web_config_dir="$HOME/web"
+scratch_root="$HOME/scratch space"
+agent_dir="$HOME/runtime space"
+pi() { node "$PROBE"; }
+${invocation}
+`, { mode: 0o700 })
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  const run = overrides => spawnSync(entry, [], {
+    cwd: root, encoding: 'utf8', timeout: 10_000,
+    env: { ...env, HOME: home, PROBE: probe, ...overrides },
+  })
+  const transport = {
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'credential.interactive', GIT_CONFIG_VALUE_0: 'false',
+    GIT_CONFIG_KEY_1: 'credential.guiPrompt', GIT_CONFIG_VALUE_1: 'false',
+  }
+  for (const input of [{}, transport, {
+    ...transport, GIT_CONFIG_KEY_0: 'credential.guiPrompt', GIT_CONFIG_KEY_1: 'credential.interactive',
+  }]) {
+    const result = run(input)
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(JSON.parse(result.stdout), {
+      count: null, interactive: 'false', gui: 'false',
+      scratch: path.join(home, 'scratch space'), agent: path.join(home, 'runtime space'),
+    })
+  }
+  for (const input of [
+    { ...transport, GIT_CONFIG_VALUE_0: 'true' },
+    { ...transport, GIT_CONFIG_KEY_0: 'core.sshCommand' },
+    { ...transport, GIT_CONFIG_COUNT: '3' },
+    { ...transport, GIT_CONFIG_KEY_2: 'core.sshCommand', GIT_CONFIG_VALUE_2: 'must-not-run' },
+    { ...transport, GIT_DIR: '/must-not-use' },
+  ]) {
+    const result = run(input)
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /git yolo guard: unset inherited/)
+  }
+  installGuard(guardSource.replace(' -c credential.interactive=false -c credential.guiPrompt=false', ''))
+  const oldGuard = run(transport)
+  assert.notEqual(oldGuard.status, 0)
+  assert.match(oldGuard.stderr, /must preserve non-interactive credentials/)
+  const installHome = path.join(root, 'install-home')
+  const installedLauncher = path.join(installHome, '.local/bin/pi-yolo')
+  const installEnv = { ...env, HOME: installHome, AGENT_TOOLKIT_PI_AGENT_DIR: path.join(installHome, '.pi/agent'), PI_CODING_AGENT_DIR: path.join(installHome, '.pi/agent') }
+  const install = (...extra) => spawnSync(path.resolve(__dirname, '../../install.sh'), ['--pi-launcher-only', ...extra], {
+    cwd: root, encoding: 'utf8', timeout: 10_000, env: installEnv,
+  })
+  const missingTrust = install()
+  assert.equal(missingTrust.status, 1)
+  assert.match(missingTrust.stderr, /full reviewed installation/)
+  assert.equal(fs.existsSync(installedLauncher), false)
+  assert.equal(fs.existsSync(path.join(installHome, '.local/libexec/agent-toolkit/git')), false)
+  const trustHelper = path.join(installHome, '.local/libexec/agent-toolkit/repository-trust.cjs')
+  const trustSource = fs.readFileSync(path.join(__dirname, 'repository-trust.cjs'))
+  fs.mkdirSync(path.dirname(trustHelper), { recursive: true })
+  fs.writeFileSync(trustHelper, trustSource, { mode: 0o700 })
+  fs.writeFileSync(`${trustHelper}.agent-toolkit.sha256`, createHash('sha256').update(trustSource).digest('hex') + '\n')
+  const unconfigured = install()
+  assert.equal(unconfigured.status, 1)
+  assert.match(unconfigured.stderr, /repository trust is not configured/)
+  assert.equal(fs.existsSync(installedLauncher), false)
+  assert.equal(fs.existsSync(path.join(installHome, '.local/libexec/agent-toolkit/git')), false)
+  const piStub = path.join(root, 'pi-stub')
+  fs.mkdirSync(piStub)
+  fs.writeFileSync(path.join(piStub, 'pi'), '#!/bin/sh\nexit 99\n', { mode: 0o700 })
+  const full = spawnSync(path.resolve(__dirname, '../../install.sh'), [], { cwd: root, encoding: 'utf8', timeout: 10_000,
+    env: { ...installEnv, PATH: `${piStub}:${installEnv.PATH}` } })
+  assert.equal(full.status, 1)
+  assert.match(full.stderr, /repository trust is not configured/)
+  assert.equal(fs.existsSync(installedLauncher), false)
+  assert.equal(fs.existsSync(path.join(installHome, '.local/libexec/agent-toolkit/git')), false)
+  const trustedRepo = path.join(installHome, 'repo')
+  fs.mkdirSync(path.join(trustedRepo, '.git/objects'), { recursive: true })
+  const trustStore = path.join(installEnv.AGENT_TOOLKIT_PI_AGENT_DIR, 'repository-trust.json')
+  require('./repository-trust.cjs').updateStore(trustStore, 'approve', [trustedRepo])
+  const approval = fs.readFileSync(trustStore)
+  const patcher = require('./patch-permission-tool-visibility.cjs')
+  const packageSource = path.join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR || path.join(os.homedir(), '.pi/agent'), 'npm/node_modules/@gotgenes/pi-permission-system')
+  const packageTarget = path.join(installEnv.AGENT_TOOLKIT_PI_AGENT_DIR, 'npm/node_modules/@gotgenes/pi-permission-system')
+  fs.mkdirSync(packageTarget, { recursive: true })
+  fs.copyFileSync(path.join(packageSource, 'package.json'), path.join(packageTarget, 'package.json'))
+  for (const name of patcher.FILES) {
+    const target = path.join(packageTarget, 'src', name)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    const source = fs.readFileSync(path.join(packageSource, 'src', name), 'utf8')
+    fs.writeFileSync(target, name === 'permission-manager.ts' ? source.replace(patcher.AFTER, patcher.BEFORE) : source)
+  }
+  const incompleteParser = install()
+  assert.equal(incompleteParser.status, 1)
+  assert.match(incompleteParser.stderr, /integration is incomplete/)
+  assert.equal(fs.existsSync(installedLauncher), false)
+  patcher.install(packageTarget)
+  const packageBytes = patcher.FILES.map(name => fs.readFileSync(path.join(packageTarget, 'src', name)))
+  const installed = install()
+  assert.equal(installed.status, 0, installed.stderr)
+  assert.equal(fs.readFileSync(installedLauncher, 'utf8'), launcher)
+  assert.equal(fs.statSync(installedLauncher).mode & 0o777, 0o700)
+  assert.equal(fs.readFileSync(`${installedLauncher}.agent-toolkit.sha256`, 'utf8').trim(), createHash('sha256').update(launcher).digest('hex'))
+  assert.equal(fs.readFileSync(path.join(installHome, '.local/libexec/agent-toolkit/git'), 'utf8'), guardSource)
+  assert.deepEqual(fs.readFileSync(trustStore), approval, 'installer must not create or rewrite trust approvals')
+  assert.deepEqual(patcher.FILES.map(name => fs.readFileSync(path.join(packageTarget, 'src', name))), packageBytes, 'narrow installation must not patch package files')
+  assert.equal(fs.existsSync(path.join(installEnv.AGENT_TOOLKIT_PI_AGENT_DIR, 'extensions')), false, 'must not modify Pi policy or packages')
+  assert.equal(fs.existsSync(path.join(installHome, '.local/libexec/agent-toolkit/pg-test')), false)
+  const previous = '# previous managed launcher\n'
+  fs.writeFileSync(installedLauncher, previous)
+  fs.writeFileSync(`${installedLauncher}.agent-toolkit.sha256`, createHash('sha256').update(previous).digest('hex') + '\n')
+  const updated = install()
+  assert.equal(updated.status, 0, updated.stderr)
+  assert.match(updated.stdout, /backed up/)
+  assert.equal(fs.readFileSync(installedLauncher, 'utf8'), launcher)
+  fs.writeFileSync(installedLauncher, '# user changes\n')
+  const refused = install()
+  assert.equal(refused.status, 1)
+  assert.match(refused.stderr, /refusing to replace user-managed policy/)
+  assert.equal(fs.readFileSync(installedLauncher, 'utf8'), '# user changes\n')
+  assert.equal(install('unexpected').status, 2)
+  console.log(`Retained launcher fixture: ${root}`)
+})

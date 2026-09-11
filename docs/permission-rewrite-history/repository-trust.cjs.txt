@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+'use strict'
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+const assert = require('node:assert/strict')
+
+function physicalDirectory(value) {
+  const absolute = path.resolve(value)
+  assert.equal(fs.realpathSync(absolute), absolute, 'Repository trust rejects symlink paths')
+  const stat = fs.lstatSync(absolute)
+  assert.ok(stat.isDirectory(), 'Expected a physical directory')
+  return { path: absolute, dev: stat.dev, ino: stat.ino }
+}
+function identity(root) {
+  const checkout = physicalDirectory(root)
+  assert.ok(!/[*?\n\r\0]/.test(checkout.path), 'Repository path contains policy metacharacters')
+  const dotgit = path.join(checkout.path, '.git')
+  const stat = fs.lstatSync(dotgit)
+  assert.ok(!stat.isSymbolicLink(), '.git must not be a symlink')
+  let gitdir = dotgit
+  if (stat.isFile()) {
+    const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(fs.readFileSync(dotgit, 'utf8'))
+    assert.ok(match, 'Invalid worktree .git file')
+    gitdir = path.resolve(checkout.path, match[1])
+  } else assert.ok(stat.isDirectory(), 'Not a Git repository root')
+  const git = physicalDirectory(gitdir)
+  const commonFile = path.join(git.path, 'commondir')
+  let common = git
+  if (fs.existsSync(commonFile)) {
+    assert.ok(fs.lstatSync(commonFile).isFile() && !fs.lstatSync(commonFile).isSymbolicLink())
+    common = physicalDirectory(path.resolve(git.path, fs.readFileSync(commonFile, 'utf8').trim()))
+  }
+  assert.ok(fs.statSync(path.join(common.path, 'objects')).isDirectory(), 'Missing Git object directory')
+  return { checkout, git, common }
+}
+function readStore(file) {
+  let stat
+  try { stat = fs.lstatSync(file) }
+  catch (error) { if (error.code === 'ENOENT') return { version: 1, repositories: [] }; throw error }
+  assert.ok(stat.isFile() && !stat.isSymbolicLink() && !(stat.mode & 0o077) && stat.uid === os.userInfo().uid, 'Trust store must be a private, user-owned regular file')
+  const store = JSON.parse(fs.readFileSync(file, 'utf8'))
+  assert.ok(store.version === 1 && Array.isArray(store.repositories), 'Invalid repository trust store')
+  return store
+}
+function registeredWorktrees(repository) {
+  const directory = path.join(repository.common.path, 'worktrees')
+  try { physicalDirectory(directory) }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error }
+  return fs.readdirSync(directory).flatMap(name => {
+    try {
+      const admin = physicalDirectory(path.join(directory, name))
+      const backlink = path.join(admin.path, 'gitdir'), stat = fs.lstatSync(backlink)
+      assert.ok(stat.isFile() && !stat.isSymbolicLink(), 'Worktree registration must be a regular file')
+      const dotgit = fs.readFileSync(backlink, 'utf8').trim()
+      assert.ok(path.isAbsolute(dotgit) && path.basename(dotgit) === '.git')
+      const worktree = identity(path.dirname(dotgit))
+      assert.equal(dotgit, path.join(worktree.checkout.path, '.git'))
+      assert.deepEqual(worktree.git, admin, 'Worktree registration must point back to its own Git directory')
+      assert.deepEqual(worktree.common, repository.common, 'Worktree must use the approved repository identity')
+      return [worktree]
+    } catch { return [] } // Broken, foreign and forged registrations grant no access.
+  })
+}
+function trustedRepositories(file) {
+  return readStore(file).repositories.flatMap(entry => {
+    try {
+      const { scope, ...recorded } = entry
+      assert.ok(scope === undefined || scope === 'repository', 'Unknown trust scope')
+      const current = identity(recorded.checkout.path)
+      if (JSON.stringify(current) !== JSON.stringify(recorded)) return []
+      if (scope !== 'repository') return [current]
+      assert.equal(current.git.path, path.join(current.checkout.path, '.git'), 'Repository approval requires the main checkout')
+      assert.deepEqual(current.git, current.common, 'Repository approval requires the main Git directory')
+      return [current, ...registeredWorktrees(current)]
+    } catch { return [] } // Missing, replaced or malformed identities never grant authority.
+  })
+}
+function isTrusted(cwd, entries) {
+  let root = fs.realpathSync(cwd)
+  // Stop at a nested checkout: trusting its parent must not trust a new clone.
+  while (true) {
+    try { fs.lstatSync(path.join(root, '.git')); break }
+    catch (error) { if (error.code !== 'ENOENT') return false }
+    const parent = path.dirname(root)
+    if (parent === root) return false
+    root = parent
+  }
+  try {
+    const current = identity(root)
+    return entries.some(entry => JSON.stringify(entry) === JSON.stringify(current))
+  } catch { return false }
+}
+function updateStore(file, action, roots) {
+  assert.ok(['approve', 'approve-repository', 'revoke'].includes(action) && roots.length > 0)
+  const store = readStore(file)
+  const selected = roots.map(root => {
+    if (action === 'revoke') return { checkout: { path: path.resolve(root) } }
+    const current = identity(root)
+    if (action === 'approve') return current
+    assert.equal(current.git.path, path.join(current.checkout.path, '.git'), 'Approve the repository from its main checkout')
+    assert.deepEqual(current.git, current.common, 'Approve the repository from its main Git directory')
+    return { ...current, scope: 'repository' }
+  })
+  const remaining = store.repositories.filter(entry => !selected.some(item => item.checkout.path === entry.checkout.path))
+  if (action === 'revoke') for (const item of selected) {
+    const explicit = store.repositories.find(entry => entry.checkout.path === item.checkout.path)
+    assert.ok(explicit, 'No explicit checkout approval exists here. Revoke repository-wide approval at the main checkout.')
+    assert.ok(!remaining.some(entry => entry.scope === 'repository' && JSON.stringify(entry.common) === JSON.stringify(explicit.common)), 'This worktree is covered by repository-wide approval. Revoke the main checkout approval first or in the same command.')
+  }
+  store.repositories = remaining
+  if (action !== 'revoke') store.repositories.push(...selected)
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  physicalDirectory(path.dirname(file))
+  const temporary = `${file}.${process.pid}`
+  fs.writeFileSync(temporary, JSON.stringify(store, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+  fs.renameSync(temporary, file)
+}
+module.exports = { identity, trustedRepositories, isTrusted, updateStore }
+if (require.main === module) {
+  try {
+    assert.ok(!process.env.PI_CODING_AGENT && !process.env.AGENT_TOOLKIT_SCRATCH_ROOT, 'Manage repository trust from a separate trusted human terminal, not an agent session')
+    const [action, ...roots] = process.argv.slice(2)
+    const agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR || path.join(os.homedir(), '.pi/agent')
+    updateStore(path.join(agentDir, 'repository-trust.json'), action, roots)
+    console.log('Repository trust updated. Applies to future launcher sessions; no live policy changed.')
+  } catch (error) { console.error(error.message); process.exitCode = 1 }
+}

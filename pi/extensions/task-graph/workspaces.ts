@@ -6,15 +6,17 @@ export { graphGit } from "./task-graph-core.ts"
 
 export interface GraphInput { path: string; hash: string | null; executable: boolean; bytes: string | null }
 export interface GraphWorkspace { role: "planning" | "execution" | "snapshot"; name: string; path?: string; branch?: string; id?: string; captureCommit?: string }
-export interface GraphRepository { source: string; identity: string; base: string; inputs: GraphInput[]; workspace?: GraphWorkspace }
+export interface GraphRepository { source: string; identity: string; base: string; inputs: GraphInput[]; workspace?: GraphWorkspace; sourceSeal?: string; sourceBranches?: string; preparation?: { configuration: unknown; hash: string } }
 export interface GraphRecord {
- version: 2
+ version: 3
  key: string
  root: string
  plan: TaskGraphPlan
  repositories: GraphRepository[]
  runId?: string
- active?: { task: string; before: string; setup: boolean; validated?: string }
+ resources?: Record<string, any>
+ scopeChanges?: Array<{ at: string; additions: unknown }>
+ active?: { task: string; before: string; setup: boolean; validated?: string; validation?: { command: string; head: string; result: "success" } }
  completed: Record<string, { head: string; evidence: string }>
  plans?: Array<{ id: string; source: string; filename: string }>
  completion?: { evidence: string; deliveryPending: boolean }
@@ -42,7 +44,11 @@ export function graphInput(root: string, path: string): GraphInput {
 export function graphDirtyPaths(root: string): string[] {
  return [...new Set([graphGit(root, "diff", "--name-only", "--no-renames", "-z", "HEAD", "--"), graphGit(root, "diff", "--cached", "--name-only", "--no-renames", "-z", "HEAD", "--"), graphGit(root, "ls-files", "--others", "--exclude-standard", "-z")].flatMap(value => value.split("\0")).filter(Boolean))]
 }
-export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan): GraphRecord {
+export function sourceSeal(root: string): string {
+ const index = resolve(root, graphGit(root, "rev-parse", "--git-path", "index"))
+ return digest(JSON.stringify([graphGit(root, "rev-parse", "HEAD"), existsSync(index) ? digest(readFileSync(index)) : null, graphGit(root, "diff", "--binary", "HEAD", "--"), graphGit(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0").filter(Boolean).map(path => { const stat = lstatSync(join(root, path), { bigint: true }); return [path, String(stat.ino), String(stat.size), String(stat.mtimeNs), String(stat.ctimeNs)] })]))
+}
+export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan, existing?: GraphRecord): GraphRecord {
  validateTaskGraph(plan, root)
  const sources = [...new Set(plan.tasks.map(task => realpathSync(resolve(root, task.repository))))]
  const inputs = new Map<string, string[]>()
@@ -52,6 +58,15 @@ export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan): Graph
   inputs.set(source, selection.paths)
  }
  const repositories = sources.map(source => {
+  const retained = existing?.repositories.find(repo => repo.source === source)
+  if (retained) {
+   const copy = structuredClone(retained) // Scope additions never recapture existing inputs.
+   if (plan.tasks.some(task => realpathSync(resolve(root, task.repository)) === source && task.owns.length)) {
+    if (copy.workspace?.role === 'snapshot') throw new Error('Snapshot workspaces remain read-only. Use a separate approved writing graph.')
+    copy.workspace ??= { role: plan.mode === 'plan-only' ? 'planning' : 'execution', name: `graph-${plan.mode}-${randomUUID()}` }
+   }
+   return copy
+  }
   const base = plan.foundations.find(item => realpathSync(resolve(root, item.repository)) === source)!.commit
   const selected = inputs.get(source) ?? []
   if (selected.length && graphGit(source, "rev-parse", "HEAD") !== base) throw new Error("Dirty inputs require the selected source HEAD as foundation.")
@@ -59,15 +74,15 @@ export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan): Graph
   const writing = plan.tasks.some(task => realpathSync(resolve(root, task.repository)) === source && task.owns.length)
   if (!writing && !selected.length && graphGit(source, "rev-parse", "HEAD") !== base) throw new Error("Read-only inspection without a workspace requires source HEAD as its foundation. Select the matching source checkout before approval.")
   const role = writing ? plan.mode === "plan-only" ? "planning" : "execution" : "snapshot"
-  return { source, identity: repositoryIdentity(source), base, inputs: selected.map(path => graphInput(source, path)), ...(writing || selected.length ? { workspace: { role, name: `graph-${role}-${randomUUID()}` } as GraphWorkspace } : {}) }
+  return { source, sourceSeal: sourceSeal(source), sourceBranches: graphGit(source, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"), identity: repositoryIdentity(source), base, inputs: selected.map(path => graphInput(source, path)), ...(writing || selected.length ? { workspace: { role, name: `graph-${role}-${randomUUID()}` } as GraphWorkspace } : {}) }
  })
- const record: GraphRecord = { version: 2, key: randomUUID(), root: realpathSync(root), plan: structuredClone(plan), repositories, completed: {} }
+ const record: GraphRecord = { version: 3, key: randomUUID(), root: realpathSync(root), plan: structuredClone(plan), repositories, completed: {} }
  validateSelectedPlan(record)
  return record
 }
 export function readGraphRecord(file: string): GraphRecord {
  const record = JSON.parse(readFileSync(file, "utf8"))
- if (record.version !== 2) throw new Error(`${LEGACY_GRAPH}\nRecord: ${file}`)
+ if (record.version !== 3) throw new Error(`Graph ownership [development-roots-v1]: this approval uses an older contract. No automatic expansion, migration or retirement is permitted. Preserve it and request a separately reviewed transition. Record: ${file}`)
  if (!/^[a-f0-9-]{36}$/.test(record.key) || !record.root || !Array.isArray(record.repositories) || !record.completed || record.workers || record.coordination || record.currentCheckout) throw new Error("Invalid graph record. Preserve it for inspection.")
  validateTaskGraph(record.plan, record.root)
  const selected = record.plan.foundations.map((item: any) => ({ source: realpathSync(resolve(record.root, item.repository)), base: item.commit }))
@@ -97,6 +112,8 @@ export function createGraphWorkspace(repo: GraphRepository, orca: Orca, persist:
  const repos = inventory.repos.filter((item: any) => item.path && existsSync(join(item.path, ".git")) && repositoryIdentity(item.path) === repo.identity)
  if (repos.length !== 1 || !repos[0].id) throw new Error("Select exactly one registered Orca repository by Git identity.")
  const selector = `id:${repos[0].id}`
+ const configuration = orca(["repo", "show", "--repo", selector, "--json"])?.result
+ if (!repo.preparation || digest(JSON.stringify(configuration)) !== repo.preparation.hash) throw new Error("Orca preparation defaults changed or were not disclosed in approval. Approve the changed setup scope before creation.")
  const list = orca(["worktree", "list", "--repo", selector, "--json"])?.result
  if (!Array.isArray(list?.worktrees) || list.truncated || list.hostScope?.omittedHostIds?.length) throw new Error("Incomplete Orca worktree inventory.")
  const matches = list.worktrees.filter((item: any) => item.displayName === workspace.name || item.branch === `refs/heads/${workspace.name}`)
@@ -167,6 +184,7 @@ export function checkpointGraphChanges(repo: GraphRepository, owners: string[], 
  return verifyGraphWorkspace(repo)
 }
 export function graphWritePath(record: GraphRecord, path: string): void {
+ if (path !== resolve(path)) throw new Error('Graph writes require literal absolute paths without traversal.')
  const task = record.plan.tasks.find(task => task.id === record.active?.task)
  const repo = task && record.repositories.find(repo => repo.source === resolve(record.root, task.repository))
  if (!task || !repo?.workspace?.path || !record.active?.setup) throw new Error("Start the current task and finish setup before writing.")
@@ -213,6 +231,8 @@ function validateSelectedPlan(record: GraphRecord): void {
   if (closure.has(id)) return
   if (!["approved", "not-required"].includes(metadata(doc.markdown, "Security-Approval")?.toLowerCase() ?? "") || (doc.path.startsWith("docs/future/") ? status !== "ready-for-promotion" : !["queued", "in-progress", "in-review", "validation", "budget-exhausted", "ready-for-promotion"].includes(status ?? ""))) throw new Error(`Plan ${id} is blocked, draft, completed, or lacks security approval.`)
   for (const field of ["Priority", "Dependencies", "Acceptance-Criteria", "Validation-Lanes", "Risk-Tier"]) if (!metadata(doc.markdown, field)) throw new Error(`Plan ${id} lacks ${field}.`)
+  const product = metadata(doc.markdown, 'Product-Approval')?.toLowerCase()
+  if (product && !['approved', 'not-required'].includes(product)) throw new Error(`Plan ${id} lacks required Product approval.`)
   const dependencies = metadata(doc.markdown, "Dependencies")!
   for (const dependency of dependencies.toLowerCase() === "none" ? [] : dependencies.split(",").map(item => item.trim())) visit(dependency, new Set(stack).add(id))
   closure.set(id, doc)
@@ -244,6 +264,8 @@ export function graphPlanLocation(record: GraphRecord, id: string) {
  if (matches.length !== 1) throw new Error(`Plan ${id} has missing or duplicate lifecycle paths. Preserve and inspect them.`)
  const local = matches[0], path = graphFile(repo.workspace.path, local), markdown = readFileSync(path, "utf8")
  if (metadata(markdown, "Plan-ID") !== id || !["approved", "not-required"].includes(metadata(markdown, "Security-Approval")?.toLowerCase() ?? "")) throw new Error("Plan identity or approval changed.")
+ const product = metadata(markdown, 'Product-Approval')?.toLowerCase()
+ if (product && !['approved', 'not-required'].includes(product)) throw new Error('Required Product approval changed or remains pending.')
  return { repo, path, local, filename: plan.filename, status: metadata(markdown, "Status")?.toLowerCase(), markdown }
 }
 export function verifyPlanCloseout(record: GraphRecord, deliveryPending: boolean): void {

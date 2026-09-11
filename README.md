@@ -17,8 +17,47 @@ Clone with the pinned blueprint submodule:
 ```bash
 git clone --recurse-submodules https://github.com/hendrikeng/agent-toolkit.git
 cd agent-toolkit
-./install.sh
 ```
+
+### Install or update with the new defaults
+
+Review the [development-root contract](docs/permission-rewrite-operations.md) before installation.
+This command explicitly selects the new defaults, including for an existing installation.
+It does **not** import custom restrictions from the old policy. The original policy file remains unchanged.
+
+From a human terminal in this checkout, run:
+
+```sh
+./install.sh --accept-development-roots --use-defaults
+```
+
+For the permission-rewrite worktree on this machine, the complete command is:
+
+```sh
+cd /Users/hendrik/orca/workspaces/agent-toolkit/permission-rewrite
+./install.sh --accept-development-roots --use-defaults
+```
+
+### Preserve custom restrictions instead
+
+If you need custom restrictions, prepare a reviewed JSON file as described in the contract guide.
+Use that file instead of `--use-defaults`:
+
+```sh
+./install.sh --accept-development-roots --restrictions /absolute/path/to/reviewed-restrictions.json
+```
+
+### Activate the installation
+
+After successful installation, exit the old Pi session. Start a fresh session from your project directory:
+
+```sh
+pi-yolo
+```
+
+Source changes and `/reload` do not update installed permissions.
+The message `repository execution requires trust` identifies the old runtime. Repository-trust approval is not the migration procedure.
+Bare `./install.sh` makes no changes because it lacks explicit acceptance.
 
 Make sure that `~/.local/bin` is on `PATH`.
 
@@ -30,7 +69,8 @@ The installer:
 - Configures safety policy without replacing user-owned configuration.
 - Moves replaced files to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
-Run `/reload` after an extension change. Restart Pi after a launcher or account-runtime change.
+Pi retains its selected permission bundle for the session. `/reload` does not install or change that bundle.
+After a reviewed installation, start a fresh session.
 
 To update only the installed Git guard, without package or account changes:
 
@@ -73,7 +113,10 @@ Claude Code and Codex use their native workspace sandboxes. Pi uses `pi-permissi
 
 The yolo launchers remove routine approval prompts but preserve explicit denies. They block common destructive commands and sensitive credential paths.
 
-Trusted development roots are `~/Code` and `~/orca/workspaces`. Private keys, credentials, and environment files remain denied or gated.
+Pi permits normal filesystem access within `~/Code` and `~/orca/workspaces`, including worktrees outside the current checkout.
+The accepted `development-roots-v1` contract also permits ordinary builds, tests, scripts, interpreters, and local dependencies within these physical roots.
+It covers future directories without repository-trust approvals. Existing sessions retain their earlier contract.
+Private keys, credentials, and environment files retain separate path restrictions. Graph writes remain limited to the active task's approved paths.
 
 Use these launchers for unattended work:
 
@@ -88,6 +131,204 @@ claude-yolo
 In Pi, `/push` is the only unattended push path. It refuses dirty, detached, behind, or untracked repositories.
 
 Keep irreplaceable data in versioned backups. These controls reduce accidents but do not replace backups.
+
+The Git guard rejects unattended rebases, remote mutations, and executable/configuration overrides during init, clone, and fetch. Remote inspection remains available, with `remote show -n` for offline details. Graph checks remove inherited Git overrides and keep credential prompts disabled.
+The guard accepts `GIT_CONFIG_COUNT=0` and the exact non-interactive credential pair, including settings injected after launcher startup.
+It retains fixed credential restrictions and rejects other inherited configuration.
+
+### Current Pi permission contract
+
+Use [the development-root guide](docs/permission-rewrite-operations.md) for installation, resource scopes, and acceptance checks.
+Graph approval adds task ownership. It does not replace native shell policy or authorize publication.
+Native asks remain asks. Scripts and hooks run as the local user, not inside an operating-system sandbox.
+
+### Historical trust-policy notes
+
+<details>
+<summary>Superseded instructions retained as evidence. Do not use these procedures for the new contract.</summary>
+
+The following repository-trust and policy-migration procedures describe the earlier implementation.
+They are not an activation path for `development-roots-v1`.
+
+Ordinary Git inspection uses native command rules, not repository execution trust. Read-only commands can form a shell chain.
+The native parser checks each command separately. A read-only prefix does not authorize a later script, merge, or push.
+The launcher keeps its default deny. The permission gate checks execution trust for the selected repository on each call, including revocation.
+Exact whole-command checks apply only during `/graph`.
+
+A trusted repository can run ordinary builds, tests, lint, scripts, interpreters, and package executables. Dependencies execute third-party code under this authority.
+Trust covers later source edits, not immutable contents. It does not grant access to production, publishing, secrets, or destructive operations.
+These workflow guards are **not an operating-system sandbox**. Trusted code runs as the local user and can access resources outside native tool checks.
+
+Before service tests, inspect their targets, credentials, resource ownership, and cleanup. Existing acceptance databases need separate authority.
+Do not use a denied command through another interpreter. Inline shell programs and opaque command indirection remain restricted.
+
+After maintainer review and required validation, use a trusted human terminal for installation and approval.
+For a first installation without existing approvals, approve the toolkit checkout with the source helper:
+
+```bash
+cd "$HOME/Code/wewereyoung/agent-toolkit"
+node shared/agent-safety/repository-trust.cjs approve "$PWD"
+```
+
+For updates with existing approvals, skip that bootstrap step. Run the full installer from the toolkit checkout:
+
+```sh
+./install.sh
+```
+
+The trust rollout needs the helper, parser patches, and graph extension together. `--pi-launcher-only` cannot perform this rollout.
+The installer refuses a Pi update with no valid repository approvals before it changes installed files. It never grants repository trust automatically.
+The narrow mode still updates only the launcher and Git guard. It also requires a current trust helper and existing approvals.
+The installer preserves custom Pi permission files without overwriting them or claiming ownership. Managed policy files still receive updates and backups.
+The launcher still validates its required safety rules and applies execution trust. Custom policy does not bypass those checks.
+After successful installation, approve the intended repositories and their registered worktrees:
+
+```bash
+node "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs" approve-repository \
+  "$HOME/Code/wewereyoung/agent-toolkit" \
+  "$HOME/Code/tracn/tracn-api" \
+  "$HOME/Code/tracn/tracn-web" \
+  "$HOME/Code/tracn/pcvc" \
+  "$HOME/Code/wewereyoung/agent-project-blueprint" \
+  "$HOME/Code/wewereyoung/booking-agency" \
+  "$HOME/Code/envest/envest-app"
+```
+
+Use each main checkout, not a linked worktree, for `approve-repository`.
+This explicit approval covers current and future worktrees registered with the same physical Git repository.
+Pi verifies both registration directions and the common Git-directory identity. Unrelated clones, forged links, and parent directories receive no trust.
+At startup, Pi discovers registered worktrees. New worker sessions need no separate approval. Existing sessions retain their directory snapshot until restart.
+Start fresh Pi sessions after installation and approval. Do not change live permissions or add per-script execution exceptions.
+
+The private `repository-trust.json` records physical checkout, Git-directory, and common-directory identities, including device and inode numbers.
+Missing or replaced main identities invalidate repository-wide approval.
+The older `approve` command remains checkout-only. Existing approvals never expand without the explicit `approve-repository` action.
+
+To revoke an approval, use its recorded main or checkout path from a human terminal.
+Repository-wide approval must be revoked at the main checkout. Revoking only an inherited worktree fails rather than reporting false success.
+Separate checkout approvals remain independent. Revoke those paths too when necessary:
+
+```bash
+node "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs" revoke /absolute/path/to/checkout
+```
+
+During graphs, active task restrictions still apply even to a trusted repository or worktree.
+Graph approval alone grants no general repository trust. Native checks use the verified workspace for that call.
+The general Code and Orca directory grants do not expand graph authority.
+Only exact approved setup and validation commands can execute during the graph. Relative file-tool paths retain the actual session directory.
+
+### Pi policy conflicts
+
+A checksum mismatch means that policy ownership is unverified. It does not prove that the user deliberately customized the file.
+The installer configures a temporary policy before it records the checksum. A later external write can leave the marker stale.
+The installer preserves unknown Pi policies and reports installed, marker, and proposed hashes. It does not reset the marker.
+A preserved custom policy does not receive generated policy updates.
+
+If a policy conflict needs inspection, use a trusted human shell outside the agent session.
+Stop concurrent installers before this procedure. Review the source configurator before you run it.
+These commands use the default Pi paths and create private backup and comparison files. They do not change the installed policy.
+
+```sh
+set -eu
+umask 077
+repo="$HOME/Code/wewereyoung/agent-toolkit"
+agent="$HOME/.pi/agent"
+policy="$agent/extensions/pi-permission-system/config.json"
+marker="$policy.agent-toolkit.sha256"
+scratch="$HOME/Code/.agent-toolkit-scratch"
+test ! -L "$scratch"
+mkdir -p "$scratch"
+recovery=$(mktemp -d "$scratch/policy-recovery.XXXXXX")
+printf 'Recovery files: %s\n' "$recovery"
+test -f "$policy" && test ! -L "$policy"
+cp -p "$policy" "$recovery/installed.json"
+if test -e "$marker" || test -L "$marker"; then
+  test -f "$marker" && test ! -L "$marker"
+  cp -p "$marker" "$recovery/installed.marker"
+fi
+cp "$repo/shared/agent-safety/pi-permission-system.json" "$recovery/proposed.json"
+node "$repo/shared/agent-safety/configure.cjs" pi "$recovery/proposed.json" "$repo" "$agent" "$HOME/.pi"
+shasum -a 256 "$recovery/installed.json" "$recovery/proposed.json"
+if test -f "$recovery/installed.marker"; then cat "$recovery/installed.marker"; fi
+diff -u "$recovery/installed.json" "$recovery/proposed.json" || test "$?" -eq 1
+```
+
+If you use custom Pi paths, replace the explicit paths before you run the commands.
+Keep custom rules unless you explicitly choose to replace them. Do not paste a new checksum into the live marker.
+For toolkit ownership, first verify that both live files still match the backups.
+Then move both files into the recovery directory from the human shell before the full reviewed installation.
+The installer can then create the policy and its marker together. The launcher-only mode does not migrate persistent policy.
+If installation fails, retain the recovery files. Do not overwrite newly installed files or concurrent changes during recovery.
+
+</details>
+
+### Disposable Git-history tests
+
+The managed `git-test` helper provides explicit history operations for repositories that it creates in private scratch.
+It never accepts an existing repository path. Ordinary Git permissions remain unchanged.
+
+```sh
+git-test create
+git-test run <id> tag v1 HEAD
+git-test run <id> checkout -b fixture-branch
+git-test run <id> commit-tree 'HEAD^{tree}' -p HEAD -m 'Fixture commit'
+git-test run <id> update-ref HEAD <returned-commit>
+```
+
+Creation returns an ID and repository path with an empty foundation commit. Use ordinary guarded Git for normal fixture reads and commits.
+Use the helper explicitly for `checkout`, unsigned lightweight `tag`, `commit-tree`, and `update-ref` operations.
+A denied command in an existing repository is not permission to use this helper against that repository.
+
+Each operation checks the recorded directory identities and unchanged Git configuration. Shared metadata, symlinks, and hard-linked metadata files are rejected.
+The capability record stays outside the worktree so checkout cannot remove it. Repositories and diagnostics remain after success or failure.
+There is no publishing, signing, adoption, or cleanup operation. These are workflow checks, not an OS sandbox for hostile code or hooks.
+
+### Disposable PostgreSQL tests
+
+`pi-yolo` exposes the managed `pg-test` helper for an existing Homebrew PostgreSQL 17 installation.
+It accepts only these operations:
+
+```sh
+pg-test start
+pg-test start-admin
+pg-test status <id>
+pg-test stop <id>
+```
+
+`start` creates a new cluster under `~/Code/.agent-toolkit-scratch` and returns its ID and a connection URL.
+The server listens on loopback at a temporary port. The test role owns one database and has no superuser privileges.
+The helper disables the bootstrap login before it returns the URL. The lifecycle record contains no plaintext password.
+
+Use the returned URL for the test process. Keep it out of committed files.
+After validation, stop the cluster with its returned ID. The helper retains database files and logs.
+If setup fails, inspect the retained files. The helper never retries, deletes a cluster, or restarts an existing database automatically.
+
+The helper accepts no raw SQL, server options, executable overrides, or database paths.
+New Pi sessions deny direct `postgres`, `initdb`, `pg_ctl`, and `psql` commands. Homebrew receives no directory or write allowance.
+The launcher verifies managed fixture helpers before it permits their command names. Missing or changed helpers disable those commands, not Pi startup.
+Existing Git, secret, and deletion guards remain active.
+The helper controls database setup, not arbitrary test code. It is not an operating-system sandbox.
+`start-admin` creates a separate new cluster with `CREATEDB` and `CREATEROLE`. It does not upgrade an existing cluster or accept a database target.
+The role remains `NOSUPERUSER`, `NOREPLICATION`, and `NOBYPASSRLS`. The bootstrap superuser remains unable to log in.
+New test roles can connect only through password authentication on loopback. The helper does not grant server-file or server-program privileges.
+Tests that require a database superuser remain outside this helper's scope.
+
+After review, install from a trusted human shell:
+
+```sh
+cd ~/Code/wewereyoung/agent-toolkit
+./install.sh --accept-development-roots --restrictions /absolute/path/to/reviewed-restrictions.json
+```
+
+Then start a new API session:
+
+```sh
+cd ~/Code/tracn/tracn-api
+pi-yolo
+```
+
+`/reload` does not install the helper or regenerate launcher permissions.
+The helper tests use simulated PostgreSQL processes and real private directories. A live PostgreSQL smoke test remains necessary after installation.
 
 ## Codex accounts
 
@@ -302,7 +543,8 @@ Planning writes must be Markdown under `docs/`, outside `docs/exec-plans/`. Plan
 Use `move_task_graph_plan` for the current approved plan's lifecycle move. Update its status and `Done-Evidence` before the final move.
 
 Cross-repository scripts use the returned repository map or `AGENT_TOOLKIT_GRAPH_REPOSITORIES`. They must not assume sibling paths.
-Graph shell commands are exact approved repository checks. Chaining, substitutions, environment assignments, hosting commands, and shell wrappers are blocked.
+The native parser checks graph shell commands. Ordinary diagnostics can run in the active writing workspace after setup.
+Only the declared validation command can create validation evidence. Later mutation invalidates that evidence.
 There is no raw shell Git mutation channel inside a graph.
 
 Git hooks remain enabled for input captures and task checkpoints. Orca workspace creation skips setup hooks, but configured default terminals can still start.
@@ -324,7 +566,8 @@ There are no per-task worktrees, worker accounts, quota checks, dispatches, inte
 #### Interruption and legacy state
 
 Repeat the exact `/graph` command from the same selected repository to resume. Keep the original command even after plan files move.
-The repository identity, mode, and exact objective select the retained version-2 record under the managed agent directory's `task-graphs/` directory.
+The repository identity, mode, and exact objective select the retained version-3 record under the managed agent directory's `task-graphs/` directory.
+Version-2 approvals remain unchanged evidence. They do not inherit the new contract.
 Resume does not need a second proposal or another approval. It verifies the saved contract and reuses its resource names, commits, and input bytes.
 
 Input bytes enter the record before any workspace mutation. Capture accepts only unchanged base files or approved bytes.
@@ -339,17 +582,14 @@ Retirement requires a separately scoped, verified, authorized operation.
 
 #### Activation and validation
 
-If the extension directory already links to this checkout, `/reload` loads the new graph code. It does not regenerate launcher permissions.
-After guard or launcher changes, run the installer from a trusted human shell, then start a new `pi-yolo` session:
+The retained Pi bundle includes its graph extension. `/reload` keeps that version.
+Use the reviewed full-installation procedure in [the development-root guide](docs/permission-rewrite-operations.md).
+Then start a fresh `pi-yolo` session.
 
-```sh
-cd /Users/hendrik/Code/wewereyoung/agent-toolkit
-./install.sh
-```
+The Git-guard-only installer does not update a retained Pi bundle.
 
-For a Git-guard-only update, use `./install.sh --git-guard-only`. The installer preserves unmanaged policy files instead of overwriting them.
-
-The graph suite uses disposable real Git repositories and runs the full planning-to-execution scenario twenty times in fresh fixtures.
+The current focused graph suite uses retained Git fixtures for planning, separate execution, failed checks, and interrupted preparation.
+Earlier twenty-run results describe the superseded implementation.
 Orca RPCs and native permission-hook routing in that suite are test doubles. They do not prove installed permission integration or live Orca readiness.
 The permission audit and measured results are in [the graph rewrite report](pi/extensions/task-graph/VALIDATION.md).
 

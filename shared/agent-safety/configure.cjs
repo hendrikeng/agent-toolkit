@@ -149,21 +149,33 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
   if (paths.some((value) => !pathModule.isAbsolute(value))) throw new Error("Pi safety paths must be absolute");
   if (paths.some((value) => /[*?]/.test(value))) throw new Error("Pi safety paths cannot contain permission glob characters");
 
-  const canonical = (value) => fs.existsSync(value) ? fs.realpathSync(value) : pathModule.resolve(value);
+  const { physicalPath: canonical, buildDevelopmentPolicy } = require('./development-policy.cjs');
   const toolkit = canonical(toolkitDir);
   const agentDir = canonical(piAgentDir);
   const webConfigDir = canonical(piWebConfigDir);
-  const settings = JSON.parse(text);
+  const input = JSON.parse(text);
   const home = os.homedir();
+  const defaults = JSON.parse(fs.readFileSync(pathModule.join(__dirname, 'pi-permission-system.json'), 'utf8'));
+  const restrictions = {};
+  for (const [surface, rules] of Object.entries(input.permission ?? {})) {
+    if (JSON.stringify(rules) === JSON.stringify(defaults.permission[surface])) continue;
+    if (surface === '*' && rules === 'allow') continue;
+    restrictions[surface] = {};
+    for (const [pattern, decision] of Object.entries(typeof rules === 'string' ? { '*': rules } : rules)) {
+      const baseline = typeof defaults.permission[surface] === 'string' ? defaults.permission[surface] : defaults.permission[surface]?.[pattern];
+      if (JSON.stringify(decision) === JSON.stringify(baseline)) continue;
+      if (!['ask', 'deny'].includes(typeof decision === 'string' ? decision : decision?.action)) throw new Error('Pi generation cannot import a broader permission grant');
+      restrictions[surface][pattern] = decision;
+    }
+    if (!Object.keys(restrictions[surface]).length) delete restrictions[surface];
+  }
+  const settings = buildDevelopmentPolicy(defaults, { home, scratchRoot: pathModule.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: pathModule.join(home, 'Code/.agent-toolkit-reports'), restrictions }).policy;
   settings.piInfrastructureReadPaths = [
     pathModule.join(toolkit, "codex/skills"),
     pathModule.join(toolkit, "pi/skills"),
     canonical(pathModule.join(home, ".agents/skills")),
     canonical(pathModule.join(home, ".claude/skills")),
     canonical(pathModule.join(home, ".codex/skills")),
-    // ponytail: trusted read-only development roots; writes still use the external-directory gate.
-    canonical(pathModule.join(home, "Code")),
-    canonical(pathModule.join(home, "orca/workspaces")),
   ];
   settings.permission.path[pathModule.join(agentDir, "auth.json")] = "deny";
   settings.permission.path[pathModule.join(agentDir, "auth-profiles")] = "deny";
@@ -224,8 +236,11 @@ if (process.argv[2] === "--self-test") {
     "/toolkit/pi/skills",
   ]);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/.agents/skills")), true);
-  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/Code")), true);
-  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), true);
+  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/Code")), false);
+  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), false);
+  assert.equal(pi.yoloMode, false);
+  assert.equal(pi.permission.bash['*'], 'allow');
+  assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'Code', '*')], 'allow');
   assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth-profiles"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth-profiles/*"], "deny");
