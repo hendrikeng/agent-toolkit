@@ -205,7 +205,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
 
  pi.registerCommand("graph", { description: "Approve and run a bounded multi-worker graph. /graph [plan|execute] <objective>", handler: async (args, ctx) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
-  const parsed = /^(?:(plan|execute)\s+)?(.+)$/.exec(args.trim())
+  const parsed = /^(?:(plan|execute)\s+)?(.+)$/s.exec(args.trim())
   if (!parsed || !ctx.model) { ctx.ui.notify(parsed ? "No model selected." : "Usage: /graph [plan|execute] <objective>", "warning"); return }
   const root = repositoryRoot(ctx.cwd), mode = parsed[1] === "execute" ? "execute" : "plan-only", objective = parsed[2]
   request = { root, mode, objective, model: `${ctx.model.provider}/${ctx.model.id}`.toLowerCase() }
