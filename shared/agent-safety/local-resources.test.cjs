@@ -169,6 +169,10 @@ test('restart and replacement preserve the absolute deadline and expired wrapper
  const calls = f.calls.length
  assert.throws(f.prepare, /lifetime/)
  assert.equal(f.calls.length, calls)
+ operateResource(f.state.cache, 'stop', f.runtime)
+ const starts = f.calls.filter(call => call[0] === 'start').length
+ f.prepare()
+ assert.equal(f.calls.filter(call => call[0] === 'start').length, starts, 'expired stopped resources remain retained without restart')
  const expired = runWrapper()
  assert.equal(expired.status, 124)
  assert.equal(expired.stdout, '', 'expired wrapper never reaches timeout or the service')

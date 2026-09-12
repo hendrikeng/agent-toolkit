@@ -98,10 +98,14 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
    persist() // Durable reservation before any runtime operation.
   }
   assert.ok(/^[a-f0-9-]{36}$/.test(record.token) && Number.isFinite(record.createdAt) && Array.isArray(record.previous), 'Resource receipt is invalid; preserve it')
-  assert.ok(Date.now() < record.createdAt + declaration.lifetimeSeconds * 1000, 'Resource lifetime exceeded; only verified shutdown remains authorized')
   assert.equal(record.engine, engine, 'Runtime identity changed')
   assert.equal(record.scope, scope)
   assert.equal(hash(record.declaration), hash(declaration), 'Resource scope changed; approve only the expanded declaration first')
+  if (Date.now() >= record.createdAt + declaration.lifetimeSeconds * 1000) {
+   const expired = verifyResource(record, runtime, false)
+   assert.ok(record.stopped === true && expired.State.Running === false, 'Resource lifetime exceeded; only verified shutdown remains authorized')
+   continue
+  }
   const ids = runtime.list() // Successful complete inventory is authoritative; connection failure never means loss.
   const found = ids.map(id => runtime.inspect(id)).filter(item => item.Config?.Labels?.['agent-toolkit.token'] === record.token)
   assert.ok(found.length <= 1, 'Duplicate resource ownership; preserve both')
