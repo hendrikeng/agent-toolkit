@@ -375,6 +375,34 @@ test("validation only credits the worker checkout", async () => {
  } finally { coordinator.stop() }
 })
 
+test("delivery-pending closeout records a failed combined validation without claiming completion", async () => {
+ const f = fixture(); f.plan.tasks = [f.plan.tasks[0]]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  const prepared = (await coordinator.call("prepare_task_graph_workspace")).details
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "pending\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "pending delivery" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+  globals.graphBashFailure = "external validation gate"
+  const taskResult = (await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "focused checks passed; external gate pending", delivery_pending: true })).details
+  globals.graphBashFailure = undefined
+  assert.equal(taskResult.status, "local-ready")
+  assert.match(taskResult.validation_pending, /external validation gate/)
+  const saved = JSON.parse(readFileSync(approval.record, "utf8"))
+  assert.equal(saved.completed.a.deliveryPending, true)
+  assert.match(saved.completed.a.validationPending, /external validation gate/)
+  const result = (await coordinator.call("finish_task_graph", { run_id: prepared.run_id, evidence: "local only", delivery_pending: true })).details
+  assert.equal(result.status, "local-ready")
+ } finally { globals.graphBashFailure = undefined; coordinator.stop() }
+})
+
 test("integration setup precedes validation and closeout removes only clean integrated lanes", async () => {
  const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [{ ...f.plan.tasks[0], setup: "node setup.cjs" }]
  const coordinator = f.runtime(f.source)

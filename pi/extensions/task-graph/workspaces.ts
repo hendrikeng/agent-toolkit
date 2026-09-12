@@ -8,7 +8,7 @@ export interface GraphInput { path: string; hash: string | null; executable: boo
 export interface GraphWorkspace { role: "integration" | "snapshot" | "lane"; name: string; base: string; path?: string; branch?: string; id?: string; captureCommit?: string }
 export interface GraphRepository { source: string; identity: string; base: string; inputs: GraphInput[]; workspace?: GraphWorkspace; sourceSeal?: string; sourceBranches?: string; preparation?: { configuration: unknown; hash: string } }
 export interface GraphLane { id: string; source: string; workspace: GraphWorkspace; task?: string; previousTasks: string[]; blocked?: string; cleanup?: "pending" | "removed" }
-export interface GraphWorker { task: string; ledgerTask: string; source: string; lane?: string; workspace: string; base: string; prerequisites: Record<string, string>; attempt: number; launch?: { title: string; command: string }; terminal?: string; dispatch?: string; integration?: { before: string; tip: string }; integrated?: string; repair?: { reason: string; integrationHead: string } }
+export interface GraphWorker { task: string; ledgerTask: string; source: string; lane?: string; workspace: string; base: string; prerequisites: Record<string, string>; attempt: number; launch?: { title: string; command: string }; terminal?: string; dispatch?: string; integration?: { before: string; tip: string }; integrated?: string; repair?: { reason: string; integrationHead: string }; validationPending?: string }
 export interface GraphRecord {
  version: 4
  key: string
@@ -20,7 +20,7 @@ export interface GraphRecord {
  workers: Record<string, GraphWorker>
  runId?: string
  resources?: Record<string, any>
- completed: Record<string, { head: string; integrationHead: string; evidence: string; deliveryPending?: boolean }>
+ completed: Record<string, { head: string; integrationHead: string; evidence: string; deliveryPending?: boolean; validationPending?: string }>
  plans?: Array<{ id: string; source: string; filename: string }>
  completion?: { evidence: string; deliveryPending: boolean }
 }

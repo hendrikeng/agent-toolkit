@@ -387,8 +387,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    if (lane.blocked) throw new Error(`Task lane is blocked: ${lane.blocked}`)
    head = verifyGraphWorkspace(repo, lane.workspace)
    if (head === worker.base && !worker.repair) throw new Error("A writing task must create a checkpoint commit before completion.")
-   if (receipt.validated !== head || receipt.validation !== task.validation) throw new Error("Worker must run declared validation successfully on its clean final checkpoint.")
+   if (!params.delivery_pending && (receipt.validated !== head || receipt.validation !== task.validation)) throw new Error("Worker must run declared validation successfully on its clean final checkpoint.")
    integrationHead = integrateGraphWorker(state, worker, persist, false)
+   let validationPending: string | undefined
    try {
     if (task.setup) await runIntegrationCommand(state, repo, worker, task.setup, id, signal, update)
     await runIntegrationCommand(state, repo, worker, task.validation, id, signal, update)
@@ -397,21 +398,25 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     if (reason.includes("preserve it and stop")) throw error
-    worker.repair = { reason, integrationHead }; worker.integrated = undefined; worker.integration = undefined
-    writeReceipt(file!, task.id, { ...receipt, validated: undefined }); persist()
-    orcaJson(["orchestration", "task-update", "--id", worker.ledgerTask, "--status", "ready", "--run", state.runId!, "--result", JSON.stringify({ repair: worker.repair }), "--json"])
-    throw new Error(`Combined setup or validation failed. Resume task ${task.id} in its retained lane: ${reason}`)
+    if (params.delivery_pending) { validationPending = reason; verifyPlanTaskCloseout(state, task.id, true) }
+    else {
+     worker.repair = { reason, integrationHead }; worker.integrated = undefined; worker.integration = undefined
+     writeReceipt(file!, task.id, { ...receipt, validated: undefined }); persist()
+     orcaJson(["orchestration", "task-update", "--id", worker.ledgerTask, "--status", "ready", "--run", state.runId!, "--result", JSON.stringify({ repair: worker.repair }), "--json"])
+     throw new Error(`Combined setup or validation failed. Resume task ${task.id} in its retained lane: ${reason}`)
+    }
    }
    integrationHead = verifyGraphWorkspace(repo)
    worker.repair = undefined; lane.previousTasks.push(worker.task); lane.task = undefined
+   if (validationPending) worker.validationPending = validationPending
   } else {
    const readPath = repo.workspace?.path ?? repo.source
    if (graphGit(readPath, "rev-parse", "HEAD") !== worker.base) throw new Error("Read-only checkout advanced; restart and reinspect before completion.")
    if (repo.workspace && (graphMergeHead(readPath) || graphDirtyPaths(readPath).length)) throw new Error("Read-only checkout has an unsettled integration; retry after resolution.")
   }
-  state.completed[task.id] = { head, integrationHead, evidence: params.evidence, deliveryPending: Boolean(params.delivery_pending) }; persist()
+  state.completed[task.id] = { head, integrationHead, evidence: params.evidence, deliveryPending: Boolean(params.delivery_pending), validationPending: worker.validationPending }; persist()
   closeCompletedTerminals(state); prepareLedger(state, orcaJson, persist)
-  return text({ status: "completed", task: task.id, head, integrationHead, lane: worker.lane })
+  return text({ status: params.delivery_pending ? "local-ready" : "completed", task: task.id, head, integrationHead, lane: worker.lane, validation_pending: worker.validationPending })
  } })
  pi.registerTool({ name: "operate_task_graph_resource", label: "Graph Resource", description: "Operate only an identity-verified graph resource.", parameters: object({ resource_id: string(), operation: StringEnum(["reset", "scan", "stop"] as const) }), executionMode: "sequential", async execute(_id, params) {
   const state = bound(), resource = state.resources?.[params.resource_id]; if (!resource) throw new Error("Resource is outside this graph approval.")
