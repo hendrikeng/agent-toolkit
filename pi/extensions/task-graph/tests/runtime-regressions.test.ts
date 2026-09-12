@@ -411,6 +411,7 @@ test("integration setup precedes validation and closeout removes only clean inte
   const approval = (await coordinator.call("propose_task_graph", f.plan)).details
   const prepared = (await coordinator.call("prepare_task_graph_workspace")).details
   const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  await coordinator.call("bash", { repository: f.source, command: "orca orchestration send --message 'coordinator reply while worker runs'" })
   process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"
   const previous = process.cwd(); process.chdir(worker.workspace)
   try {

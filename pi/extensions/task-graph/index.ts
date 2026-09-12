@@ -146,10 +146,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  const taskSources = (state: GraphRecord, task: TaskGraphPlan["tasks"][number]) => new Set([task.id, ...task.depends_on].map(id => state.plan.tasks.find(item => item.id === id)!).map(item => realpathSync(resolve(state.root, item.repository))))
  const graphEnvKeys = new Set<string>()
  const currentRepositoryMap = (state: GraphRecord) => Object.fromEntries(state.repositories.map(repo => [repo.source, { path: repo.workspace?.path ?? repo.source, head: graphGit(repo.workspace?.path ?? repo.source, "rev-parse", "HEAD"), branch: repo.workspace?.branch ?? graphGit(repo.source, "rev-parse", "--abbrev-ref", "HEAD") }]))
- const graphEnvironment = (state: GraphRecord, repositories = currentRepositoryMap(state)) => ({
-  AGENT_TOOLKIT_GRAPH_REPOSITORIES: JSON.stringify(repositories),
-  ...(state.resources && Object.keys(state.resources).length ? resourceHelper().resourceEnvironment(state.resources, resourceHelper().dockerRuntime()) : {}),
- })
+ const graphEnvironment = (state: GraphRecord, repositories = currentRepositoryMap(state)) => {
+  const resources = state.resources && Object.keys(state.resources).length ? resourceHelper().resourceEnvironment(state.resources, resourceHelper().dockerRuntime()) : {}
+  const postgres = Object.entries(state.resources ?? {}).filter(([, record]) => record.declaration.type === "postgres").map(([id]) => resources[`RESOURCE_${id.replaceAll("-", "_").toUpperCase()}_URL`]).filter(Boolean)
+  return { AGENT_TOOLKIT_GRAPH_REPOSITORIES: JSON.stringify(repositories), ...resources, ...(postgres.length === 1 ? { TEST_DATABASE_URL: postgres[0] } : {}) }
+ }
  const exposeGraphEnvironment = (state: GraphRecord, repositories: any) => {
   for (const key of graphEnvKeys) delete process.env[key]
   graphEnvKeys.clear()
@@ -500,9 +501,12 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    if (event.toolName === "bash") {
     if (!record) return
     const state = bound(), input = event.input as any, selected = input.repository ? isAbsolute(input.repository) ? input.repository : resolve(ctx.cwd, input.repository) : ctx.cwd
+    const facts = await inspectShell(input.command, selected)
+    const reporting = !facts.effects && facts.commands.every(args => args[1] === "orchestration" && ["send", "reply", "check"].includes(args[2]) && trustedOrcaReportExecutables().has(executablePath(args[0], selected)))
+    if (reporting) return
     const repo = state.repositories.find(repo => repo.workspace?.path === realpathSync(selected))
     if (!repo || Object.values(state.workers).some(worker => !state.completed[worker.task] && worker.workspace === selected)) throw new Error("Coordinator diagnostics require an idle integration workspace.")
-    const facts = await inspectShell(input.command, selected), approved = state.repositories.map(item => item.workspace?.path ?? item.source)
+    const approved = state.repositories.map(item => item.workspace?.path ?? item.source)
     if (!facts.inspection || facts.gitMutation || facts.integration || [...facts.paths, ...facts.candidates, ...facts.directories].some(path => path && path !== "/dev/null" && !approved.some(root => path === root || path.startsWith(`${root}${sep}`)))) throw new Error("Coordinator Bash is limited to read-only graph diagnostics.")
     return
    }
