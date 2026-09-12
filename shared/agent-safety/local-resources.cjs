@@ -167,7 +167,12 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
    // non-superuser role, never bootstrap credentials or host administration.
    // The entrypoint's temporary bootstrap server has no TCP listener. Do not
    // disable its login while the image is still initializing its own databases.
-   runtime.exec(record.id, ['pg_isready', '-h', '127.0.0.1', '-p', '5432'])
+   let readyError
+   for (let attempt = 0; attempt < 10; attempt++) {
+    try { runtime.exec(record.id, ['pg_isready', '--timeout=1', '-h', '127.0.0.1', '-p', '5432']); readyError = undefined; break }
+    catch (error) { readyError = error; if (attempt < 9) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100) }
+   }
+   if (readyError) throw readyError
    let bootstrapped = false
    try { bootstrapped = runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT 'ready' FROM pg_roles WHERE rolname='bootstrap' AND NOT rolcanlogin"]) === 'ready' } catch {}
    if (!bootstrapped) {

@@ -80,15 +80,14 @@ test('authoritative loss permits linked replacement; uncertain state and identit
  actual.Config.Labels['agent-toolkit.token'] = 'foreign'
  assert.throws(() => operateResource(f.state.cache, 'stop', f.runtime))
 })
-test('PostgreSQL initialization retries the same identity and grants schema ownership, not database deletion', () => {
+test('PostgreSQL initialization waits for readiness and grants schema ownership, not database deletion', () => {
  const declaration = { ...base, id: 'db', type: 'postgres', image: `postgres:17@sha256:${'a'.repeat(64)}`, memoryMiB: 256, storageMiB: 128, reset: 'schema:public' }
  const f = fixture(declaration), original = f.runtime.exec
- let interrupt = true
- f.runtime.exec = (id, args, input) => { if (args[0] === 'pg_isready' && interrupt) { interrupt = false; throw Error('not ready yet') }; return original(id, args, input) }
- assert.throws(f.prepare, /not ready/)
- const identity = f.state.db.id
+ let readinessAttempts = 0
+ f.runtime.exec = (id, args, input) => { if (args[0] === 'pg_isready' && readinessAttempts++ < 2) throw Error('not ready yet'); return original(id, args, input) }
  f.prepare()
- assert.equal(f.state.db.id, identity)
+ const identity = f.state.db.id
+ assert.equal(readinessAttempts, 3)
  assert.equal(f.calls.filter(call => call[0] === 'create').length, 1)
  const sql = f.calls.find(call => typeof call[3] === 'string')[3]
  assert.ok(sql.includes('CREATE DATABASE toolkit_test OWNER bootstrap'))
