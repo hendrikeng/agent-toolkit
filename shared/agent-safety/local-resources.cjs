@@ -177,7 +177,7 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
   }
   if (declaration.type === 'postgres') {
    assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT current_setting('server_version_num')::integer / 10000"]), '17', 'PostgreSQL version differs from the declared class')
-   const expected = declaration.database === 'postgres' ? 't|t' : 'f|f'
+   const expected = declaration.database === 'postgres' ? 'true|true' : 'false|false'
    assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT rolcreatedb::text || '|' || rolcreaterole::text FROM pg_roles WHERE rolname = current_user"]), expected, 'PostgreSQL test-role profile differs from its declaration; stop and restart this disposable resource')
   }
   if (declaration.type === 'storage') {
