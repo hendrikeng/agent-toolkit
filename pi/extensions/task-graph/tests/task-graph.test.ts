@@ -64,6 +64,6 @@ test("coordinator lease excludes live writers and resumes an exited process with
 })
 test("one prompt states the bounded lane and approval contract", () => {
  const prompt = taskGraphPrompt("Build search", "plan-only")
- for (const rule of [/separate \/graph execute/, /pi-yolo workers/, /worktree budget/, /reusable lanes/, /future implementation paths and serial ownership/, /Read-only repositories use owns: \[\]/, /one exact copy-ready \/graph execute <objective> command/, /user must not reconstruct it from task details/, /do not probe helper or binary availability/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /internal integration/]) assert.match(prompt, rule)
+ for (const rule of [/separate \/graph execute/, /pi-yolo workers/, /worktree budget/, /reusable lanes/, /future implementation paths and serial ownership/, /Read-only repositories use owns: \[\]/, /one exact copy-ready \/graph execute <objective> command/, /user must not reconstruct it from task details/, /install required dependencies/, /leave tracked files unchanged/, /native shell syntax instead of opaque wrappers/, /do not probe helper or binary availability/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /internal integration/]) assert.match(prompt, rule)
  assert.doesNotMatch(prompt, /per-task worktree|current_checkout|worker-start/)
 })
