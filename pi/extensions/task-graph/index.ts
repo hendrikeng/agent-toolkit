@@ -226,8 +226,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  } })
  pi.registerTool({ name: "propose_task_graph", label: "Approve Graph", description: "Approve one bounded multi-worker graph, including its worktree budget and internal execution.", parameters: graphSchema, executionMode: "sequential", async execute(_id, params, signal, _update, ctx) {
   if (!request || record) throw new Error("Start /graph first or resume its retained record.")
-  const plan = params as TaskGraphPlan
-  if (plan.mode !== request.mode || plan.objective !== request.objective) throw new Error("Preserve the requested objective and mode.")
+  const submitted = params as TaskGraphPlan
+  if (submitted.mode !== request.mode) throw new Error("Preserve the requested mode.")
+  const plan = { ...submitted, objective: request.objective }
   resourceHelper().validateResources(plan.resources)
   const candidate = captureGraphWorkspaces(request.root, plan); candidate.workerModel = request.model
   for (const repo of candidate.repositories) if (repo.workspace) { const configuration = orcaJson(["repo", "show", "--repo", `path:${repo.source}`, "--json"])?.result; if (!configuration) throw new Error("Orca preparation configuration is unavailable."); repo.preparation = { configuration, hash: digest(JSON.stringify(configuration)) } }

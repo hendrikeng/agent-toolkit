@@ -101,10 +101,13 @@ function fixture() {
  return { root, agent: globals.agentDir, source, dependency, base, dependencyBase: graphGit(dependency, "rev-parse", "HEAD"), plan, tasks, worktrees, terminals, dispatches, calls, integrationValidations, loseNextWorktreeReceipt: () => { loseWorktreeReceipt = true }, runtime }
 }
 
-test("graph commands accept multiline objectives", async () => {
- const f = fixture(), coordinator = f.runtime(f.source)
- try { await coordinator.command("plan first line\nsecond line") }
- finally { coordinator.stop() }
+test("graph commands preserve multiline objectives without a model round trip", async () => {
+ const f = fixture(), coordinator = f.runtime(f.source), objective = "first line\nsecond line"
+ try {
+  await coordinator.command(`execute ${objective}`)
+  const result = (await coordinator.call("propose_task_graph", { ...f.plan, objective: "first line second line" })).details
+  assert.equal(result.plan.objective, objective)
+ } finally { coordinator.stop() }
 })
 
 test("one approval runs concurrent workers, reuses bounded lanes, and delivers prerequisite commits", async () => {
