@@ -450,7 +450,12 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
     if (!validated.includes(head) || validated.some(commit => { try { graphGit(repo.workspace!.path!, "merge-base", "--is-ancestor", commit!, head); return false } catch { return true } })) throw new Error("Integration HEAD does not contain every recorded validated task result.")
    }
   }
-  closeCompletedTerminals(state); verifyPlanCloseout(state, Boolean(params.delivery_pending)); const removed = cleanupLanes(state)
+  closeCompletedTerminals(state); verifyPlanCloseout(state, Boolean(params.delivery_pending))
+  if (state.resources) {
+   const helper = resourceHelper(), runtime = helper.dockerRuntime()
+   for (const resource of Object.values(state.resources) as any[]) if (!resource.stopped) { helper.operateResource(resource, "stop", runtime); persist() }
+  }
+  const removed = cleanupLanes(state)
   state.completion = { evidence: params.evidence, deliveryPending: Boolean(params.delivery_pending) }; persist()
   const retained = state.lanes.filter(lane => lane.cleanup !== "removed").map(lane => lane.workspace.path)
   const result = text({ status: params.delivery_pending ? "local-ready" : "complete", evidence: params.evidence, repositories: graphRepositoryMap(state), removed_lanes: removed, retained_lanes: retained, record: file, publishing: "not-authorized" }); stop(); return { ...result, terminate: true }
