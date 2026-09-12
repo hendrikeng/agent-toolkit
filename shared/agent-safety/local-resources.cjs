@@ -167,11 +167,15 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
    let bootstrapped = false
    try { bootstrapped = runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT 'ready' FROM pg_roles WHERE rolname='bootstrap' AND NOT rolcanlogin"]) === 'ready' } catch {}
    if (!bootstrapped) {
-    const databaseCreation = declaration.database === 'postgres' ? 'CREATEDB' : 'NOCREATEDB'
-    runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER ${databaseCreation} NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER bootstrap' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
+    const databaseCreation = declaration.database === 'postgres' ? 'CREATEDB CREATEROLE' : 'NOCREATEDB NOCREATEROLE'
+    runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER ${databaseCreation} NOREPLICATION NOBYPASSRLS PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER bootstrap' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
    }
   }
-  if (declaration.type === 'postgres') assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT current_setting('server_version_num')::integer / 10000"]), '17', 'PostgreSQL version differs from the declared class')
+  if (declaration.type === 'postgres') {
+   assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT current_setting('server_version_num')::integer / 10000"]), '17', 'PostgreSQL version differs from the declared class')
+   const expected = declaration.database === 'postgres' ? 't|t' : 'f|f'
+   assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT rolcreatedb::text || '|' || rolcreaterole::text FROM pg_roles WHERE rolname = current_user"]), expected, 'PostgreSQL test-role profile differs from its declaration; stop and restart this disposable resource')
+  }
   if (declaration.type === 'storage') {
    const client = ['redis-cli', '-h', '127.0.0.1', '-p', '6379', '--no-auth-warning', '-a', secret]
    assert.equal(runtime.exec(record.id, [...client, 'PING']), 'PONG', 'Owned storage process is not ready; retry the same scope')

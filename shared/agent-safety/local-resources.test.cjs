@@ -33,7 +33,7 @@ function fixture(declaration = base) {
   },
   start(id) { calls.push(['start', id]); containers.get(id).State.Running = true; containers.get(id).State.StartedAt = new Date(Date.now()).toISOString(); containers.get(id).Config.RuntimeStarted = true },
   stop(id) { calls.push(['stop', id]); containers.get(id).State.Running = false },
-  exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : 'OK' },
+  exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : args.at(-1)?.includes('rolcreatedb') ? declaration.database === 'postgres' ? 't|t' : 'f|f' : 'OK' },
  }
  const state = {}
  const prepare = () => prepareResources('scope', [declaration], state, () => saves.push(JSON.stringify(state)), workspace, path.join(root, 'evidence'), runtime)
@@ -124,8 +124,11 @@ test('PostgreSQL database-creator profile remains non-superuser and bounded to t
  const declaration = { ...base, id: 'db', type: 'postgres', image: `postgres:17@sha256:${'a'.repeat(64)}`, memoryMiB: 256, storageMiB: 128, reset: undefined, database: 'postgres' }
  const f = fixture(declaration); f.prepare()
  const sql = f.calls.find(call => typeof call[3] === 'string')[3]
- assert.ok(sql.includes('LOGIN NOSUPERUSER CREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'))
+ assert.ok(sql.includes('LOGIN NOSUPERUSER CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS'))
  assert.ok(!sql.includes('NOSUPERUSER NOCREATEDB'))
+ const exec = f.runtime.exec
+ f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcreatedb') ? 't|f' : exec(id, args, input)
+ assert.throws(f.prepare, /profile differs/)
 })
 
 test('storage clients cannot administer the service or reset other databases', () => {
