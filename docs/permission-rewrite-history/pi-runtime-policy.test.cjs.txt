@@ -5,8 +5,8 @@ const { tmpdir } = require('node:os')
 const { execFileSync } = require('node:child_process')
 const test = require('node:test')
 
-test('runtime policy authorizes persistent scratch without opening temporary or runtime directories', () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-runtime-policy-')))
+test('runtime filesystem defaults allow development roots without granting execution trust or opening runtime directories', () => {
+  const root = realpathSync(mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'pi-runtime-policy-')))
   try {
     const managed = join(root, 'managed')
     const runtime = join(root, 'runtime')
@@ -16,9 +16,9 @@ test('runtime policy authorizes persistent scratch without opening temporary or 
     mkdirSync(join(runtime, 'extensions/pi-permission-system'), { recursive: true })
     writeFileSync(policy, readFileSync(join(__dirname, 'pi-permission-system.json')))
     const launcher = readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
-    const script = launcher.match(/node - "\$policy" "\$agent_dir\/extensions\/pi-permission-system\/config.json" <<'NODE'\n([\s\S]*?)\nNODE/)[1]
+    const script = launcher.match(/node - "\$policy" "\$agent_dir\/extensions\/pi-permission-system\/config.json" "\$trust_helper" <<'NODE'\n([\s\S]*?)\nNODE/)[1]
     const env = { ...process.env, HOME: join(root, 'home') }
-    const run = () => execFileSync(process.execPath, ['-', policy, output], { input: script, env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
+    const run = (cwd, helper = '') => execFileSync(process.execPath, ['-', policy, output, helper], { input: script, env, cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
     const scratch = join(env.HOME, 'Code/.agent-toolkit-scratch')
     assert.equal(run(), scratch)
     const config = JSON.parse(readFileSync(output, 'utf8'))
@@ -38,6 +38,35 @@ test('runtime policy authorizes persistent scratch without opening temporary or 
     assert.equal(config.permission.external_directory[join(scratch, '*')], 'allow')
     assert.equal(config.permission.external_directory[realpathSync(tmpdir())], undefined)
     assert.equal(config.permission.external_directory[managed], undefined)
+    for (const directory of ['Code', 'orca/workspaces']) {
+      const workspaceRoot = join(env.HOME, directory)
+      assert.equal(config.permission.external_directory[workspaceRoot], 'allow')
+      assert.equal(config.permission.external_directory[join(workspaceRoot, '*')], 'allow')
+      const checkout = join(workspaceRoot, 'untrusted-checkout')
+      mkdirSync(join(checkout, '.git/objects'), { recursive: true })
+      run(checkout, join(__dirname, 'repository-trust.cjs'))
+      assert.deepEqual(JSON.parse(readFileSync(output, 'utf8')), config, 'development-root location must not grant repository execution trust')
+    }
+    assert.equal(config.permission.external_directory[join(env.HOME, '*')], undefined)
+    for (const pattern of ['git push*', 'npm publish*', 'docker *', 'kubectl *', 'git clean *', 'git reset --hard']) {
+      assert.equal(config.permission.bash[pattern], 'deny')
+    }
+    for (const pattern of ['*.env', '*.env.*', '*.pem', '*.key']) assert.equal(config.permission.path[pattern], 'deny')
+    assert.deepEqual(config.permission.bash['*'], { action: 'deny', reason: 'agent-toolkit: repository execution requires trust' })
+    assert.equal(config.permission.bash['pg-test *'], 'deny')
+    assert.equal(config.permission.path[join(managed, 'repository-trust.json')], 'deny')
+    assert.equal(config.permission.bash['gh *'], 'deny')
+    assert.equal(config.permission.bash['gh pr view *'], 'allow')
+    for (const binary of ['postgres', 'initdb', 'pg_ctl', 'psql']) {
+      assert.equal(config.permission.bash[`${binary} *`], 'deny')
+      assert.equal(config.permission.bash[`*/${binary} *`], 'deny')
+    }
+    assert.ok(!Object.keys(config.permission.external_directory).some(key => key.includes('homebrew') || key.includes('/usr/local')))
+    assert.ok(!config.piInfrastructureReadPaths.some(key => key.includes('homebrew') || key.includes('postgresql')))
+    assert.ok(!launcher.includes('managed pg-test is missing or changed'), 'optional fixture helpers must not abort Pi startup')
+    assert.match(readFileSync(join(__dirname, '../../install.sh'), 'utf8'), /install_managed_copy "\$repo_dir\/shared\/agent-safety\/pg-test.cjs" "\$HOME\/\.local\/libexec\/agent-toolkit\/pg-test" 700/)
+    assert.equal(config.permission.bash['*/git *'], 'deny')
+    assert.equal(config.permission.bash['sudo *'], 'deny')
     const task = execFileSync('mktemp', ['-d', join(scratch, 'validation.XXXXXX')], { encoding: 'utf8' }).trim()
     writeFileSync(join(task, 'resume.txt'), 'unfinished validation')
     chmodSync(scratch, 0o755)

@@ -17,8 +17,37 @@ Clone with the pinned blueprint submodule:
 ```bash
 git clone --recurse-submodules https://github.com/hendrikeng/agent-toolkit.git
 cd agent-toolkit
+```
+
+### Install or update with the new defaults
+
+Review the [development-root contract](docs/permission-rewrite-operations.md) before installation.
+
+From a human terminal in this checkout, run:
+
+```sh
 ./install.sh
 ```
+
+For the permission-rewrite worktree on this machine, the complete command is:
+
+```sh
+cd /Users/hendrik/orca/workspaces/agent-toolkit/permission-rewrite
+./install.sh
+```
+
+### Activate the installation
+
+After successful installation, exit the old Pi session. Start a fresh session from your project directory:
+
+```sh
+pi-yolo
+```
+
+`pi-yolo` defaults to `openai-codex/gpt-5.6-sol` with medium thinking. Explicit `--model` and `--thinking` options override those defaults.
+Source changes and `/reload` do not update installed permissions.
+The message `repository execution requires trust` identifies the old runtime. Repository-trust approval is not the migration procedure.
+`./install.sh` is the only installation mode and updates the installed toolkit after its preflight checks pass.
 
 Make sure that `~/.local/bin` is on `PATH`.
 
@@ -30,15 +59,8 @@ The installer:
 - Configures safety policy without replacing user-owned configuration.
 - Moves replaced files to timestamped backups under `~/.local/share/agent-toolkit/backups/`.
 
-Run `/reload` after an extension change. Restart Pi after a launcher or account-runtime change.
-
-To update only the installed Git guard, without package or account changes:
-
-```bash
-./install.sh --git-guard-only
-```
-
-This uses the same backup and ownership checks as the full installer. It refuses to overwrite user-modified policy.
+Pi retains its selected permission bundle for the session. `/reload` does not install or change that bundle.
+After a reviewed installation, start a fresh session.
 
 On macOS, install the review scanner with Homebrew:
 
@@ -55,7 +77,7 @@ Autoreview stops before the model call if TruffleHog is missing or scanning fail
 | `autoreview` | Run a risk-gated or explicit second-model review. |
 | Ponytail | Prefer the smallest correct implementation. |
 | `/project` | Audit, adopt, or create a project from the pinned blueprint. |
-| `/graph` | Plan and supervise an Orca task graph. |
+| `/graph` | Plan or separately execute a coordinator-owned task graph. |
 | `/account` | Switch the active Pi and Codex account by email. |
 | `/fast` | Control the OpenAI Codex Fast service tier. |
 | `/side` | Run an isolated side conversation. |
@@ -73,7 +95,10 @@ Claude Code and Codex use their native workspace sandboxes. Pi uses `pi-permissi
 
 The yolo launchers remove routine approval prompts but preserve explicit denies. They block common destructive commands and sensitive credential paths.
 
-Trusted development roots are `~/Code` and `~/orca/workspaces`. Private keys, credentials, and environment files remain denied or gated.
+Pi permits normal filesystem access within `~/Code` and `~/orca/workspaces`, including worktrees outside the current checkout.
+The accepted `development-roots-v1` contract also permits ordinary builds, tests, scripts, interpreters, and local dependencies within these physical roots.
+It covers future directories without repository-trust approvals. Existing sessions retain their earlier contract.
+Private keys, credentials, and environment files retain separate path restrictions. Graph writes remain limited to the active task's approved paths.
 
 Use these launchers for unattended work:
 
@@ -88,6 +113,201 @@ claude-yolo
 In Pi, `/push` is the only unattended push path. It refuses dirty, detached, behind, or untracked repositories.
 
 Keep irreplaceable data in versioned backups. These controls reduce accidents but do not replace backups.
+
+The Git guard rejects unattended rebases, remote mutations, and executable/configuration overrides during init, clone, and fetch. Remote inspection remains available, with `remote show -n` for offline details. Graph checks remove inherited Git overrides and keep credential prompts disabled.
+The guard accepts `GIT_CONFIG_COUNT=0` and the exact non-interactive credential pair, including settings injected after launcher startup.
+It retains fixed credential restrictions and rejects other inherited configuration.
+
+### Current Pi permission contract
+
+Use [the development-root guide](docs/permission-rewrite-operations.md) for installation, resource scopes, and acceptance checks.
+Graph approval adds task ownership. It does not replace native shell policy or authorize publication.
+The default policy has ordinary access and hard safety denials, not routine approval prompts. Scripts and hooks run as the local user, not inside an operating-system sandbox.
+
+### Historical trust-policy notes
+
+<details>
+<summary>Superseded instructions retained as evidence. Do not use these procedures for the new contract.</summary>
+
+The following repository-trust and policy-migration procedures describe the earlier implementation.
+They are not an activation path for `development-roots-v1`.
+
+Ordinary Git inspection uses native command rules, not repository execution trust. Read-only commands can form a shell chain.
+The native parser checks each command separately. A read-only prefix does not authorize a later script, merge, or push.
+The launcher keeps its default deny. The permission gate checks execution trust for the selected repository on each call, including revocation.
+Exact whole-command checks apply only during `/graph`.
+
+A trusted repository can run ordinary builds, tests, lint, scripts, interpreters, and package executables. Dependencies execute third-party code under this authority.
+Trust covers later source edits, not immutable contents. It does not grant access to production, publishing, secrets, or destructive operations.
+These workflow guards are **not an operating-system sandbox**. Trusted code runs as the local user and can access resources outside native tool checks.
+
+Before service tests, inspect their targets, credentials, resource ownership, and cleanup. Existing acceptance databases need separate authority.
+Do not use a denied command through another interpreter. Inline shell programs and opaque command indirection remain restricted.
+
+After maintainer review and required validation, use a trusted human terminal for installation and approval.
+For a first installation without existing approvals, approve the toolkit checkout with the source helper:
+
+```bash
+cd "$HOME/Code/wewereyoung/agent-toolkit"
+node shared/agent-safety/repository-trust.cjs approve "$PWD"
+```
+
+For updates with existing approvals, skip that bootstrap step. Run the full installer from the toolkit checkout:
+
+```sh
+./install.sh
+```
+
+The trust rollout needs the helper, parser patches, and graph extension together. `--pi-launcher-only` cannot perform this rollout.
+The installer refuses a Pi update with no valid repository approvals before it changes installed files. It never grants repository trust automatically.
+The narrow mode still updates only the launcher and Git guard. It also requires a current trust helper and existing approvals.
+The installer preserves custom Pi permission files without overwriting them or claiming ownership. Managed policy files still receive updates and backups.
+The launcher still validates its required safety rules and applies execution trust. Custom policy does not bypass those checks.
+After successful installation, approve the intended repositories and their registered worktrees:
+
+```bash
+node "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs" approve-repository \
+  "$HOME/Code/wewereyoung/agent-toolkit" \
+  "$HOME/Code/tracn/tracn-api" \
+  "$HOME/Code/tracn/tracn-web" \
+  "$HOME/Code/tracn/pcvc" \
+  "$HOME/Code/wewereyoung/agent-project-blueprint" \
+  "$HOME/Code/wewereyoung/booking-agency" \
+  "$HOME/Code/envest/envest-app"
+```
+
+Use each main checkout, not a linked worktree, for `approve-repository`.
+This explicit approval covers current and future worktrees registered with the same physical Git repository.
+Pi verifies both registration directions and the common Git-directory identity. Unrelated clones, forged links, and parent directories receive no trust.
+At startup, Pi discovers registered worktrees. New worker sessions need no separate approval. Existing sessions retain their directory snapshot until restart.
+Start fresh Pi sessions after installation and approval. Do not change live permissions or add per-script execution exceptions.
+
+The private `repository-trust.json` records physical checkout, Git-directory, and common-directory identities, including device and inode numbers.
+Missing or replaced main identities invalidate repository-wide approval.
+The older `approve` command remains checkout-only. Existing approvals never expand without the explicit `approve-repository` action.
+
+To revoke an approval, use its recorded main or checkout path from a human terminal.
+Repository-wide approval must be revoked at the main checkout. Revoking only an inherited worktree fails rather than reporting false success.
+Separate checkout approvals remain independent. Revoke those paths too when necessary:
+
+```bash
+node "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs" revoke /absolute/path/to/checkout
+```
+
+During graphs, active task restrictions still apply even to a trusted repository or worktree.
+Graph approval alone grants no general repository trust. Native checks use the verified workspace for that call.
+The general Code and Orca directory grants do not expand graph authority.
+Only exact approved setup and validation commands can execute during the graph. Relative file-tool paths retain the actual session directory.
+
+### Pi policy conflicts
+
+A checksum mismatch means that policy ownership is unverified. It does not prove that the user deliberately customized the file.
+The installer configures a temporary policy before it records the checksum. A later external write can leave the marker stale.
+The installer preserves unknown Pi policies and reports installed, marker, and proposed hashes. It does not reset the marker.
+A preserved custom policy does not receive generated policy updates.
+
+If a policy conflict needs inspection, use a trusted human shell outside the agent session.
+Stop concurrent installers before this procedure. Review the source configurator before you run it.
+These commands use the default Pi paths and create private backup and comparison files. They do not change the installed policy.
+
+```sh
+set -eu
+umask 077
+repo="$HOME/Code/wewereyoung/agent-toolkit"
+agent="$HOME/.pi/agent"
+policy="$agent/extensions/pi-permission-system/config.json"
+marker="$policy.agent-toolkit.sha256"
+recovery=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-policy-recovery.XXXXXX")
+printf 'Recovery files: %s\n' "$recovery"
+test -f "$policy" && test ! -L "$policy"
+cp -p "$policy" "$recovery/installed.json"
+if test -e "$marker" || test -L "$marker"; then
+  test -f "$marker" && test ! -L "$marker"
+  cp -p "$marker" "$recovery/installed.marker"
+fi
+cp "$repo/shared/agent-safety/pi-permission-system.json" "$recovery/proposed.json"
+node "$repo/shared/agent-safety/configure.cjs" pi "$recovery/proposed.json" "$repo" "$agent" "$HOME/.pi"
+shasum -a 256 "$recovery/installed.json" "$recovery/proposed.json"
+if test -f "$recovery/installed.marker"; then cat "$recovery/installed.marker"; fi
+diff -u "$recovery/installed.json" "$recovery/proposed.json" || test "$?" -eq 1
+```
+
+If you use custom Pi paths, replace the explicit paths before you run the commands.
+Keep custom rules unless you explicitly choose to replace them. Do not paste a new checksum into the live marker.
+For toolkit ownership, first verify that both live files still match the backups.
+Then move both files into the recovery directory from the human shell before the full reviewed installation.
+The installer can then create the policy and its marker together. The launcher-only mode does not migrate persistent policy.
+If installation fails, retain the recovery files. Do not overwrite newly installed files or concurrent changes during recovery.
+
+</details>
+
+### Disposable Git-history tests
+
+The managed `git-test` helper provides explicit history operations for repositories that it creates in the system temporary directory.
+It never accepts an existing repository path. Ordinary Git permissions remain unchanged.
+
+```sh
+git-test create
+git-test run <id> tag v1 HEAD
+git-test run <id> checkout -b fixture-branch
+git-test run <id> commit-tree 'HEAD^{tree}' -p HEAD -m 'Fixture commit'
+git-test run <id> update-ref HEAD <returned-commit>
+```
+
+Creation returns an ID and repository path with an empty foundation commit. Use ordinary guarded Git for normal fixture reads and commits.
+Use the helper explicitly for `checkout`, unsigned lightweight `tag`, `commit-tree`, and `update-ref` operations.
+A denied command in an existing repository is not permission to use this helper against that repository.
+
+Each operation checks the recorded directory identities and unchanged Git configuration. Shared metadata, symlinks, and hard-linked metadata files are rejected.
+The capability record stays outside the worktree so checkout cannot remove it. Repositories and diagnostics remain after success or failure.
+There is no publishing, signing, adoption, or cleanup operation. These are workflow checks, not an OS sandbox for hostile code or hooks.
+
+### Disposable PostgreSQL tests
+
+`pi-yolo` exposes the managed `pg-test` helper for an existing Homebrew PostgreSQL 17 installation.
+It accepts only these operations:
+
+```sh
+pg-test start
+pg-test start-admin
+pg-test status <id>
+pg-test stop <id>
+```
+
+`start` creates a new cluster in the system temporary directory. It returns an ID and a connection URL.
+The server listens on loopback at a temporary port. The test role owns one database and has no superuser privileges.
+The helper disables the bootstrap login before it returns the URL. The lifecycle record contains no plaintext password.
+
+Use the returned URL for the test process. Keep it out of committed files.
+After validation, stop the cluster with its returned ID. The helper retains database files and logs.
+If setup fails, inspect the retained files. The helper never retries, deletes a cluster, or restarts an existing database automatically.
+
+The helper accepts no raw SQL, server options, executable overrides, or database paths.
+New Pi sessions deny direct `postgres`, `initdb`, `pg_ctl`, and `psql` commands. Homebrew receives no directory or write allowance.
+The launcher verifies managed fixture helpers before it permits their command names. Missing or changed helpers disable those commands, not Pi startup.
+Existing Git, secret, and deletion guards remain active.
+The helper controls database setup, not arbitrary test code. It is not an operating-system sandbox.
+`start-admin` creates a separate new cluster with `CREATEDB` and `CREATEROLE`. It does not upgrade an existing cluster or accept a database target.
+The role remains `NOSUPERUSER`, `NOREPLICATION`, and `NOBYPASSRLS`. The bootstrap superuser remains unable to log in.
+New test roles can connect only through password authentication on loopback. The helper does not grant server-file or server-program privileges.
+Tests that require a database superuser remain outside this helper's scope.
+
+After review, install from a trusted human shell:
+
+```sh
+cd ~/Code/wewereyoung/agent-toolkit
+./install.sh
+```
+
+Then start a new API session:
+
+```sh
+cd ~/Code/tracn/tracn-api
+pi-yolo
+```
+
+`/reload` does not install the helper or regenerate launcher permissions.
+The helper tests use simulated PostgreSQL processes and real private directories. A live PostgreSQL smoke test remains necessary after installation.
 
 ## Codex accounts
 
@@ -259,196 +479,94 @@ The workflow infers values from repository evidence. It asks only for missing de
 
 ### Task graphs
 
-Task graphs coordinate approved local work across repositories. Progress lives in Git, saved workspace records, and the Orca task ledger, not only in conversation history.
+The graph runs independent tasks through `pi-yolo` workers. Each writing worker gets an exclusive lane.
 
-| Capability | Benefit |
-|---|---|
-| Cross-repository dependencies | Dependent workers wait for completed, integrated prerequisite work. |
-| Isolated coordinator and worker worktrees | Parallel workers do not share an index or committing checkout. Original checkouts remain separate by default. |
-| Explicit input snapshots | Approved dirty files enter the graph without changes to the source index or branch. |
-| Repository paths and pinned prerequisite HEADs | Builds use the graph's dependency versions instead of accidental source-checkout paths. |
-| Saved task, workspace, and launch identities | Interrupted runs resume existing work instead of duplicating workers or recapturing later source edits. |
-| Checked checkpoints and integration | Each imported commit must stay within approved ownership, even if a later commit reverts it. |
-| Conflict, lifecycle, and quota recovery | Long graphs preserve progress across interruptions and continue after the blocker is resolved. |
-| Local readiness separate from publication | A graph can finish local work without claiming that the product shipped. |
-| Opt-in worker cleanup | Completed graphs can leave one readable delivery worktree per repository instead of a pile of temporary workers. |
+- Each writing repository gets one integration worktree.
+- The approved worktree budget limits integration worktrees, writing lanes, and read-only input snapshots.
+- Clean lanes return to the pool after integration.
+- Read-only workers use an existing checkout.
 
-Keep Orca open. Enable its orchestration experimental feature.
+Planning does not start implementation. Source files, indexes, branches, and planning commits remain separate from execution.
 
-`/graph` has one command form:
+#### Start and approve
+
+Keep Orca open with orchestration enabled. Use one of these commands:
 
 ```text
-/graph <objective-or-plan-path>
+/graph plan Design customer search
+/graph execute docs/future/customer-search.md
 ```
 
-Examples:
+Without a mode, `/graph` means planning. The coordinator reads repository rules and resolves the requested plan dependencies before approval.
+The coordinator must stop on ambiguous plans, blocked dependencies, or missing approvals. It must not infer feature completion from repository consolidation.
 
-```text
-/graph Add customer search
-/graph docs/future/customer-search.md
-/graph docs/exec-plans/active/customer-search.md
-/graph docs/future/final-plan.md
-```
+The proposal lists tasks in dependency order. Each writing task declares its repository, owned paths, completion criteria, setup, and validation.
+Read-only tasks use `validation: "manual: <inspection criteria>"` and have no setup. They report inspection evidence without a new worktree, can use safe Git inspection, and do not block unrelated integration.
+Each repository needs a full foundation commit. Branch names and short hashes are not valid foundation selectors.
+The proposal also declares a worktree budget. The approval screen shows the paths, commits, input hashes, and budget.
 
-#### Scope selection
+One approval covers the Run, task records, worker launches, setup, validation, retries, bounded resources, and internal integration.
+Closeout removes verified clean lanes and keeps each integration worktree.
+It does not permit source writes, publication, source-branch merge-back, unrelated or dirty cleanup, or production administration.
+Planning writes must be Markdown under `docs/`, outside `docs/exec-plans/`. Planning cannot implement code or promote execution plans.
 
-A plain-text objective produces one bounded task graph. Its Git repository and exact objective form a stable Run identity for recovery.
+#### Work and closeout
 
-The planner can stop when parallel workers provide no clear benefit.
+1. Call `prepare_task_graph_workspace` to prepare the Run and integration worktrees.
+2. Call `start_task_graph_task` for each ready task.
+3. Let each worker operate only in its assigned checkout. Orca labels its lane with the plan name and task ID.
+4. Let each writing worker use `checkpoint_task_graph` for commits. Commit subjects include the task ID.
+5. Call `complete_task_graph_task` after the worker completes its validation. The graph merges the checkpoint, runs its declared setup in the integration checkout, then validates the combined commit. Set `delivery_pending` when the task intentionally leaves its plan active for delivery.
+6. Start dependent tasks only after their dependencies are integrated.
+7. Call `finish_task_graph` after all closeout requirements pass.
 
-An existing future, active, or completed plan path selects a target plan. The target is the requested endpoint.
+Start independent tasks until the budget is full. Never assign two writing workers to one lane.
+The graph reuses a lane only after successful integration. A dirty or interrupted lane stays intact.
 
-`/graph` follows `Dependencies` backward from the target. It includes unfinished prerequisites, but it does not include later plans that depend on the target.
+Cross-repository scripts use `AGENT_TOOLKIT_GRAPH_REPOSITORIES`. The map contains approved paths, branch names, and pinned commits. Workers can inspect those repositories and reference them from checks, but cannot write to them. Unused repositories can progress independently; a command fails only when a repository it uses changed from its pinned commit.
+Only the declared validation command creates validation evidence. Integration commands receive the approved repository map and local resource endpoints automatically. A later mutation invalidates that evidence. If integration setup or combined validation fails, the same task receives a repair dispatch in its retained lane without another approval. Resume also retries terminal closure after durable task completion.
+Git hooks remain enabled for input capture, worker checkpoints, and integration commits.
 
-A target without unfinished dependencies produces a plan chain of one. Completed dependencies do not run again.
+A focused check does not replace repository closeout. Complete all required validation, review, approval, and evidence work.
+If publication is required, leave the plan in `validation` and use `delivery_pending: true`.
+Local completion does not mean shipped completion. The integration worktree and branch use the plan name and remain available for a pull request. Merge commits identify each task. Clean lanes are removed; dirty, interrupted, and conflicted lanes remain.
 
-Dependencies can span local Git repositories available to Orca. Each Plan-ID must match exactly one plan across those repositories. Every execution plan must declare a Plan-ID.
+#### Select the execution foundation
 
-Missing or duplicate Plan-IDs stop execution. Draft or blocked targets permit documentation-only planning work, not implementation. Unresolved dependencies and external approvals still block execution.
+Start a separate execution graph from the retained planning worktree. Select the other repositories' retained planning paths explicitly in the proposal.
+Verify each full foundation commit on the execution approval screen. Another explicitly selected foundation is also supported.
+The runtime never chooses a historical Run or a branch because it appears newer.
 
-#### Planning and approval
+The worktree count never exceeds the approved budget. The graph reuses lanes across compatible tasks instead of creating per-task worktrees.
 
-The extension takes a host-local target lock before planning. For a plan path, the lock key uses the repository and Plan-ID.
+#### Interruption and legacy state
 
-After proposal validation, it locks every plan in the chain before approval. An overlapping chain cannot execute the same prerequisite at the same time.
+Repeat the exact `/graph` command from the same selected repository to resume. Keep the original command even after plan files move.
+The repository identity, mode, and exact objective select the retained version-4 record in the managed agent directory.
+Older approvals remain unchanged evidence. They do not inherit the new contract.
+Resume does not need a second proposal or another approval. It verifies the saved contract and reuses its resource names, commits, and input bytes.
 
-The Plan-ID keeps each lock identity stable when a plan moves between `future`, `active`, and `completed` directories.
+Input bytes enter the record before any workspace mutation. Capture accepts only unchanged base files or approved bytes.
+Unexpected destination files, index changes, history, or duplicate receipts stop recovery without rollback.
+A live coordinator excludes another coordinator. An unfinished graph blocks new graphs that select the same repository.
+Leases are host-local. Invalid records or interrupted lease-recovery reservations need explicit inspection, not automatic deletion.
 
-The planner reads every plan, its repository rules, acceptance criteria, targets, gates, and required validation. Mutation tools remain blocked during this work.
+Legacy records under `task-graph-locks/` remain evidence. They cannot resume execution, migrate into the new workflow, or complete automatically.
+A related legacy record, or one with unknown scope, produces a diagnostic before new graph mutations.
+Known unrelated records remain untouched; the runtime does not assume that their workers stopped.
+Retirement requires a separately scoped, verified, authorized operation.
 
-The planner orders prerequisites before dependent plans. If several plans are ready, it uses priority first and Plan-ID second.
+#### Activation and validation
 
-The approval screen shows the execution order, local base commits, input files and hashes, and workspace permissions. Approval authorizes isolated worktrees, the listed input captures, scoped local commits, and integration within the Run.
+The retained Pi bundle includes its graph extension. `/reload` keeps that version.
+Use the reviewed full-installation procedure in [the development-root guide](docs/permission-rewrite-operations.md).
+Then start a fresh `pi-yolo` session.
 
-#### Isolated workspaces
 
-Every writing run uses isolated Orca worktrees by default. This includes planning documents, preparation, plan moves, implementation, and closeout. Read-only work does not need another worktree.
-
-The source checkout can remain dirty. The proposal lists each required dirty input file explicitly. Capture uses working-file contents, not the staged version. It preserves the source files, index, and branch.
-
-The runtime records approved inputs in an immutable raw-byte snapshot before it changes the destination. A private temporary index preserves the source index. Raw snapshots skip commit hooks and file filters. The final input checkpoint applies normal Git file conversions, including CRLF normalization, without commit hooks. Normal task checkpoints still run required hooks.
-
-Interrupted capture resumes from the saved snapshot, not from later source edits. Recovery accepts only the base or approved version of each destination file. Other destination changes stop recovery without rollback. Symlinks and nested repositories also stop capture. Unrelated dirty files stay outside the run.
-
-The coordinator uses `prepare_task_graph_workspace` before any writes. File tools use the returned absolute paths. The native `bash` tool accepts the exact workspace path in its `repository` parameter. Its normal Pi permission hooks remain active. `checkpoint_task_graph` commits explicit owned paths without broad staging or history rewrites.
-
-Each writing worker receives a separate task worktree. Launch and dispatch checks verify its repository, path, branch, starting commit, ownership, and terminal. The launch command also pins the workspace contract. Workers cannot disable extensions through extra launch flags. A saved launch intent and unique terminal title prevent automatic relaunch after a lost result.
-
-Required setup belongs in the approved task's `setup` field. The coordinator runs that exact command through `bash` in each prepared worker workspace before launch. Ignored setup outputs do not transfer between worktrees. Orca creation skips setup hooks, but configured default terminals can still start. Inspect that repository configuration before approval.
-
-The returned repository map and `AGENT_TOOLKIT_GRAPH_REPOSITORIES` identify each repository's execution path and HEAD. Cross-repository builds must use these paths instead of implicit sibling paths. Declared prerequisite repositories stay at their recorded HEADs until dependent workers finish. Coordinator writes and integration wait while a dependent worker pins that repository. Existing scripts can require explicit setup configuration for this layout.
-
-A `current_checkout` proposal requires separate human approval and clean source checkouts. It changes coordinator placement only. Writing workers still receive separate worktrees.
-
-Planning-work approval permits Markdown changes under `docs/`, except `docs/exec-plans/`. It does not permit implementation or plan promotion.
-
-#### Execution
-
-After approval, `/graph` uses one stable Orca Run objective. It resumes one unfinished matching Run or creates a Run when none exists.
-
-For an explicitly named Run with a changed objective, the coordinator can call `bind_task_graph_run` with `recover: true`. Recovery requires interactive confirmation and the preserved original graph contract. It validates the repository, task identities, ownership, dependencies, and live dispatches before any Run mutation. It preserves the original objective, task IDs, specs, contract markers, and dispatches.
-
-This recovery path supports complete top-level task graphs, not partial ledgers or plan chains. Missing evidence, changed ownership, conflicting Runs, unavailable live workers, or an active original graph lock stop recovery. The model, account, quota, and closeout guards remain active.
-
-The coordinator creates one non-dispatched Orca task for each plan. These tasks store the approved dependencies and provide the durable execution ledger.
-
-The coordinator selects the first unfinished ready plan in the approved order. It rechecks the plan before it changes any files.
-
-A ready future plan moves to `docs/exec-plans/active/` immediately before execution. Its status changes to `queued`, then to `in-progress` when work starts.
-
-The coordinator splits the active plan into one to six internal worker tasks. Independent tasks start together after ownership validation.
-
-Each task gets a fresh `pi-yolo` worker in its verified task worktree. Completed workers never receive another task.
-
-Every worker launch pins the coordinator's selected provider and model. Codex launches also pin its selected account, so the quota gate checks the worker's subscription.
-
-Workers use medium thinking unless the user explicitly requests high. Task risk does not authorize a higher thinking level.
-
-The coordinator supervises every dispatch and releases every completed worker. One failed worker can receive one replacement at the same thinking level. A replacement requires a failed, closed dispatch and a clean retained worktree.
-
-Workers use `checkpoint_task_graph` for scoped local commits after required checks and risk-gated reviews. They cannot push or merge into the source branch. After the worker terminal closes, `integrate_task_graph_worker` verifies every imported commit and merges it into the run branch. Dependent workers start from integrated prerequisite changes.
-
-For merge conflicts, file tools edit the resolution and `checkpoint_task_graph` stages its explicit paths. A repeated integration call completes the recorded merge. Lifecycle recovery also creates its own local checkpoint, including during recovery-only sessions.
-
-Validation and required reviews cover the complete proposed delivery diff, including captured inputs. Worker commits do not replace plan closeout.
-
-The coordinator moves a plan to `completed` only after all requirements pass. It records evidence, completes the plan task, and selects the next ready plan.
-
-Graph approval never authorizes publication or merge-back. Worker cleanup requires the explicit option described below. If repository rules require publication for completion, the plan remains active with `Status: validation`. `finish_task_graph` accepts `delivery_pending: true` after all local work and validation pass. It records local readiness without a shipped-completion claim.
-
-These checks constrain agent operations but do not provide an operating-system sandbox. Trusted setup scripts and hooks retain their usual filesystem access. Existing secret and destructive-operation permissions remain in force.
-
-A blocker, failed validation, unresolved decision, or trusted external boundary stops the plan chain. The current Orca state remains available for recovery.
-
-#### Quota control
-
-For Codex subscriptions, `/graph` checks quota before each worker launch.
-
-It reserves 15% of the long quota window. If Codex reports a short window, it also reserves 5% of that window.
-
-Missing long-window data stops new workers. Missing short-window data does not stop them.
-
-Existing workers finish their current wave. The coordinator marks the active plan `budget-exhausted` and preserves the Run state.
-
-After the quota resets, run the same `/graph` command to continue. Usage reports can lag, so the reserve is not an exact guarantee.
-
-#### Duplicate protection and recovery
-
-Only one coordinator can run a target on one host. A second coordinator receives an active-run error instead of creating duplicate work.
-
-If the coordinator process crashes, its PID lock becomes stale. Only the same target may replace locks for its unfinished plan chain.
-
-Other targets cannot take those plan locks while crash-surviving workers may still exist. Run the same target plan after a crash. Approve the recovered schedule, and `/graph` binds to the unfinished Orca Run.
-
-Successful closeout explicitly releases every lock. If a coordinator turn ends without closeout, `/graph` abandons the locks but preserves their target identity for recovery.
-
-Recovery preserves completed tasks, task IDs, and workspace records. It continues live dispatches, processes settled results, and creates only missing tasks. It verifies recorded worktrees instead of creating replacements or copying source inputs again.
-
-An incomplete input capture requires reconciliation. The runtime does not overwrite it on resume. Legacy Runs without workspace records require an explicit current-checkout exception.
-
-Successful closeout preserves delivery worktrees and archives the graph records beside the graph locks. Local completion does not mean published or merged. Publishing, PR creation, merge-back, and source reconciliation remain separate authorized actions. The runtime does not assume a branch name or hosting provider.
-
-Source reconciliation is not automatic. Original dirty inputs remain in the source checkout, including any later user edits.
-
-Completed-plan recovery can only bind an existing Run and reconcile its ledger. A checked lifecycle tool handles the missing status or move inside the recorded workspace. Recovery cannot create a Run or launch workers.
-
-#### Delivery worktrees and worker cleanup
-
-New coordinator worktrees use an objective-based name with a short unique suffix, such as `customer-search-delivery-a1b2c3d4`. These worktrees collect worker commits and become the delivery worktrees. There is no extra consolidation branch.
-
-The optional `cleanup_workers: true` proposal authorizes cleanup once, on the graph approval screen. After local closeout, the coordinator calls `cleanup_completed_task_graph` separately. Pi can deny this tool independently of `finish_task_graph`. The extension does not weaken shell, secret, or destructive-operation permissions.
-
-Cleanup removes only isolated worker worktrees whose tasks and dispatches are completed and released. Each worker must be clean, and its exact integrated commit must remain reachable from the delivery branch. No terminal can remain in the worker worktree, including an idle shell. Approval includes removal of ignored setup artifacts such as installed dependencies.
-
-Cleanup preserves source and delivery worktrees, dirty or unintegrated work, failed workers, and worktrees with terminals. It waits for unfinished graphs that use the same repository. A shared host-local lock prevents graph startup during cleanup checks and removal. It also preserves worker worktrees that serve as sources or delivery worktrees in another archived graph. Each retained worktree has a reported reason.
-
-Orca performs removal without `--force` or archive hooks. A permission error stops that removal without a filesystem fallback. Saved cleanup intent supports recovery after a lost result. Orca can retain a local branch if it cannot prove that branch is merged.
-
-Delivery worktrees receive readable Orca display labels. Existing custom labels and Git branch names stay unchanged. Separate Runs keep separate delivery worktrees: cleanup does not guess which older coordinator branches to combine.
-
-For an older completed Run, request `cleanup_completed_task_graph` with its Run ID in a graph repository. The tool requires an archived completion record and asks for cleanup approval once. It does not create a Run or restart workers. Unfinished Runs must complete or undergo explicit reconciliation first.
-
-You control the final merge into the target branch and the push.
-
-#### Intentional boundaries
-
-The graph coordinates approved local work. It does not expand its own authority or replace the execution environment.
-
-- **Publication requires separate authorization.** Graph approval does not authorize pushes, publication, or merge-back.
-- **Cleanup is narrowly scoped.** Only the explicit worker-cleanup option authorizes deletion of verified temporary worktrees. Other deletion requires separate authorization.
-- **Existing permissions stay active.** The graph does not bypass secret or destructive-operation permissions.
-- **Script sandboxing belongs to the execution environment.** Worktrees share Git metadata, and scripts and hooks retain host filesystem access. Workflow guards cannot contain a hostile program.
-- **Cross-host coordination belongs to Orca or a shared service.** Graph locks are host-local. They do not prevent a second coordinator on another host.
-
-These boundaries are deliberate, not a promise to add broader authority to the extension.
-
-The toolkit does not use scheduled polling. Polling consumes quota and can race with a live coordinator.
-
-Trusted push, pull-request, merge, release, credential, and permission boundaries remain interactive. The plan chain stops with completed local work at these boundaries.
-
-#### Validation coverage
-
-The focused suite covers capture recovery, CRLF conversion, staged-file preservation, multi-repository execution, prerequisite pinning, worker retries, integration conflicts, and lifecycle closeout. Cleanup tests cover approval, permission denial, protected worktrees, ignored setup artifacts, and lost removal results. Git operations use disposable real repositories. Orca operations and permission-hook routing use test doubles. Live Orca and installed-permission integration remain unverified.
+The current focused graph suite uses retained Git fixtures for planning, separate execution, failed checks, and interrupted preparation.
+Earlier twenty-run results describe the superseded implementation.
+Orca RPCs and native permission-hook routing in that suite are test doubles. They do not prove installed permission integration or live Orca readiness.
+The permission audit and measured results are in [the graph rewrite report](pi/extensions/task-graph/VALIDATION.md).
 
 ## Skills
 

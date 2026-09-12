@@ -112,9 +112,16 @@ parent-relative patch; otherwise leave the attribution unknown.
 
 ## Engines
 
-Codex is the default: `gpt-6-astra`, medium reasoning, with a `gpt-5.6-sol` retry
-only for an account-access failure. Honor explicit engine/model choices; do not
+Codex is the default: `gpt-5.6-sol`, high reasoning, with a `gpt-5.6-terra` retry
+only for an account-access failure. Honor explicit engine and model choices. Do not
 switch because a review is slow or rate-limited.
+
+Use `--model` and `--thinking` for one review. Use `AUTOREVIEW_CODEX_MODEL` and
+`AUTOREVIEW_CODEX_THINKING` to change defaults for a launcher or terminal:
+
+```sh
+AUTOREVIEW_CODEX_MODEL=gpt-6-astra AUTOREVIEW_CODEX_THINKING=medium autoreview --mode local
+```
 
 Use `--engine`, `--model`, and `--thinking` to override the defaults.
 `--codex-speed fast` selects priority service when supported. Only Claude accepts

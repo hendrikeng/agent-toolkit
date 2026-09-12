@@ -58,20 +58,25 @@ class PiReviewOutputTests(unittest.TestCase):
             self.skipTest("Toolkit launcher is not present in this standalone skill checkout")
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
-            managed, runtime, repo = (base / name for name in ("managed", "runtime", "repo"))
-            policy = managed / "extensions/pi-permission-system/config.json"
+            managed, runtime, bundle, repo = (base / name for name in ("managed", "runtime", "bundle", "repo"))
+            policy = bundle / "policy.json"
             output = runtime / "extensions/pi-permission-system/config.json"
-            policy.parent.mkdir(parents=True)
-            output.parent.mkdir(parents=True)
-            repo.mkdir()
+            for directory in [policy.parent, output.parent, managed / "extensions", bundle / "extensions", bundle / "node_modules", base / "Code", base / "orca/workspaces", repo]:
+                directory.mkdir(parents=True)
+            for name in ["development-access", "task-graph"]:
+                (bundle / "extensions" / name).mkdir()
+            (managed / "settings.json").write_text("{}")
             policy.write_text((safety / "pi-permission-system.json").read_text())
+            (bundle / "development-policy.cjs").write_bytes((safety / "development-policy.cjs").read_bytes())
             launcher = (safety / "agent-yolo").read_text()
-            script = launcher.split('node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" <<\'NODE\'\n', 1)[1].split("\nNODE", 1)[0]
-            subprocess.run(["node", "-", str(policy), str(output)], input=script, text=True, check=True, capture_output=True)
-            root = managed / "review-results"
-            alias = base / "managed-alias"
-            alias.symlink_to(managed, target_is_directory=True)
-            environment = {"AGENT_TOOLKIT_REVIEW_ROOT": str(alias / "review-results"), "PI_CODING_AGENT_DIR": str(runtime)}
+            marker = 'node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" <<\'NODE\'\n'
+            script = launcher.split(marker, 1)[1].split("\nNODE", 1)[0]
+            subprocess.run(["node", "-", str(policy), str(output), str(bundle), str(managed)], input=script, text=True, check=True, capture_output=True, env={**os.environ, "HOME": str(base)})
+            root = base / "Code/.agent-toolkit-reports"
+            alias = base.parent / f"{base.name}-alias"
+            alias.symlink_to(base, target_is_directory=True)
+            self.addCleanup(alias.unlink)
+            environment = {"AGENT_TOOLKIT_REVIEW_ROOT": str(alias / "Code/.agent-toolkit-reports"), "PI_CODING_AGENT_DIR": str(runtime)}
             with mock.patch.dict(os.environ, environment):
                 args = argparse.Namespace(output=None, json_output=None, status_output=None)
                 AUTOREVIEW.prepare_pi_review_outputs(args, repo)
@@ -233,7 +238,7 @@ class AutoreviewPriorityTests(unittest.TestCase):
             reviewer = AUTOREVIEW.reviewer_args(args)[0]
         self.assertEqual(args.max_priority, "P2")
         self.assertEqual((reviewer.model, reviewer.thinking, reviewer.fallback_model),
-                         ("gpt-6-astra", "medium", "gpt-5.6-sol"))
+                         ("gpt-5.6-sol", "high", "gpt-5.6-terra"))
 
     def test_explicit_review_settings_override_toolkit_defaults(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(sys, "argv", [

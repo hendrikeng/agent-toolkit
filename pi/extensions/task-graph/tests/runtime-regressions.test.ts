@@ -1,342 +1,382 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
-import { registerHooks } from "node:module"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { graphGit, readGraphWorkspaces } from "../workspaces.ts"
-import { acquireTaskGraphMutationLock, releaseTaskGraphLock, repositoryIdentity, taskGraphOrcaArgv, type TaskGraphPlan } from "../task-graph-core.ts"
+import { registerHooks } from "node:module"
+import { graphGit, repositoryIdentity } from "../task-graph-core.ts"
+import { captureGraphWorkspaces } from "../workspaces.ts"
 
 const globals = globalThis as any
-const hooks = registerHooks({
-	resolve(specifier, context, next) {
-		if (!context.parentURL?.endsWith("/task-graph/index.ts")) return next(specifier, context)
-		const mocks: Record<string, string> = {
-			"@earendil-works/pi-coding-agent": "export const createBashTool = (cwd, options) => ({execute: (_id, params) => globalThis.graphRegressionShell(cwd, params, options)}); export const getAgentDir = () => globalThis.graphRegressionAgentDir; export const isToolCallEventType = (type, event) => event.toolName === type;",
-			"typebox": "export const Type = new Proxy({}, {get: () => () => ({})});",
-			"../codex-account/index.ts": "export const defaultPiAccount = () => undefined; export const fetchCodexUsage = () => undefined; export const piAccountEmail = () => undefined; export const piProfileAccountId = () => undefined;",
-			"node:child_process": "export const execFileSync = (_command, args) => JSON.stringify(globalThis.graphRegressionRpc(args));",
-		}
-		return mocks[specifier] ? { url: `data:text/javascript,${encodeURIComponent(mocks[specifier])}`, shortCircuit: true } : next(specifier, context)
-	},
-})
-const { default: extension, assertGraphShell } = await import("../index.ts")
-test.after(() => { hooks.deregister(); delete globals.graphRegressionShell; delete globals.graphRegressionAgentDir; delete globals.graphRegressionRpc })
+const hooks = registerHooks({ resolve(specifier, context, next) {
+ if (!context.parentURL?.endsWith("/task-graph/index.ts")) return next(specifier, context)
+ const modules: Record<string, string> = {
+  "@earendil-works/pi-coding-agent": "export const getAgentDir=()=>globalThis.agentDir; export const truncateHead=content=>({content}); export const withFileMutationQueue=(_path,fn)=>fn();",
+  "@earendil-works/pi-ai": "export const StringEnum=()=>({});",
+  typebox: "export const Type=new Proxy({}, {get:()=>()=>({})});",
+  "node:child_process": "export const execFileSync=(_binary,args)=>JSON.stringify(globalThis.orcaRpc(args));",
+  "../development-access/index.ts": "export const inspectShell=async(command,cwd)=>({command,cwd,inspection:command.startsWith('git ')||command.startsWith('cross-check '),effects:command.includes('>')||command.startsWith('PATH='),gitMutation:/^git (?:add|commit|merge)/.test(command),commands:[command.startsWith('orca ')?['orca','orchestration','send']:command.startsWith('./orca ')?['./orca','orchestration','send']:command.startsWith('PATH=')?['orca','orchestration','send']:['node','check.cjs']],paths:command.startsWith('cross-')?[command.slice(command.indexOf(' ')+1)]:[],candidates:[],directories:[]}); export const runBash=async(_id,params,_signal,_update,cwd,env)=>{globalThis.graphBashRuns.push({command:params.command,cwd,env}); if(globalThis.graphBashFailure) throw new Error(globalThis.graphBashFailure); return {content:[]}};",
+ }
+ return modules[specifier] ? { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true } : next(specifier, context)
+} })
+const originalPath = process.env.PATH
+let extension: (api: never) => void
+try { process.env.PATH = ""; ({ default: extension } = await import("../index.ts")) }
+finally { process.env.PATH = originalPath }
+test.after(() => hooks.deregister())
 
-function fixture(mode: TaskGraphPlan["mode"] = "execute", currentCheckout = false) {
-	const directory = realpathSync(mkdtempSync(join(tmpdir(), "graph-regression-")))
-	const sources = ["api", "app"].map((name) => join(directory, name))
-	const agentDir = join(directory, "agent")
-	const environment = { ...process.env, GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" }
-	const prior = { agentDir: process.env.AGENT_TOOLKIT_PI_AGENT_DIR, workerFile: process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES, task: process.env.AGENT_TOOLKIT_GRAPH_TASK }
-	Object.assign(process.env, { GIT_AUTHOR_NAME: environment.GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL: environment.GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME: environment.GIT_COMMITTER_NAME, GIT_COMMITTER_EMAIL: environment.GIT_COMMITTER_EMAIL })
-	process.env.AGENT_TOOLKIT_PI_AGENT_DIR = agentDir
-	delete process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES
-	delete process.env.AGENT_TOOLKIT_GRAPH_TASK
-	for (const source of sources) {
-		execFileSync("git", ["init", "--quiet", "--initial-branch=dev", source], { env: environment })
-		mkdirSync(join(source, "docs/future"), { recursive: true })
-		writeFileSync(join(source, "owned.txt"), "baseline\n")
-		writeFileSync(join(source, "unowned.txt"), "keep\n")
-		writeFileSync(join(source, ".gitignore"), ".setup-ready\n")
-		writeFileSync(join(source, "setup.cjs"), "require('node:fs').writeFileSync('.setup-ready','ready')\n")
-		writeFileSync(join(source, "inspect.cjs"), "const fs=require('node:fs'); const repos=JSON.parse(process.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES); console.log(JSON.stringify(repos));\n")
-		graphGit(source, "add", "--", "owned.txt", "unowned.txt", ".gitignore", "setup.cjs", "inspect.cjs")
-		graphGit(source, "commit", "-m", "baseline")
-	}
-	const indexes = sources.map((source) => readFileSync(join(source, ".git/index")))
-	const heads = sources.map((source) => graphGit(source, "rev-parse", "HEAD"))
-	const run = { id: "run_regression", objective: `Pi task graph: ${repositoryIdentity(sources[0])}::objective:Fixture` }
-	const tasks: any[] = [], terminals: any[] = [], worktrees: any[] = []
-	const dispatches: Record<string, any> = {}
-	let failAfterCreate = false
-	let permissionDenied = false
-	let confirmations = 0
-	let shellCalls = 0
-	let terminalSequence = 0
-	const rpc = (args: string[]) => {
-		const value = (name: string) => args[args.indexOf(name) + 1]
-		let result: any
-		switch (args.slice(0, 2).join(" ")) {
-			case "orchestration run-list": result = { runs: [run] }; break
-			case "orchestration run-show": case "orchestration run-use": result = { run }; break
-			case "orchestration task-list": result = { tasks }; break
-			case "orchestration dispatch-show": result = { dispatch: dispatches[value("--task")] ?? null }; break
-			case "orchestration worker-list": result = { workers: Object.values(dispatches).map((dispatch) => ({ taskId: dispatch.task_id, dispatchId: dispatch.id, runId: run.id, dispatchStatus: dispatch.status, agentTerminalHandle: dispatch.assignee_handle, workerState: "unsupervised", resource: null })) }; break
-			case "orchestration dispatch": {
-				const task = tasks.find((task) => task.id === value("--task"))
-				task.status = "dispatched"
-				result = { dispatch: dispatches[task.id] = { id: `dispatch_${task.id}_${terminals.length}`, task_id: task.id, run_id: run.id, status: "active", assignee_handle: value("--to") } }
-				break
-			}
-			case "terminal list": result = { terminals }; break
-			case "terminal show": result = { terminal: terminals.find((terminal) => terminal.handle === value("--terminal")) }; break
-			case "terminal create": {
-				const workspace = worktrees.find((workspace) => `id:${workspace.id}` === value("--worktree"))
-				assert.ok(workspace)
-				const terminal = { handle: `term_${terminalSequence++}`, worktreePath: workspace.path, title: value("--title") }
-				terminals.push(terminal)
-				if (failAfterCreate) { failAfterCreate = false; throw new Error("Lost create receipt") }
-				result = { terminal }; break
-			}
-			case "repo list": result = { repos: sources.map((path, index) => ({ id: `repo_${index}`, path })) }; break
-			case "worktree list": result = { worktrees: worktrees.filter((workspace) => `id:repo_${sources.indexOf(workspace.source)}` === value("--repo")) }; break
-			case "worktree show": result = { worktree: worktrees.find((workspace) => `id:${workspace.id}` === value("--worktree")) }; break
-			case "worktree set": {
-				assert.deepEqual(args, ["worktree", "set", "--worktree", value("--worktree"), "--display-name", value("--display-name"), "--json"])
-				const workspace = worktrees.find((workspace) => `id:${workspace.id}` === value("--worktree"))!
-				workspace.displayName = value("--display-name")
-				result = { worktree: workspace }; break
-			}
-			case "worktree rm": {
-				assert.deepEqual(args, ["worktree", "rm", "--worktree", value("--worktree"), "--json"])
-				const index = worktrees.findIndex((workspace) => `id:${workspace.id}` === value("--worktree"))
-				assert.ok(index >= 0)
-				rmSync(worktrees[index].path, { recursive: true, force: true }) // Disposable fixture; production removal belongs to Orca.
-				worktrees.splice(index, 1)
-				result = {}; break
-			}
-			case "worktree create": {
-				const source = sources.find((_source, index) => `id:repo_${index}` === value("--repo"))!, name = value("--name"), path = join(directory, name)
-				assert.ok(source, "Creation requires a registered repository ID, not a checkout path")
-				assert.equal(value("--setup"), "skip")
-				graphGit(source, "worktree", "add", "--quiet", "-b", `hendrikeng/${name}`, path, value("--base-branch"))
-				const workspace = { id: `fixture::${path}`, source, path, displayName: name, branch: `refs/heads/hendrikeng/${name}` }
-				worktrees.push(workspace); result = { worktree: workspace }; break
-			}
-			default: throw new Error(`Unexpected fixture RPC: ${args.join(" ")}`)
-		}
-		return { ok: true, result }
-	}
-	globals.graphRegressionAgentDir = agentDir
-	globals.graphRegressionRpc = rpc
-	globals.graphRegressionShell = (cwd: string, params: any, options: any) => {
-		shellCalls++
-		const argv = taskGraphOrcaArgv(params.command)
-		const text = argv ? JSON.stringify(rpc(argv)) : execFileSync("/bin/sh", ["-c", params.command], { cwd, encoding: "utf8", env: options?.spawnHook?.({ command: params.command, cwd, env: environment }).env ?? environment, stdio: ["ignore", "pipe", "pipe"] })
-		return { content: [{ type: "text", text }], details: {} }
-	}
-	function runtime(cwd = sources[0], worker?: any) {
-		if (worker) {
-			process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES = worker.environment.AGENT_TOOLKIT_GRAPH_WORKSPACES
-			process.env.AGENT_TOOLKIT_GRAPH_TASK = worker.workspace.task
-		}
-		const tools = new Map<string, any>(), commands = new Map<string, any>(), events = new Map<string, any>()
-		extension({ registerTool: (tool: any) => tools.set(tool.name, tool), registerCommand: (name: string, command: any) => commands.set(name, command), on: (name: string, handler: any) => events.set(name, handler), sendUserMessage: (prompt: string) => events.get("before_agent_start")({ prompt }) } as never)
-		delete process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES
-		delete process.env.AGENT_TOOLKIT_GRAPH_TASK
-		const ctx = { cwd, hasUI: true, isIdle: () => true, model: { provider: "test", id: "model" }, ui: { select: async () => mode === "execute" ? "Approve and execute" : "Approve planning work", confirm: async () => { confirmations++; return true }, notify: (message: string) => { throw new Error(message) } } }
-		let sequence = 0
-		return {
-			tools, commands, events, ctx,
-			async call(name: string, input: any) {
-				const toolCallId = `call_${sequence++}`
-				const blocked = await events.get("tool_call")({ toolName: name, input, toolCallId }, ctx)
-				if (blocked?.block) throw new Error(blocked.reason)
-				// Model the standard permission hook after graph preflight. No command executes on denial.
-				if (["bash", "cleanup_completed_task_graph"].includes(name) && permissionDenied) throw new Error("Native tool permission denied")
-				let result
-				try { result = await tools.get(name).execute(toolCallId, input, undefined, undefined, ctx) }
-				catch (error) { await events.get("tool_result")({ toolCallId, toolName: name, input, isError: true, content: [] }); throw error }
-				await events.get("tool_result")({ toolCallId, toolName: name, input, isError: false, ...result })
-				return result
-			},
-		}
-	}
-	let r = runtime()
-	const candidate: TaskGraphPlan = { objective: "Fixture", mode, current_checkout: currentCheckout, tasks: ["a", "b"].map((id, index) => ({ id, goal: id, repository: index ? "../app" : ".", depends_on: index ? ["a"] : [], owns: mode === "execute" ? ["owned.txt"] : ["docs/"], specialty: "test", thinking: "medium", done_when: ["checked"], validation: "node inspect.cjs", setup: "node setup.cjs" })) }
-	async function approve(resume = false) {
-		await r.commands.get("graph").handler("Fixture", r.ctx)
-		const result = await r.call("propose_task_graph", candidate)
-		await r.call("bind_task_graph_run", { run_id: run.id })
-		await r.call("prepare_task_graph_workspace", {})
-		if (!resume) result.details.plan.tasks.forEach((task: any, index: number) => tasks.push({ id: `task_${task.id}`, run_id: run.id, parent_id: null, spec: result.content[0].text.match(/\[graph-task:[^\n]+/g)![index], deps: JSON.stringify(task.depends_on.map((id: string) => `task_${id}`)), status: "ready" }))
-	}
-	const prepare = async (id: string) => JSON.parse((await r.call("prepare_task_graph_workspace", { task_id: `task_${id}` })).content[0].text)
-	const command = (worker: any) => `orca terminal create --worktree id:${worker.workspace.id} --title ${worker.launchTitle} --command '${Object.entries(worker.environment).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(" ")} pi-yolo --model test/model --thinking medium' --json`
-	return {
-		directory, sources, indexes, heads, tasks, terminals, worktrees, run, candidate, prepare, command, approve,
-		get r() { return r },
-		get shellCalls() { return shellCalls },
-		get confirmations() { return confirmations },
-		set deny(value: boolean) { permissionDenied = value },
-		set loseReceipt(value: boolean) { failAfterCreate = value },
-		worker: (worker: any) => runtime(worker.workspace.path, worker),
-		async resume() { r.events.get("agent_settled")(); r = runtime(); await approve(true) },
-		async launch(worker: any) {
-			await r.call("bash", { repository: worker.workspace.path, command: "node setup.cjs" })
-			const result = await r.call("bash", { command: command(worker) })
-			const terminal = JSON.parse(result.content[0].text).result.terminal
-			await r.call("bash", { command: `orca orchestration dispatch --task ${worker.workspace.task} --to ${terminal.handle} --inject --json` })
-		},
-		complete(id: string, status = "completed") {
-			tasks.find((task) => task.id === `task_${id}`).status = status
-			dispatches[`task_${id}`].status = status
-			terminals.splice(terminals.findIndex((terminal) => terminal.handle === dispatches[`task_${id}`].assignee_handle), 1)
-		},
-		cleanup() {
-			r.events.get("agent_settled")()
-			for (const [name, value] of Object.entries({ AGENT_TOOLKIT_PI_AGENT_DIR: prior.agentDir, AGENT_TOOLKIT_GRAPH_WORKSPACES: prior.workerFile, AGENT_TOOLKIT_GRAPH_TASK: prior.task })) value === undefined ? delete process.env[name] : process.env[name] = value
-			rmSync(directory, { recursive: true, force: true })
-		},
-	}
+function fixture() {
+ const root = realpathSync(mkdtempSync(join(tmpdir(), "graph-runtime-"))), home = join(root, "home"), source = join(home, "Code/source"), dependency = join(home, "Code/dependency")
+ mkdirSync(join(home, "orca/workspaces"), { recursive: true }); process.env.HOME = home
+ const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" }
+ Object.assign(process.env, gitEnv)
+ execFileSync("git", ["init", "--quiet", "--initial-branch=dev", source], { env: gitEnv })
+ execFileSync("git", ["init", "--quiet", "--initial-branch=dev", dependency], { env: gitEnv }); writeFileSync(join(dependency, "dependency.txt"), "dependency\n"); graphGit(dependency, "add", "--", "dependency.txt"); graphGit(dependency, "commit", "-m", "base")
+ for (const name of ["a.txt", "b.txt", "c.txt"]) writeFileSync(join(source, name), "base\n")
+ writeFileSync(join(source, "check.cjs"), "process.exit(0)\n"); writeFileSync(join(source, "setup.cjs"), "process.exit(0)\n")
+ graphGit(source, "add", "--", "a.txt", "b.txt", "c.txt", "check.cjs", "setup.cjs"); graphGit(source, "commit", "-m", "base")
+ const base = graphGit(source, "rev-parse", "HEAD")
+ const runs: any[] = [], tasks: any[] = [], worktrees: any[] = [], terminals: any[] = [], dispatches: any[] = [], calls: string[][] = [], integrationValidations: any[] = []
+ let loseWorktreeReceipt = false
+ globals.graphBashRuns = integrationValidations; globals.graphBashFailure = undefined
+ globals.orcaRpc = (args: string[]) => {
+  calls.push(args); const value = (key: string) => args[args.indexOf(key) + 1], op = args.slice(0, 2).join(" "); let result: any
+  if (op === "repo list") result = { repos: [{ id: "repo", path: source }, { id: "dependency", path: dependency }] }
+  else if (op === "repo show") result = { repo: { id: "repo", defaultTerminals: [], setup: [] } }
+  else if (op === "worktree list") result = { worktrees }
+  else if (op === "worktree create") {
+   const name = value("--name"), repoId = value("--repo").slice(3), owner = repoId === "repo" ? source : dependency, path = join(home, "orca/workspaces", `${repoId}-${name}`); graphGit(owner, "worktree", "add", "--quiet", "-b", name, path, value("--base-branch"))
+   const worktree = { id: `${repoId}::${path}`, path, displayName: name, branch: `refs/heads/${name}`, owner }; worktrees.push(worktree)
+   if (loseWorktreeReceipt) { loseWorktreeReceipt = false; throw new Error("lost worktree receipt") }
+   result = { worktree }
+  } else if (op === "worktree set") {
+   const item = worktrees.find(item => item.id === value("--worktree").slice(3)); item.displayName = value("--display-name"); result = { worktree: item }
+  } else if (op === "worktree rm") {
+   const id = value("--worktree").slice(3), index = worktrees.findIndex(item => item.id === id), item = worktrees[index]
+   if (item) { execFileSync("/usr/bin/git", ["--no-replace-objects", "-C", item.owner, "worktree", "remove", item.path], { env: gitEnv }); worktrees.splice(index, 1) }
+   result = {}
+  } else if (op === "orchestration run-list") result = { runs }
+  else if (op === "orchestration run-create") { const run = { id: "run_fixture", objective: value("--objective") }; runs.push(run); result = { run } }
+  else if (op === "orchestration run-show") result = { run: runs.find(run => run.id === value("--id")) }
+  else if (op === "orchestration task-list") result = { tasks }
+  else if (op === "orchestration task-create") { const task = { id: `task_${tasks.length}`, run_id: value("--run"), spec: value("--spec"), deps: value("--deps"), status: "ready", parent_id: null }; tasks.push(task); result = { task } }
+  else if (op === "orchestration task-update") { const task = tasks.find(task => task.id === value("--id")); task.status = value("--status"); result = { task } }
+  else if (op === "terminal list") result = { terminals }
+  else if (op === "terminal create") {
+   const selector = value("--worktree"), path = selector.startsWith("id:") ? worktrees.find(item => item.id === selector.slice(3)).path : selector.slice(5)
+   const terminal = { handle: `terminal_${calls.filter(call => call.slice(0, 2).join(" ") === "terminal create").length}`, title: value("--title"), worktreePath: path, command: value("--command") }
+   terminals.push(terminal); result = { terminal }
+  } else if (op === "terminal close") { if (globals.graphTerminalCloseFailure) throw new Error("terminal close failed"); const index = terminals.findIndex(item => item.handle === value("--terminal")); if (index >= 0) terminals.splice(index, 1); result = {} }
+  else if (op === "orchestration dispatch") { const dispatch = { id: `dispatch_${dispatches.length}`, task_id: value("--task"), run_id: value("--run"), assignee_handle: value("--to"), status: "running" }; dispatches.push(dispatch); tasks.find(task => task.id === dispatch.task_id).status = "dispatched"; result = { dispatch } }
+  else if (op === "orchestration dispatch-show") result = { dispatch: dispatches.findLast(item => item.task_id === value("--task")) }
+  else throw new Error(`Unexpected Orca RPC: ${op}`)
+  return { ok: true, result }
+ }
+ globals.agentDir = join(root, "agent"); mkdirSync(globals.agentDir); process.env.AGENT_TOOLKIT_PI_AGENT_DIR = globals.agentDir
+ function runtime(cwd: string) {
+  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>()
+  extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: (name: string, handler: any) => events.set(name, handler), registerCommand: (name: string, command: any) => commands.set(name, command), sendUserMessage: () => {} } as never)
+  const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => true, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string) => { throw new Error(message) } } }
+  let serial = 0
+  return { command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
+   const id = String(++serial), event = { toolName: name, input, toolCallId: id }, blocked = await events.get("tool_call")?.(event, ctx)
+   if (blocked?.block) throw new Error(blocked.reason)
+   let output: any, error: any
+   try {
+    if (name === "write") writeFileSync(input.path, input.content)
+    else if (name === "bash") output = { content: [{ type: "text", text: input.command.startsWith("orca ") ? "reported" : input.command.startsWith("cross-check ") ? "checked" : execFileSync("/bin/bash", ["-c", input.command], { cwd: input.repository || cwd, env: process.env, encoding: "utf8" }) }] }
+    else output = await tools.get(name).execute(id, input, undefined, undefined, ctx)
+   } catch (failure) { error = failure }
+   await events.get("tool_result")?.({ ...event, isError: Boolean(error), content: output?.content ?? [] }, ctx)
+   if (error) throw error
+   return output
+  } }
+ }
+ const plan: any = { objective: `Concurrent lanes ${root}`, mode: "execute", worktree_budget: 3, foundations: [{ repository: source, commit: base }], tasks: [
+  { id: "a", goal: "write a", repository: source, depends_on: [], owns: ["a.txt"], done_when: ["validated"], validation: "node check.cjs" },
+  { id: "b", goal: "write b", repository: source, depends_on: [], owns: ["b.txt"], done_when: ["validated"], validation: "node check.cjs" },
+  { id: "c", goal: "write c", repository: source, depends_on: ["a", "b"], owns: ["c.txt"], done_when: ["validated"], validation: "node check.cjs" },
+ ] }
+ return { root, agent: globals.agentDir, source, dependency, base, dependencyBase: graphGit(dependency, "rev-parse", "HEAD"), plan, tasks, worktrees, terminals, dispatches, calls, integrationValidations, loseNextWorktreeReceipt: () => { loseWorktreeReceipt = true }, runtime }
 }
 
-test("two repositories complete through setup, native bash, scoped commits, integration, resume and approved cleanup", async () => {
-	const f = fixture()
-	try {
-		f.candidate.cleanup_workers = true
-		const cleanupLock = acquireTaskGraphMutationLock(join(f.directory, "agent/task-graph-locks"))
-		try { await assert.rejects(f.approve(), /Another \/graph run/) }
-		finally { releaseTaskGraphLock(cleanupLock) }
-		await f.approve()
-		await assert.rejects(f.prepare("b"), /prerequisite/)
-		const a = await f.prepare("a")
-		await assert.rejects(f.r.call("bash", { command: f.command(a) }), /setup command/)
-		await f.launch(a)
-		writeFileSync(join(a.workspace.path, "owned.txt"), "api implemented\n")
-		await f.worker(a).call("checkpoint_task_graph", { paths: ["owned.txt"], message: "Implement API" })
-		f.complete("a")
-		await assert.rejects(f.prepare("b"), /Integrate prerequisite/)
-		await f.r.call("integrate_task_graph_worker", { task_id: "task_a" })
-		await f.resume()
-		const b = await f.prepare("b")
-		await assert.rejects(f.r.call("write", { path: join(b.repositories[f.sources[0]].path, "owned.txt"), content: "would move a prerequisite" }), /pinned prerequisite/)
-		await assert.rejects(f.r.call("bash", { repository: b.repositories[f.sources[0]].path, command: "node inspect.cjs" }), /pinned prerequisite/)
-		await f.launch(b)
-		const worker = f.worker(b)
-		const output = await worker.call("bash", { command: "node inspect.cjs" })
-		const map = JSON.parse(output.content[0].text)
-		assert.notEqual(map[f.sources[0]].path, f.sources[0])
-		assert.equal(readFileSync(join(map[f.sources[0]].path, "owned.txt"), "utf8"), "api implemented\n")
-		assert.equal(b.workspace.prerequisites[f.sources[0]], map[f.sources[0]].head)
-		writeFileSync(join(b.workspace.path, "owned.txt"), "app implemented\n")
-		await worker.call("checkpoint_task_graph", { paths: ["owned.txt"], message: "Implement app" })
-		f.complete("b")
-		await f.r.call("integrate_task_graph_worker", { task_id: "task_b" })
-		const finished = await f.r.call("finish_task_graph", { run_id: f.run.id, evidence: "Two-repository fixture checks passed" })
-		assert.equal(finished.details.status, "complete")
-		assert.equal(finished.details.delivery, "not-authorized")
-		assert.equal(finished.details.cleanup.status, "pending")
-		assert.equal(f.worktrees.length, 4, "Finish must not bypass the cleanup tool's permission gate")
-		f.deny = true
-		await assert.rejects(f.r.call("cleanup_completed_task_graph", { run_id: f.run.id }), /permission denied/)
-		assert.equal(f.worktrees.length, 4)
-		f.deny = false
-		const approvals = f.confirmations
-		const cleaned = await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
-		assert.equal(f.confirmations, approvals, "Initial graph approval already covered worker cleanup")
-		assert.deepEqual(cleaned.details.removed.sort(), [a.workspace.path, b.workspace.path].sort())
-		assert.deepEqual(cleaned.details.retained, [])
-		assert.equal(f.worktrees.length, 2, "Only one delivery worktree per repository remains")
-		assert.ok(f.worktrees.every((workspace) => workspace.displayName === "Fixture · delivery"))
-		const replay = await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
-		assert.deepEqual(replay.details.removed, [])
-		for (const [index, source] of f.sources.entries()) {
-			assert.equal(readFileSync(join(source, "owned.txt"), "utf8"), "baseline\n")
-			assert.equal(graphGit(source, "rev-parse", "HEAD"), f.heads[index])
-			assert.deepEqual(readFileSync(join(source, ".git/index")), f.indexes[index])
-		}
-	} finally { f.cleanup() }
+test("one approval runs concurrent workers, reuses bounded lanes, and delivers prerequisite commits", async () => {
+ const f = fixture(), coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  await coordinator.call("bash", { command: "git status --short", repository: f.source })
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  const prepared = (await coordinator.call("prepare_task_graph_workspace")).details
+  const a = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const again = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  assert.equal(again.terminal, a.terminal)
+  const b = (await coordinator.call("start_task_graph_task", { task_id: "b" })).details.worker
+  assert.notEqual(a.workspace, b.workspace)
+  assert.equal(f.worktrees.length, 3, "integration plus two writing lanes")
+  assert.match(f.worktrees[0].branch, /graph-.*-integration$/)
+  assert.equal(prepared.repositories[f.source].branch, f.worktrees[0].branch.replace("refs/heads/", ""))
+  assert.ok(f.worktrees.some(item => item.displayName.endsWith(" · a"))); assert.ok(f.worktrees.some(item => item.displayName.endsWith(" · b")))
+  assert.equal(f.calls.filter(call => call.slice(0, 2).join(" ") === "terminal create").length, 2)
+  for (const terminal of f.terminals) assert.match(terminal.command, /pi-yolo --model 'test\/model' --thinking medium/)
+  await assert.rejects(coordinator.call("start_task_graph_task", { task_id: "c" }), /dependencies/)
+  for (const [id, worker, path] of [["a", a, "a.txt"], ["b", b, "b.txt"]] as const) {
+   process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = id
+   const previous = process.cwd(); process.chdir(worker.workspace)
+   try {
+    const child = f.runtime(worker.workspace)
+    await assert.rejects(child.call("bash", { repository: worker.workspace, command: "git commit --allow-empty -m bypass" }), /checkpoint_task_graph/)
+    await child.call("write", { path: join(worker.workspace, path), content: `${id}\n` })
+    await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: [path], message: id })
+    await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
+    await child.call("bash", { repository: worker.workspace, command: "orca orchestration send --message done" })
+   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+   const dispatch = f.dispatches.find(item => item.id === worker.dispatch); dispatch.status = "completed"
+   f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+  }
+  await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "a validated" })
+  let durable = JSON.parse(readFileSync(approval.record, "utf8")); assert.ok(durable.completed.a); assert.equal(durable.lanes.find((lane: any) => lane.previousTasks.includes("a")).task, undefined)
+  await coordinator.call("complete_task_graph_task", { task_id: "b", evidence: "b validated" })
+  assert.equal(f.integrationValidations.length, 2, "each merged task is validated again on the combined integration checkout")
+  const integration = prepared.repositories[f.source].path, messages = graphGit(integration, "log", "--format=%s", "-6")
+  assert.match(messages, /Integrate graph task a/); assert.match(messages, /\[a\] a/)
+  const c = (await coordinator.call("start_task_graph_task", { task_id: "c" })).details.worker
+  assert.equal(f.worktrees.length, 3, "the dependent task reuses a clean lane")
+  f.dispatches.find(item => item.id === c.dispatch).status = "failed"
+  f.tasks.find(task => task.id === c.ledgerTask).status = "failed"
+  const retried = (await coordinator.call("start_task_graph_task", { task_id: "c" })).details.worker
+  assert.equal(retried.workspace, c.workspace, "a retry preserves and reuses its lane")
+  assert.equal(f.worktrees.length, 3)
+  const state = JSON.parse(readFileSync(approval.record, "utf8"))
+  for (const id of ["a", "b"]) graphGit(c.workspace, "merge-base", "--is-ancestor", state.completed[id].head, "HEAD")
+  assert.equal(prepared.worktree_budget, 3)
+  for (const name of readdirSync(join(f.root, "agent/task-graphs")).filter(name => name.endsWith(".json"))) assert.equal(JSON.parse(readFileSync(join(f.root, "agent/task-graphs", name), "utf8")).version, 4, "task receipts are not graph records")
+ } finally { coordinator.stop() }
 })
 
-test("older completed graphs require one cleanup approval and honor native tool permission denial", async () => {
-	const f = fixture()
-	try {
-		f.candidate.tasks[1].owns = []
-		f.candidate.tasks[1].setup = undefined
-		await f.approve()
-		const a = await f.prepare("a")
-		await f.launch(a)
-		writeFileSync(join(a.workspace.path, "owned.txt"), "complete\n")
-		await f.worker(a).call("checkpoint_task_graph", { paths: ["owned.txt"], message: "Complete worker" })
-		f.complete("a")
-		await f.r.call("integrate_task_graph_worker", { task_id: "task_a" })
-		f.tasks[1].status = "completed"
-		const finished = await f.r.call("finish_task_graph", { run_id: f.run.id, evidence: "Local checks passed" })
-		assert.equal(finished.details.cleanup, "not-authorized")
-		const approvals = f.confirmations
-		f.deny = true
-		await assert.rejects(f.r.call("cleanup_completed_task_graph", { run_id: f.run.id }), /permission denied/)
-		assert.equal(f.confirmations, approvals)
-		assert.equal(f.worktrees.length, 2)
-		f.deny = false
-		const cleaned = await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
-		assert.deepEqual(cleaned.details.removed, [a.workspace.path])
-		assert.equal(f.confirmations, approvals + 1)
-		await f.r.call("cleanup_completed_task_graph", { run_id: f.run.id })
-		assert.equal(f.confirmations, approvals + 1)
-		assert.equal(f.worktrees.length, 1)
-	} finally { f.cleanup() }
+test("lost lane creation receipts reconcile without another worktree", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [f.plan.tasks[0]]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  await coordinator.call("propose_task_graph", f.plan); await coordinator.call("prepare_task_graph_workspace")
+  f.loseNextWorktreeReceipt()
+  await assert.rejects(coordinator.call("start_task_graph_task", { task_id: "a" }), /lost worktree receipt/)
+  assert.equal(f.worktrees.length, 2)
+  await coordinator.call("prepare_task_graph_workspace")
+  await coordinator.call("start_task_graph_task", { task_id: "a" })
+  assert.equal(f.worktrees.length, 2, "resume adopts the reserved lane")
+ } finally { coordinator.stop() }
 })
 
-test("native permission denial creates no launch intent; a lost receipt resumes the original terminal", async () => {
-	const f = fixture()
-	try {
-		await f.approve()
-		const a = await f.prepare("a")
-		await f.r.call("bash", { repository: a.workspace.path, command: "node setup.cjs" })
-		f.deny = true
-		const count = f.shellCalls
-		await assert.rejects(f.r.call("bash", { command: f.command(a) }), /permission denied/)
-		assert.equal(f.shellCalls, count)
-		assert.equal(readGraphWorkspaces(a.environment.AGENT_TOOLKIT_GRAPH_WORKSPACES).workers[0].launch, undefined)
-		f.deny = false
-		f.loseReceipt = true
-		await assert.rejects(f.r.call("bash", { command: f.command(a) }), /Lost create receipt/)
-		assert.ok(readGraphWorkspaces(a.environment.AGENT_TOOLKIT_GRAPH_WORKSPACES).workers[0].launch)
-		await f.resume()
-		const recovered = await f.prepare("a")
-		assert.equal(recovered.workspace.terminal, f.terminals[0].handle)
-		await assert.rejects(f.r.call("bash", { command: f.command(a) }), /fresh worker workspace/)
-		assert.equal(f.terminals.length, 1)
-	} finally { f.cleanup() }
+test("the coordinator can resolve a preserved integration conflict", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [{ ...f.plan.tasks[1], setup: "node setup.cjs" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  const prepared = (await coordinator.call("prepare_task_graph_workspace")).details
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "b" })).details.worker
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "b"
+  const previous = process.cwd(); process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("bash", { repository: worker.workspace, command: "node setup.cjs" })
+   await child.call("write", { path: join(worker.workspace, "b.txt"), content: "worker\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["b.txt"], message: "worker" })
+   await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  const integration = prepared.repositories[f.source].path
+  writeFileSync(join(integration, "b.txt"), "integration\n"); graphGit(integration, "add", "--", "b.txt"); graphGit(integration, "commit", "-m", "integration change")
+  f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+  await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "b", evidence: "validated" }))
+  await coordinator.call("write", { path: join(integration, "b.txt"), content: "resolved\n" })
+  await coordinator.call("checkpoint_task_graph", { repository: integration, paths: ["b.txt"], message: "Resolve worker integration" })
+  globals.graphBashFailure = "combined validation failed"
+  await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "b", evidence: "validated and resolved" }), /Combined setup or validation failed/)
+  assert.equal(f.integrationValidations.at(-1).command, "node setup.cjs", "integration setup failures enter repair")
+  let state = JSON.parse(readFileSync(approval.record, "utf8"))
+  assert.equal(state.completed.b, undefined); assert.equal(state.lanes[0].task, "b", "failed integration validation keeps the lane assigned")
+  globals.graphBashFailure = undefined
+  const failedDispatch = worker.dispatch, repair = (await coordinator.call("start_task_graph_task", { task_id: "b" })).details.worker
+  assert.equal(repair.workspace, worker.workspace); assert.notEqual(repair.dispatch, failedDispatch)
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "b"
+  process.chdir(repair.workspace)
+  try {
+   const child = f.runtime(repair.workspace)
+   await child.call("bash", { repository: repair.workspace, command: "node check.cjs" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === repair.dispatch).status = "completed"; f.tasks.find(task => task.id === repair.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "b", evidence: "validated and repaired" })
+  state = JSON.parse(readFileSync(approval.record, "utf8")); assert.ok(state.completed.b); assert.equal(state.workers.b.repair, undefined)
+ } finally { coordinator.stop() }
 })
 
-test("plan-only workers cannot promote, commit implementation, or append shell commands to reporting", async () => {
-	const f = fixture("plan-only")
-	try {
-		await f.approve()
-		const a = await f.prepare("a")
-		const worker = f.worker(a)
-		for (const path of ["docs/script.ts", "docs/exec-plans/active/plan.md"]) await assert.rejects(worker.call("write", { path, content: "bad" }), /Planning-only/)
-		for (const command of ["orca orchestration check --json; git push", "orca orchestration send --from other --subject hi", "printf data > ../source/owned.txt", "git add .", "git commit --amend --no-edit"]) await assert.rejects(worker.call("bash", { command }))
-		mkdirSync(join(a.workspace.path, "docs"), { recursive: true })
-		writeFileSync(join(a.workspace.path, "docs/script.ts"), "implementation\n")
-		await assert.rejects(worker.call("checkpoint_task_graph", { paths: ["docs/script.ts"], message: "Not planning" }), /Planning-only/)
-	} finally { f.cleanup() }
+test("completed and unrelated historical graphs do not block admission", async () => {
+ const f = fixture(), directory = join(f.agent, "task-graphs"); mkdirSync(directory, { recursive: true })
+ writeFileSync(join(directory, "unrelated.json"), JSON.stringify({ version: 3, repositories: [{ identity: "unrelated" }], completed: {} }))
+ writeFileSync(join(directory, "completed.json"), JSON.stringify({ version: 3, repositories: [{ identity: repositoryIdentity(f.source) }], completed: {}, completion: { evidence: "done" } }))
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  assert.equal((await coordinator.call("propose_task_graph", f.plan)).details.status, "approved")
+ } finally { coordinator.stop() }
 })
 
-test("failed shell commands still validate ownership; current-checkout workers remain isolated", async () => {
-	const f = fixture("execute", true)
-	try {
-		await f.approve()
-		const a = await f.prepare("a")
-		assert.notEqual(a.workspace.path, f.sources[0])
-		writeFileSync(join(a.workspace.path, "unowned.txt"), "unexpected\n")
-		await assert.rejects(f.worker(a).call("bash", { command: "node -e 'process.exit(1)'" }), /outside approved ownership/)
-		assert.throws(() => assertGraphShell("git -C /elsewhere status", readGraphWorkspaces(a.environment.AGENT_TOOLKIT_GRAPH_WORKSPACES), a.workspace.path), /read-only/)
-	} finally { f.cleanup() }
+test("repository ownership is rechecked under the startup lock", async () => {
+ const f = fixture(), directory = join(globals.agentDir, "task-graphs"); mkdirSync(directory, { recursive: true })
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  globals.graphConfirm = () => writeFileSync(join(directory, "racing.json"), JSON.stringify(captureGraphWorkspaces(f.source, f.plan)))
+  await assert.rejects(coordinator.call("propose_task_graph", f.plan), /Resume the unfinished graph/)
+ } finally { delete globals.graphConfirm; coordinator.stop() }
 })
 
-test("one failed, closed worker can be checkpointed and retried in place, never replaced twice", async () => {
-	const f = fixture()
-	try {
-		await f.approve()
-		const a = await f.prepare("a")
-		await f.launch(a)
-		await assert.rejects(f.r.call("prepare_task_graph_workspace", { task_id: "task_a", retry: true }), /failed, closed dispatch/)
-		f.complete("a", "failed")
-		writeFileSync(join(a.workspace.path, "owned.txt"), "retained partial work\n")
-		await assert.rejects(f.r.call("prepare_task_graph_workspace", { task_id: "task_a", retry: true }), /clean retained worktree/)
-		await f.r.call("checkpoint_task_graph", { repository: a.workspace.path, paths: ["owned.txt"], message: "Preserve failed worker progress" })
-		const retry = JSON.parse((await f.r.call("prepare_task_graph_workspace", { task_id: "task_a", retry: true })).content[0].text)
-		assert.equal(retry.workspace.path, a.workspace.path)
-		assert.notEqual(retry.launchTitle, a.launchTitle)
-		assert.equal(retry.workspace.setupComplete, false)
-		await f.launch(retry)
-		f.complete("a", "failed")
-		await assert.rejects(f.r.call("prepare_task_graph_workspace", { task_id: "task_a", retry: true }), /no second replacement/)
-	} finally { f.cleanup() }
+test("worktree budget includes read-only input snapshots", async () => {
+ const f = fixture(); writeFileSync(join(f.dependency, "dependency.txt"), "captured\n")
+ f.plan.worktree_budget = 2; f.plan.foundations.push({ repository: f.dependency, commit: f.dependencyBase }); f.plan.inputs = [{ repository: f.dependency, paths: ["dependency.txt"] }]
+ f.plan.tasks = [f.plan.tasks[0], { id: "dependency", goal: "provide captured input", repository: f.dependency, depends_on: [], owns: [], done_when: ["available"], validation: "manual: available" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  await assert.rejects(coordinator.call("propose_task_graph", f.plan), /read-only input snapshot/)
+ } finally { coordinator.stop() }
+})
+
+test("workers can inspect and reference pinned repositories in the approved graph", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2
+ f.plan.foundations.push({ repository: f.dependency, commit: f.dependencyBase })
+ f.plan.tasks = [f.plan.tasks[0], { id: "local-read", goal: "inspect local repository", repository: f.source, depends_on: [], owns: [], done_when: ["available"], validation: "manual: available" }, { id: "dependency", goal: "provide dependency", repository: f.dependency, depends_on: [], owns: [], done_when: ["available"], validation: "manual: available" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"
+  const previous = process.cwd(); process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("bash", { repository: f.dependency, command: "git status --short" })
+   await child.call("bash", { repository: worker.workspace, command: `cross-check ${f.dependency}` })
+   await assert.rejects(child.call("bash", { repository: worker.workspace, command: `cross-write ${f.dependency}` }), /prerequisites are read-only/)
+   writeFileSync(join(f.dependency, "later.txt"), "later\n"); graphGit(f.dependency, "add", "--", "later.txt"); graphGit(f.dependency, "commit", "-m", "independent progress")
+   await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
+   await coordinator.call("start_task_graph_task", { task_id: "local-read" })
+   await assert.rejects(child.call("bash", { repository: worker.workspace, command: `cross-check ${f.dependency}` }), /used cross-repository prerequisite changed/)
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+ } finally { coordinator.stop() }
+})
+
+test("validation only credits the worker checkout", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.foundations.push({ repository: f.dependency, commit: f.dependencyBase }); f.plan.tasks = [
+  { id: "dependency", goal: "inspect dependency", repository: f.dependency, depends_on: [], owns: [], done_when: ["inspected"], validation: "manual: inspected" },
+  { ...f.plan.tasks[0], depends_on: ["dependency"], validation: "git diff --check" },
+ ]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const dependency = (await coordinator.call("start_task_graph_task", { task_id: "dependency" })).details.worker
+  f.dispatches.find(item => item.id === dependency.dispatch).status = "completed"; f.tasks.find(task => task.id === dependency.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "dependency", evidence: "inspected" })
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
+   await child.call("bash", { repository: f.dependency, command: "git diff --check" })
+   f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+   await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated elsewhere" }), /clean final checkpoint/)
+   await child.call("bash", { repository: worker.workspace, command: "git diff --check" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated in worker checkout" })
+ } finally { coordinator.stop() }
+})
+
+test("integration setup precedes validation and closeout removes only clean integrated lanes", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [{ ...f.plan.tasks[0], setup: "node setup.cjs" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  const prepared = (await coordinator.call("prepare_task_graph_workspace")).details
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"
+  const previous = process.cwd(); process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("bash", { repository: worker.workspace, command: "orca orchestration send --message 'starting setup'" })
+   await child.call("bash", { repository: worker.workspace, command: "node setup.cjs" })
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
+   await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+  globals.graphTerminalCloseFailure = true
+  await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated" }), /terminal close failed/)
+  assert.ok(JSON.parse(readFileSync(approval.record, "utf8")).completed.a, "completion is durable before terminal closure")
+  delete globals.graphTerminalCloseFailure
+  await coordinator.call("prepare_task_graph_workspace")
+  assert.deepEqual(f.integrationValidations.map(item => item.command), ["node setup.cjs", "node check.cjs"])
+  for (const item of f.integrationValidations) assert.equal(JSON.parse(item.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES)[f.source].path, prepared.repositories[f.source].path)
+  const result = (await coordinator.call("finish_task_graph", { run_id: prepared.run_id, evidence: "done" })).details
+  assert.equal(f.worktrees.length, 1); assert.equal(f.worktrees[0].path, prepared.repositories[f.source].path)
+  assert.deepEqual(result.removed_lanes, [worker.workspace]); assert.equal(graphGit(f.source, "show", "HEAD:a.txt"), "base")
+ } finally { coordinator.stop() }
+})
+
+test("an unrelated read-only worker does not block integration", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [f.plan.tasks[0], { id: "read", goal: "inspect old head", repository: f.source, depends_on: [], owns: [], done_when: ["reported"], validation: "manual: inspect files" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const writer = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const reader = (await coordinator.call("start_task_graph_task", { task_id: "read" })).details.worker
+  const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "read"; process.chdir(reader.workspace)
+  try {
+   const child = f.runtime(reader.workspace); await child.call("bash", { repository: reader.workspace, command: "git status --short" })
+   await assert.rejects(child.call("bash", { repository: reader.workspace, command: `orca orchestration send > ${join(f.source, "a.txt")}` }), /Read-only workers/)
+  }
+  finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(writer.workspace)
+  try {
+   const child = f.runtime(writer.workspace)
+   await child.call("write", { path: join(writer.workspace, "a.txt"), content: "written\n" })
+   await child.call("checkpoint_task_graph", { repository: writer.workspace, paths: ["a.txt"], message: "write while reader runs" })
+   await child.call("bash", { repository: writer.workspace, command: "node check.cjs" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === writer.dispatch).status = "completed"; f.tasks.find(task => task.id === writer.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated" })
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "read"; process.chdir(reader.workspace)
+  try {
+   const child = f.runtime(reader.workspace)
+   await assert.rejects(child.call("bash", { repository: reader.workspace, command: "git status --short" }), /checkout advanced/)
+   const fake = join(reader.workspace, "orca"), path = process.env.PATH; writeFileSync(fake, "#!/bin/sh\nexit 0\n"); chmodSync(fake, 0o755); process.env.PATH = `${reader.workspace}:${path}`
+   try {
+    await assert.rejects(child.call("bash", { repository: reader.workspace, command: "./orca orchestration send --message bypass" }), /checkout advanced/)
+    await assert.rejects(child.call("bash", { repository: reader.workspace, command: "orca orchestration send --message bypass" }), /checkout advanced/)
+    await assert.rejects(child.call("bash", { repository: reader.workspace, command: `PATH=${reader.workspace}:$PATH orca orchestration send --message bypass` }), /checkout advanced/)
+   } finally { process.env.PATH = path; unlinkSync(fake) }
+   await child.call("bash", { repository: reader.workspace, command: "orca orchestration send --message 'restart needed'" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === reader.dispatch).status = "completed"
+  const restartedReader = (await coordinator.call("start_task_graph_task", { task_id: "read" })).details.worker
+  f.dispatches.find(item => item.id === restartedReader.dispatch).status = "completed"; f.tasks.find(task => task.id === restartedReader.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "read", evidence: "inspection completed against pinned ancestor after restart" })
+ } finally { coordinator.stop() }
+})
+
+test("read-only workers create no additional worktree", async () => {
+ const f = fixture(); f.plan.worktree_budget = 1; f.plan.tasks = [{ id: "read", goal: "inspect", repository: f.source, depends_on: [], owns: [], done_when: ["reported"], validation: "manual: inspect files" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`); await coordinator.call("propose_task_graph", f.plan); await coordinator.call("prepare_task_graph_workspace"); await coordinator.call("start_task_graph_task", { task_id: "read" })
+  assert.equal(f.worktrees.length, 0)
+ } finally { coordinator.stop() }
 })

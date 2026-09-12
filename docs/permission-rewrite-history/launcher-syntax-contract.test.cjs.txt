@@ -1,0 +1,74 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { readFileSync, writeFileSync, mkdirSync, mkdtempSync, lstatSync, existsSync } = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const { createHash } = require('node:crypto')
+const { homedir } = require('node:os')
+const { join } = require('node:path')
+
+const launcher = readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
+const installer = readFileSync(join(__dirname, '../../install.sh'), 'utf8')
+
+function checkHeredocs(source) {
+  const blocks = [...source.matchAll(/<<'([A-Z_]+)'\n([\s\S]*?)\n\1\b/g)]
+  assert.ok(blocks.length > 0)
+  for (const [, delimiter, body] of blocks) {
+    // macOS Bash 3.2 can scan quotes inside quoted command-substitution heredocs.
+    assert.equal((body.match(/'/g) || []).length % 2, 0, `Unbalanced apostrophe in ${delimiter} heredoc`)
+  }
+}
+
+test('launcher avoids the macOS Bash 3.2 unmatched-heredoc-apostrophe regression', () => {
+  checkHeredocs(launcher)
+  const broken = launcher.replace('const scratchRoot =', "// Orca's workspace\nconst scratchRoot =")
+  assert.throws(() => checkHeredocs(broken), /Unbalanced apostrophe/)
+})
+
+test('installer validates complete shell files before installation side effects', () => {
+  const gate = installer.indexOf('/bin/bash -n "$script"')
+  assert.ok(gate > 0 && gate < installer.indexOf('timestamp='))
+  assert.ok(installer.includes('for script in "$repo_dir/install.sh" "$repo_dir/shared/agent-safety/agent-yolo" "$repo_dir/shared/agent-safety/git-yolo-guard"; do'))
+  assert.match(installer, /^set -euo pipefail$/m)
+  const activate = installer.lastIndexOf('install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pi-yolo"')
+  assert.ok(activate > installer.lastIndexOf('\ninstall_agent_safety\n'))
+  assert.ok(activate > installer.lastIndexOf('\ninstall_pi_packages\n'), 'full installation must finish dependencies before activating the new launcher')
+})
+
+test('Pi policy upgrades preserve custom files without adopting them and still update owned files', () => {
+  const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || join(homedir(), 'Code/.agent-toolkit-scratch')
+  mkdirSync(scratch, { recursive: true, mode: 0o700 })
+  assert.equal(lstatSync(scratch).isSymbolicLink(), false)
+  const home = mkdtempSync(join(scratch, 'pi-policy-upgrade-'))
+  const source = join(home, 'pi-permission-system.json'), target = join(home, 'config.json'), marker = `${target}.agent-toolkit.sha256`
+  const custom = '{"piInfrastructureReadPaths":["/custom/read-only"],"permission":{"bash":{"custom-command":"deny"}}}\n'
+  const replacement = '{"permission":{"bash":{"*":"deny"}}}\n'
+  writeFileSync(source, replacement)
+  writeFileSync(target, custom)
+  const functions = ['install_managed_copy', 'install_pi_policy'].map(name => {
+    const body = installer.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))?.[0]
+    assert.ok(body, name)
+    return body
+  }).join('\n')
+  const verifier = readFileSync(join(__dirname, '../../verify.sh'), 'utf8')
+  const verification = verifier.match(/^  policy="\$pi_agent_dir\/extensions\/pi-permission-system\/config.json"[\s\S]*?^  fi/m)?.[0]
+  assert.ok(verification, 'managed and custom policies need distinct verification paths')
+  const script = join(home, 'install-policy.sh')
+  writeFileSync(script, `set -euo pipefail\nbackup_root="$HOME/backups"\ntmp_dir="$HOME"\n${functions}\ninstall_pi_policy "$1" "$2"\n${verification.replace('policy="$pi_agent_dir/extensions/pi-permission-system/config.json"', 'policy="$2"')}\n`)
+  const run = () => spawnSync('/bin/bash', [script, source, target], { encoding: 'utf8', env: { ...process.env, HOME: home } })
+  let result = run()
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /preserved user-managed Pi policy/)
+  assert.equal(readFileSync(target, 'utf8'), custom)
+  assert.equal(existsSync(marker), false, 'do not claim ownership of a custom policy')
+  writeFileSync(marker, 'stale marker\n')
+  result = run()
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(target, 'utf8'), custom)
+  assert.equal(readFileSync(marker, 'utf8'), 'stale marker\n')
+  writeFileSync(marker, createHash('sha256').update(custom).digest('hex'))
+  result = run()
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(target, 'utf8'), replacement)
+  assert.equal(readFileSync(join(home, 'backups/config.json'), 'utf8'), custom)
+  console.log(`Retained Pi policy upgrade fixture: ${home}`)
+})

@@ -1,0 +1,132 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const { homedir } = require('node:os')
+const { stripTypeScriptTypes, registerHooks } = require('node:module')
+const { pathToFileURL } = require('node:url')
+const { VERSION, patchFile } = require('./patch-permission-tool-visibility.cjs')
+
+// Unit-test the pinned gate and its real pipeline wiring, not parser or Pi lifecycle integration.
+// These two source files were separately inspected through native read. Do not load
+// command-enumeration.ts or the rest of the package through this fixture.
+const installed = path.join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR || path.join(homedir(), '.pi/agent'), 'npm/node_modules/@gotgenes/pi-permission-system')
+function compile(file, symbol, bindings) {
+  assert.equal(JSON.parse(fs.readFileSync(path.join(installed, 'package.json'))).version, VERSION)
+  const original = fs.readFileSync(path.join(installed, 'src', file), 'utf8')
+  const patched = patchFile(file, original)
+  assert.equal(patchFile(file, patched), patched)
+  const code = stripTypeScriptTypes(patched.replace(/^import[\s\S]*?;\n/gm, '').replace(/^export /gm, ''), { mode: 'transform' })
+  return new Function(...Object.keys(bindings), code + `\nreturn ${symbol};`)(...Object.values(bindings))
+}
+
+test('exact graph approval replaces only the launcher-owned missing-trust fallback, including pipeline wiring', async () => {
+  const resolveBashCommandCheck = compile('handlers/gates/bash-command.ts', 'resolveBashCommandCheck', {
+    pickMostRestrictive: results => results.sort((a, b) => ['deny', 'ask', 'allow'].indexOf(a.state) - ['deny', 'ask', 'allow'].indexOf(b.state))[0],
+  })
+  const fallback = Object.freeze({ state: 'deny', toolName: 'bash', source: 'bash', origin: 'global', matchedPattern: '*', reason: 'agent-toolkit: repository execution requires trust' })
+  const resolver = { resolve: () => fallback }
+  const commands = [{ text: 'node check.cjs' }]
+  const check = (decision, approved = true, units = commands) => resolveBashCommandCheck('node check.cjs', units, undefined, { resolve: () => decision }, approved)
+  assert.equal(check(fallback, false).state, 'deny')
+  assert.equal(check(fallback).state, 'allow')
+  assert.equal(fallback.state, 'deny', 'never mutate the underlying permission result')
+  for (const override of [
+    { origin: 'project' }, { origin: 'agent' }, { origin: 'session' },
+    { matchedPattern: 'node *' }, { reason: 'operator denial' }, { reason: undefined },
+  ]) assert.equal(check({ ...fallback, ...override }).state, 'deny')
+  assert.equal(check({ ...fallback, state: 'ask' }).state, 'ask')
+  assert.equal(check(fallback, true, []).state, 'deny')
+  for (const wrapperKind of ['opaque-payload', 'indirection']) assert.equal(check(fallback, true, [{ text: 'node check.cjs', wrapperKind }]).state, 'deny')
+
+  const key = Symbol.for('agent-toolkit.graph-permission-cwd'), previous = globalThis[key]
+  const trustKey = Symbol.for('agent-toolkit.repository-execution-trust'), previousTrust = globalThis[trustKey]
+  const source = '/fixture/source', workspace = '/fixture/workspace'
+  class Normalizer {
+    constructor(flavor, cwd) { this.flavor = flavor; this.cwd = cwd }
+    isAbsolute(value) { return path.isAbsolute(value) }
+  }
+  const pipeline = compile('handlers/gates/tool-call-gate-pipeline.ts', 'ToolCallGatePipeline', {
+    resolveShellInvocation: (_tool, input) => ({ command: input.command, workdir: input.repository }),
+    PathNormalizer: Normalizer,
+    BashProgram: { parse: async (command, normalizer) => {
+      assert.equal(normalizer.cwd, globalThis[key]?.('bash', { command, repository: workspace }) ?? source)
+      return { commandText: () => command, commands: () => commands }
+    } },
+    ToolPreviewFormatter: class {}, resolveBashCommandCheck,
+    describeSkillReadGate: () => ({}), describePathGate: () => ({}),
+    describeExternalDirectoryGate: () => ({}), describeBashExternalDirectoryGate: () => ({}),
+    describeBashPathGate: () => ({}), describeToolGate: () => ({}),
+  })
+  const inputs = {
+    getShellToolAliases: () => undefined, getPathNormalizer: () => new Normalizer('posix', source),
+    getPromotablePathTokenMatcher: () => undefined, getToolPreviewLimits: () => ({}),
+    getInfrastructureReadDirs: () => [], getActiveSkillEntries: () => [],
+  }
+  const runner = { run: async descriptor => ({ action: descriptor.preCheck?.state === 'deny' ? 'block' : 'allow' }) }
+  const context = { toolName: 'bash', input: { command: 'node check.cjs', repository: workspace }, cwd: source }
+  try {
+    delete globalThis[key]
+    delete globalThis[trustKey]
+    assert.equal((await new pipeline(resolver, inputs).evaluate(context, runner)).action, 'block')
+    globalThis[trustKey] = (tool, input, cwd) => tool === 'bash' && input.repository === workspace && cwd === source
+    assert.equal((await new pipeline(resolver, inputs).evaluate(context, runner)).action, 'allow', 'ordinary selected trust replaces the startup fallback without changing directory authority')
+    assert.equal((await new pipeline(resolver, inputs).evaluate({ ...context, input: { ...context.input, repository: '/untrusted' } }, runner)).action, 'block')
+    for (const origin of ['project', 'agent', 'session']) {
+      assert.equal((await new pipeline({ resolve: () => ({ ...fallback, origin }) }, inputs).evaluate(context, runner)).action, 'block')
+    }
+    delete globalThis[trustKey]
+    globalThis[key] = (tool, input) => {
+      assert.equal(tool, 'bash'); assert.equal(input.repository, workspace); assert.equal(input.command, 'node check.cjs')
+      return workspace
+    }
+    assert.equal((await new pipeline(resolver, inputs).evaluate(context, runner)).action, 'allow')
+    const projectDenial = { resolve: () => ({ ...fallback, origin: 'project' }) }
+    assert.equal((await new pipeline(projectDenial, inputs).evaluate(context, runner)).action, 'block')
+    assert.equal(context.cwd, source)
+    await assert.rejects(new pipeline(resolver, inputs).evaluate({ ...context, input: { ...context.input, command: 'other' } }, runner))
+
+    // Ordinary inspection uses native command rules, not a whole-shell trust gate.
+    const extensionFile = path.resolve(__dirname, '../../pi/extensions/task-graph/index.ts')
+    const extensionURL = pathToFileURL(extensionFile).href
+    const tools = new Map()
+    const hook = registerHooks({ resolve(specifier, ctx, next) {
+      if (ctx.parentURL !== extensionURL) return next(specifier, ctx)
+      const mocks = {
+        '@earendil-works/pi-coding-agent': 'export const createBashTool=()=>({execute:async()=>({content:[]})}); export const getAgentDir=()=>"/fixture/agent"; export const truncateHead=content=>({content}); export const withFileMutationQueue=(_path,fn)=>fn();',
+        '@earendil-works/pi-ai': 'export const StringEnum=()=>({});',
+        typebox: 'export const Type=new Proxy({}, {get:()=>()=>({})});',
+      }
+      return mocks[specifier] ? { url: `data:text/javascript,${encodeURIComponent(mocks[specifier])}`, shortCircuit: true } : next(specifier, ctx)
+    } })
+    const enforced = process.env.AGENT_TOOLKIT_ENFORCE_REPOSITORY_TRUST, previousHome = process.env.HOME
+    try {
+      process.env.AGENT_TOOLKIT_ENFORCE_REPOSITORY_TRUST = '1'
+      process.env.HOME = '/fixture/no-managed-home'
+      const { default: extension } = await import(extensionURL)
+      extension({ registerTool: tool => tools.set(tool.name, tool), registerCommand: () => {}, on: () => {} })
+      const status = { ...context, input: { command: 'git status --short --branch', repository: workspace } }
+      commands[0] = { text: status.input.command }
+      assert.equal(globalThis[key]('bash', status.input), undefined, 'inspection grants no graph directory authority')
+      assert.equal(globalThis[trustKey]('bash', status.input, source), false, 'no approval is fabricated for inspection')
+      const inspectionRules = { resolve: () => ({ ...fallback, state: 'allow', matchedPattern: 'git status *', reason: undefined }) }
+      assert.equal((await new pipeline(inspectionRules, inputs).evaluate(status, runner)).action, 'allow', 'native inspection rules work without repository approval')
+      assert.equal((await new pipeline(resolver, inputs).evaluate(context, runner)).action, 'block', 'untrusted execution still meets the native default deny')
+      await tools.get('bash').execute('fixture', status.input, undefined, undefined, { cwd: source })
+      for (const override of [{ origin: 'project' }, { origin: 'agent' }, { origin: 'session' }, { matchedPattern: 'git status *' }, { reason: 'operator denial' }]) {
+        assert.equal((await new pipeline({ resolve: () => ({ ...fallback, ...override }) }, inputs).evaluate(status, runner)).action, 'block', 'operator denials stay authoritative')
+      }
+    } finally {
+      hook.deregister()
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      if (enforced === undefined) delete process.env.AGENT_TOOLKIT_ENFORCE_REPOSITORY_TRUST
+      else process.env.AGENT_TOOLKIT_ENFORCE_REPOSITORY_TRUST = enforced
+    }
+  } finally {
+    if (previous === undefined) delete globalThis[key]
+    else globalThis[key] = previous
+    if (previousTrust === undefined) delete globalThis[trustKey]
+    else globalThis[trustKey] = previousTrust
+  }
+})

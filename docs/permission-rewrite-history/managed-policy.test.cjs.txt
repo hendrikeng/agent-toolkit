@@ -1,0 +1,71 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { homedir } = require('node:os');
+const { createHash } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+const { test } = require('node:test');
+
+const repo = path.resolve(__dirname, '../..');
+const installer = fs.readFileSync(path.join(repo, 'install.sh'), 'utf8');
+const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+
+test('Pi generation precedes ownership recording; external rewrites are preserved, never rebaselined', () => {
+  const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || path.join(homedir(), 'Code/.agent-toolkit-scratch');
+  if (!fs.existsSync(scratch)) fs.mkdirSync(scratch, { mode: 0o700 });
+  assert.equal(fs.lstatSync(scratch).isSymbolicLink(), false);
+  const home = fs.mkdtempSync(path.join(scratch, 'managed-policy-'));
+  const target = path.join(home, 'agent/extensions/pi-permission-system/config.json');
+  const marker = `${target}.agent-toolkit.sha256`;
+  const source = path.join(home, 'generated.json');
+  const functions = ['install_managed_copy', 'install_pi_policy'].map((name) => {
+    const body = installer.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))?.[0];
+    assert.ok(body, name);
+    return body;
+  }).join('\n');
+  // Exercise the actual installer generation/install sequence, without its package or live-HOME setup.
+  const generation = installer.match(/^    cp "\$repo_dir\/shared\/agent-safety\/pi-permission-system.json" "\$policy_temp"\n[\s\S]*?^    install_pi_policy .*$/m)?.[0];
+  assert.ok(generation, 'generate the temporary policy before install_pi_policy records its hash');
+  const script = path.join(home, 'install-policy.sh');
+  fs.writeFileSync(script, `set -euo pipefail\nrepo_dir="$1"\npi_agent_dir="$HOME/agent"\npi_web_config_dir="$HOME/web"\npolicy_temp="$HOME/generated.json"\nbackup_root="$HOME/backups"\n${functions}\n${generation}\n`);
+  const run = () => spawnSync('/bin/bash', [script, repo], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+  let result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(hash(target), hash(source));
+  assert.equal(fs.readFileSync(marker, 'utf8').trim(), hash(target));
+  assert.notEqual(hash(target), hash(path.join(__dirname, 'pi-permission-system.json')));
+  const originalMarker = fs.readFileSync(marker, 'utf8');
+
+  // The configurator accepts any path and does not manage markers. Reproduce a later external write.
+  result = spawnSync(process.execPath, [path.join(__dirname, 'configure.cjs'), 'pi', target, repo, path.join(home, 'other-agent'), path.join(home, 'web')], {
+    encoding: 'utf8', env: { ...process.env, HOME: home },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const rewritten = fs.readFileSync(target, 'utf8');
+  assert.notEqual(hash(target), originalMarker.trim());
+  result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Pi policy migration pending: SHA-256 installed=/);
+  assert.match(result.stderr, /does not prove that the policy is custom/);
+  assert.equal(fs.readFileSync(target, 'utf8'), rewritten);
+  assert.equal(fs.readFileSync(marker, 'utf8'), originalMarker);
+
+  // A real custom change is equally unowned, even if it only strengthens a permission.
+  const custom = JSON.parse(rewritten);
+  custom.permission.path['/custom/secret'] = 'deny';
+  fs.writeFileSync(target, `${JSON.stringify(custom)}\n`);
+  const customBytes = fs.readFileSync(target, 'utf8');
+  result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(target, 'utf8'), customBytes);
+  assert.equal(fs.readFileSync(marker, 'utf8'), originalMarker);
+
+  fs.writeFileSync(script, `set -euo pipefail\nbackup_root="$HOME/backups"\n${functions}\ninstall_managed_copy "$HOME/generated.json" "$HOME/agent/extensions/pi-permission-system/config.json"\n`);
+  result = run();
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /refusing to replace policy with unverified ownership/);
+  assert.match(result.stderr, /do not rebaseline the marker/);
+  assert.equal(fs.readFileSync(target, 'utf8'), customBytes);
+  assert.equal(fs.readFileSync(marker, 'utf8'), originalMarker);
+  console.log(`Retained managed-policy fixture: ${home}`);
+});

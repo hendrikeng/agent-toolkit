@@ -2,6 +2,10 @@
 set -euo pipefail
 
 repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+# Validate complete files with the system Bash before changing any installed copy.
+for script in "$repo_dir/install.sh" "$repo_dir/shared/agent-safety/agent-yolo" "$repo_dir/shared/agent-safety/git-yolo-guard"; do
+  /bin/bash -n "$script"
+done
 timestamp=$(date +%Y%m%d-%H%M%S)
 backup_root="${XDG_DATA_HOME:-$HOME/.local/share}/agent-toolkit/backups/$timestamp"
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -20,6 +24,9 @@ else
   pi_web_config_dir=$HOME/.pi
 fi
 
+[[ $# -eq 0 ]] || { printf 'Usage: ./install.sh\n' >&2; exit 2; }
+printf 'Installing development access for %s/Code and %s/orca/workspaces. Secrets, deletion, publication, deployment and existing database administration remain restricted.\n' "$HOME" "$HOME"
+
 initialize_blueprint_submodule() {
   local git_bin=
   local blueprint_path=vendor/agent-project-blueprint
@@ -37,8 +44,8 @@ initialize_blueprint_submodule() {
     fi
   done
   [[ -n $git_bin ]] || { printf 'Git is required to initialize agent-project-blueprint.\n' >&2; return 1; }
-  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -C "$repo_dir" submodule sync --recursive -- "$blueprint_path"
-  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -C "$repo_dir" submodule update --init --recursive --depth 1 -- "$blueprint_path"
+  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c protocol.ext.allow=never -C "$repo_dir" submodule sync --recursive -- "$blueprint_path"
+  "$git_bin" --no-replace-objects -c core.fsmonitor=false -c protocol.ext.allow=never -C "$repo_dir" submodule update --init --recursive --depth 1 -- "$blueprint_path"
 }
 
 install_link() {
@@ -90,7 +97,9 @@ install_managed_copy() {
       return
     fi
     if [[ $managed_hash != "$target_hash" ]]; then
-      printf 'refusing to replace user-managed policy at %s\n' "$target" >&2
+      printf 'refusing to replace policy with unverified ownership at %s\n' "$target" >&2
+      printf 'SHA-256: installed=%s marker=%s proposed=%s\n' "$target_hash" "${managed_hash:-missing}" "$source_hash" >&2
+      printf 'Compare and back up the policy and marker in a trusted human shell; do not rebaseline the marker to bypass this check.\n' >&2
       return 1
     fi
   fi
@@ -287,16 +296,9 @@ install_agent_safety() {
     printf 'skipped Codex agent safety (codex not found)\n'
   fi
 
+  # Pi permissions are staged as one retained bundle, never patched in place.
   if command -v pi >/dev/null 2>&1; then
-    version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
-    install_pi_package "npm:@gotgenes/pi-permission-system@$version"
-    policy_temp=$(mktemp "${TMPDIR:-/tmp}/agent-toolkit-pi-policy.XXXXXX")
-    cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$policy_temp"
-    node "$repo_dir/shared/agent-safety/configure.cjs" pi "$policy_temp" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
-    install_managed_copy "$policy_temp" "$pi_agent_dir/extensions/pi-permission-system/config.json"
-    rm "$policy_temp"
-  else
-    printf 'skipped Pi agent safety (pi not found)\n'
+    permission_bundle=$(node "$repo_dir/shared/agent-safety/permission-bundle.cjs" stage "$repo_dir" "$HOME/.local/libexec/agent-toolkit/permission-bundles" "$HOME" | tail -n 1)
   fi
 }
 
@@ -353,12 +355,6 @@ install_ponytail() {
   fi
 }
 
-if [[ ${1:-} == --git-guard-only ]]; then
-  [[ $# -eq 1 ]] || { printf 'Usage: ./install.sh --git-guard-only\n' >&2; exit 2; }
-  install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
-  exit
-fi
-
 initialize_blueprint_submodule
 
 if ! command -v npm >/dev/null 2>&1; then
@@ -412,10 +408,9 @@ install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.claude/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
-install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pi-yolo" 700
-install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/codex-yolo" 700
-install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/claude-yolo" 700
 install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
+install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700
+install_managed_copy "$repo_dir/shared/agent-safety/git-test.cjs" "$HOME/.local/libexec/agent-toolkit/git-test" 700
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensions/ask-user-question"
@@ -436,7 +431,6 @@ for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_
   fi
 done
 install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
-install_link "$repo_dir/pi/extensions/task-graph" "$pi_agent_dir/extensions/task-graph"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/deepsec" "$pi_agent_dir/skills/deepsec"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
@@ -456,9 +450,28 @@ printf '\ninstalling Pi packages…\n'
 install_pi_packages
 configure_status_format
 
+# Activate only a verified, complete permission bundle. Retain every old bundle.
+if [[ -n ${permission_bundle:-} ]]; then
+  node "$repo_dir/shared/agent-safety/permission-bundle.cjs" verify "$permission_bundle"
+  target="$HOME/.local/bin/pi-yolo"
+  mkdir -p "$(dirname "$target")"
+  if [[ -L $target ]]; then
+    case $(readlink "$target") in "$HOME/.local/libexec/agent-toolkit/permission-bundles/"*/dispatch) ;; *) printf 'Refusing an unmanaged Pi launcher selector\n' >&2; exit 1 ;; esac
+  elif [[ -e $target ]]; then
+    [[ -f $target && -f $target.agent-toolkit.sha256 && $(shasum -a 256 "$target" | awk '{print $1}') == "$(<"$target.agent-toolkit.sha256")" ]] || { printf 'Refusing an unmanaged Pi launcher; human comparison required\n' >&2; exit 1; }
+  fi
+  if [[ -e $target || -L $target ]]; then
+    mkdir -p "$backup_root/.local/bin"
+    cp -P "$target" "$backup_root/.local/bin/pi-yolo"
+  fi
+  node "$repo_dir/shared/agent-safety/permission-bundle.cjs" activate "$permission_bundle" "$target"
+fi
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/codex-yolo" 700
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/claude-yolo" 700
+
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
   printf '\nInstallation complete. Restart the current pi-yolo session to load newly installed resources.\n'
 else
-  printf '\nInstallation complete. Run /reload in active Pi sessions and start new agent sessions.\n'
+  printf '\nInstallation complete. Existing sessions retain their bundle. Start fresh Pi sessions for the new contract.\n'
 fi
 printf 'On first Codex start, review and trust Ponytail hooks when prompted (or open /hooks).\n'

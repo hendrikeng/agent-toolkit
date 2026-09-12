@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+config_root=${XDG_CONFIG_HOME:-$HOME/.config}
+pi_agent_dir=${AGENT_TOOLKIT_PI_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}
+if [[ $pi_agent_dir != /* ]]; then
+  printf 'PI_CODING_AGENT_DIR must be an absolute path; expand ~ before running verification\n' >&2
+  exit 2
+fi
+if [[ -n ${AGENT_TOOLKIT_PI_WEB_CONFIG_DIR:-} ]]; then
+  pi_web_config_dir=$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR
+elif [[ -n ${PI_CODING_AGENT_DIR:-} ]]; then
+  pi_web_config_dir=$pi_agent_dir
+elif [[ -n ${XDG_CONFIG_HOME:-} ]]; then
+  pi_web_config_dir=$XDG_CONFIG_HOME/pi
+else
+  pi_web_config_dir=$HOME/.pi
+fi
+tmp_dir=$(mktemp -d)
+codex_profile_name=agent-toolkit-verify-$$
+codex_profile_link=$HOME/.codex-accounts/$codex_profile_name
+trap 'rm -f "$codex_profile_link"; rm -rf "$tmp_dir"' EXIT
+mkdir -p "$HOME/.codex-accounts" "$tmp_dir/codex-profile"
+ln -s "$tmp_dir/codex-profile" "$codex_profile_link"
+node - "$tmp_dir/codex-profile/auth.json" <<'NODE'
+const fs = require("node:fs");
+const claims = { email: "verify@example.com", exp: Math.floor(Date.now() / 1000) + 3600, "https://api.openai.com/auth": { chatgpt_account_id: "verify-account" } };
+const token = `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+fs.writeFileSync(process.argv[2], JSON.stringify({ tokens: { access_token: token, refresh_token: "verify-refresh", account_id: "verify-account" } }));
+NODE
+
+node "$repo_dir/shared/agent-safety/configure.cjs" --self-test
+bash -n "$repo_dir/shared/agent-safety/agent-yolo"
+bash -n "$repo_dir/shared/agent-safety/git-yolo-guard"
+node --check "$repo_dir/shared/agent-safety/pg-test.cjs"
+node --check "$repo_dir/shared/agent-safety/git-test.cjs"
+node --test "$repo_dir/shared/agent-safety/git-test.test.cjs"
+AGENT_TOOLKIT_PI_AGENT_DIR="$pi_agent_dir" node --test "$repo_dir/shared/agent-safety/repository-trust.test.cjs" "$repo_dir/shared/agent-safety/permission-graph-approval.test.cjs" "$repo_dir/shared/agent-safety/permission-patch-state.test.cjs"
+AGENT_TOOLKIT_PI_AGENT_DIR="$pi_agent_dir" node "$repo_dir/shared/agent-safety/installed-permission.check.cjs"
+node --test "$repo_dir/shared/agent-safety/launcher-syntax-contract.test.cjs" "$repo_dir/shared/agent-safety/managed-policy.test.cjs" "$repo_dir/shared/agent-safety/approved-shell-check.test.cjs" "$repo_dir/shared/agent-safety/launcher-git-environment.test.cjs" "$repo_dir/shared/agent-safety/pg-test.test.cjs" "$repo_dir/shared/agent-safety/git-yolo-guard.test.cjs" "$repo_dir/shared/agent-safety/git-guard-install.test.cjs" "$repo_dir/shared/agent-safety/pi-runtime-policy.test.cjs"
+bash -n "$repo_dir/update.sh"
+bash -n "$repo_dir/shared/update-global-skills"
+"$repo_dir/update.sh" --help >/dev/null
+"$repo_dir/shared/update-global-skills" --help >/dev/null
+grep -q -- '--package=skills@1.5.22' "$repo_dir/shared/update-global-skills"
+mkdir "$tmp_dir/fake-bin"
+cat >"$tmp_dir/fake-bin/pi" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -z ${AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64:-}${AGENT_TOOLKIT_CODEX_ACCOUNT_ID:-}${AGENT_TOOLKIT_CODEX_PROFILE_SHA256:-} ]]
+cp "$PI_CODING_AGENT_DIR/extensions/pi-permission-system/config.json" "$PI_YOLO_CAPTURE"
+printf '%s\n' "$AGENT_TOOLKIT_PI_AGENT_DIR" > "$PI_YOLO_SOURCE_CAPTURE"
+printf '%s\n' "$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR" > "$PI_YOLO_WEB_CONFIG_CAPTURE"
+if [[ -n ${PI_YOLO_AUTH_CAPTURE:-} ]]; then
+  cp "$PI_CODING_AGENT_DIR/auth.json" "$PI_YOLO_AUTH_CAPTURE"
+  printf '%s\n' "$PI_CODING_AGENT_DIR" > "$PI_YOLO_AGENT_DIR_CAPTURE"
+  if [[ -n ${PI_YOLO_REAL_AGENT_DIR_CAPTURE:-} ]]; then
+    (cd "$PI_CODING_AGENT_DIR" && pwd -P) > "$PI_YOLO_REAL_AGENT_DIR_CAPTURE"
+  fi
+  printf '%s\n' "$AGENT_TOOLKIT_CODEX_ACCOUNT" > "$PI_YOLO_ACCOUNT_CAPTURE"
+fi
+SH
+chmod +x "$tmp_dir/fake-bin/pi"
+cp "$repo_dir/shared/agent-safety/agent-yolo" "$tmp_dir/pi-yolo"
+chmod +x "$tmp_dir/pi-yolo"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME= PI_CODING_AGENT_DIR="$pi_agent_dir" AGENT_TOOLKIT_PI_WEB_CONFIG_DIR="$pi_web_config_dir" PI_YOLO_CAPTURE="$tmp_dir/pi-yolo-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/pi-yolo-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/pi-yolo-web-config.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/pi-yolo-source.txt")" = "$pi_agent_dir"
+test "$(<"$tmp_dir/pi-yolo-web-config.txt")" = "$pi_web_config_dir"
+
+profile_agent_dir="$tmp_dir/profile-agent"
+mkdir -p "$profile_agent_dir/extensions/pi-permission-system"
+ln -s "$repo_dir/pi/extensions/codex-account" "$profile_agent_dir/extensions/codex-account"
+cp "$pi_agent_dir/extensions/pi-permission-system/config.json" "$profile_agent_dir/extensions/pi-permission-system/config.json"
+printf '%s\n' '{"openai-codex":{"type":"oauth","access":"old","refresh":"old","expires":1},"github-copilot":{"type":"oauth","access":"old","refresh":"old","expires":1},"anthropic":{"type":"api_key","key":"keep"}}' > "$profile_agent_dir/auth.json"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$profile_agent_dir/codex-runtimes/$codex_profile_name" AGENT_TOOLKIT_CODEX_ACCOUNT="$codex_profile_name" AGENT_TOOLKIT_CODEX_PROFILE_HOME="$HOME/.codex-accounts/$codex_profile_name/../$codex_profile_name/" AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/profile-auth-target.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/profile-agent-dir.txt" PI_YOLO_REAL_AGENT_DIR_CAPTURE="$tmp_dir/profile-real-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/profile-account.txt" "$tmp_dir/pi-yolo"
+case "$(<"$tmp_dir/profile-agent-dir.txt")" in
+  "${TMPDIR:-/tmp}"/agent-toolkit-pi-yolo.*) ;;
+  *) printf 'pi-yolo did not use an isolated account runtime\n' >&2; exit 1 ;;
+esac
+test ! -e "$(<"$tmp_dir/profile-agent-dir.txt")"
+test "$(<"$tmp_dir/profile-account.txt")" = "$codex_profile_name"
+node - "$tmp_dir/profile-config.json" "$tmp_dir/profile-real-agent-dir.txt" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const runtimeDir = fs.readFileSync(process.argv[3], "utf8").trim();
+assert.equal(config.permission.path[path.join(runtimeDir, "auth.json")], "deny");
+assert.equal(config.permission.path[path.join(runtimeDir, "codex-runtimes", "*", "auth.json")], "deny");
+NODE
+node - "$profile_agent_dir/auth-profiles/$codex_profile_name/auth.json" "$tmp_dir/profile-auth-target.txt" "$tmp_dir/codex-profile/auth.json" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+for (const path of process.argv.slice(2, 4)) {
+  const auth = JSON.parse(fs.readFileSync(path, "utf8"));
+  assert.equal(auth["openai-codex"].access.includes("."), true);
+  assert.equal(auth["openai-codex"].refresh, "verify-refresh");
+  assert.equal(auth["openai-codex"].accountId, "verify-account");
+  assert.equal(auth["github-copilot"], undefined);
+  assert.deepEqual(auth.anthropic, { type: "api_key", key: "keep" });
+}
+const codex = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+assert.equal(codex.tokens.access_token, undefined);
+assert.equal(codex.tokens.refresh_token, undefined);
+NODE
+node - "$tmp_dir/codex-profile/auth.json" <<'NODE'
+const fs = require("node:fs");
+const claims = { email: "other@example.com", exp: Math.floor(Date.now() / 1000) + 7200, "https://api.openai.com/auth": { chatgpt_account_id: "other-account" } };
+const token = `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+fs.writeFileSync(process.argv[2], JSON.stringify({ tokens: { access_token: token, refresh_token: "other-refresh", account_id: "other-account" } }));
+NODE
+mkdir -p "$profile_agent_dir/auth-profiles/000-duplicate"
+cp "$profile_agent_dir/auth-profiles/$codex_profile_name/auth.json" "$profile_agent_dir/auth-profiles/000-duplicate/auth.json"
+codex_profile_hash=$(node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex"))' "$codex_profile_name")
+PATH="$tmp_dir/fake-bin:$PATH" AGENT_TOOLKIT_CODEX_PROFILE_SHA256="$codex_profile_hash" AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64=dmVyaWZ5QGV4YW1wbGUuY29t AGENT_TOOLKIT_CODEX_ACCOUNT_ID=verify-account AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/email-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/email-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/email-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/email-auth.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/email-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/email-account.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/email-account.txt")" = "$codex_profile_name"
+node -e 'const fs=require("node:fs"); const auth=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (auth["openai-codex"].accountId !== "verify-account") process.exit(1); const codex=JSON.parse(fs.readFileSync(process.argv[2], "utf8")); delete codex.tokens.access_token; delete codex.tokens.refresh_token; fs.writeFileSync(process.argv[2], JSON.stringify(codex))' "$tmp_dir/email-auth.txt" "$tmp_dir/codex-profile/auth.json"
+printf '{"profile":"%s"}\n' "$codex_profile_name" > "$profile_agent_dir/active-codex-account.json"
+PATH="$tmp_dir/fake-bin:$PATH" CODEX_HOME="$tmp_dir/orca-codex-home" AGENT_TOOLKIT_CODEX_ACCOUNT= AGENT_TOOLKIT_CODEX_PROFILE_HOME= AGENT_TOOLKIT_PI_AGENT_DIR="$profile_agent_dir" PI_CODING_AGENT_DIR="$profile_agent_dir" PI_YOLO_CAPTURE="$tmp_dir/default-profile-config.json" PI_YOLO_SOURCE_CAPTURE="$tmp_dir/default-profile-source.txt" PI_YOLO_WEB_CONFIG_CAPTURE="$tmp_dir/default-profile-web-config.txt" PI_YOLO_AUTH_CAPTURE="$tmp_dir/default-profile-auth.txt" PI_YOLO_AGENT_DIR_CAPTURE="$tmp_dir/default-profile-agent-dir.txt" PI_YOLO_ACCOUNT_CAPTURE="$tmp_dir/default-profile-account.txt" "$tmp_dir/pi-yolo"
+test "$(<"$tmp_dir/default-profile-account.txt")" = "$codex_profile_name"
+node - "$tmp_dir/default-profile-auth.txt" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const auth = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+assert.equal(auth["openai-codex"].accountId, "verify-account");
+NODE
+node - "$tmp_dir/pi-yolo-config.json" "$pi_agent_dir" <<'NODE'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+assert.equal(config.yoloMode, true);
+assert.equal(config.permission.external_directory["*"], "deny");
+for (const directory of ["Code", "orca/workspaces"]) {
+  const root = path.join(process.env.HOME, directory);
+  assert.equal(config.permission.external_directory[root], "allow");
+  assert.equal(config.permission.external_directory[path.join(root, "*")], "allow");
+}
+assert.equal(config.permission.path["*.env"], "deny");
+assert.equal(config.permission.path["~/.pi/agent/auth-profiles"], "deny");
+assert.equal(config.permission.path["~/.pi/agent/auth-profiles/*"], "deny");
+assert.equal(config.permission.path["~/.pi/agent/codex-fast.json"], "deny");
+assert.equal(config.permission.bash["bash *"], undefined);
+assert.equal(config.permission.bash["gh *"], "deny");
+assert.equal(config.permission.bash["docker *"], "deny");
+assert.equal(config.permission.bash["*/git *"], "deny");
+const managedAgentDir = fs.realpathSync(process.argv[3]);
+const trust = require(path.join(process.env.HOME, ".local/libexec/agent-toolkit/repository-trust.cjs"));
+assert.equal(config.permission.bash["*"].action ?? config.permission.bash["*"], trust.isTrusted(process.cwd(), trust.trustedRepositories(path.join(managedAgentDir, "repository-trust.json"))) ? "allow" : "deny");
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(managedAgentDir, "git")));
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(managedAgentDir, "npm/node_modules")));
+const temporaryDir = fs.realpathSync(require("node:os").tmpdir());
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(temporaryDir, "orca-paste-*")));
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(temporaryDir, "pi-clipboard-*")));
+assert.ok(config.piInfrastructureReadPaths.includes(path.join(temporaryDir, "codex-clipboard-*")));
+assert.ok(!config.piInfrastructureReadPaths.includes(temporaryDir));
+assert.ok(!config.piInfrastructureReadPaths.includes(managedAgentDir));
+NODE
+for launcher in pi-yolo codex-yolo claude-yolo; do
+  target=$HOME/.local/bin/$launcher
+  test ! -L "$target"
+  cmp "$repo_dir/shared/agent-safety/agent-yolo" "$target"
+  test -x "$target"
+  test "$(<"$target.agent-toolkit.sha256")" = "$(shasum -a 256 "$target" | awk '{print $1}')"
+done
+test ! -L "$HOME/.local/libexec/agent-toolkit/git"
+cmp "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git"
+test -x "$HOME/.local/libexec/agent-toolkit/git"
+test "$(<"$HOME/.local/libexec/agent-toolkit/git.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.local/libexec/agent-toolkit/git" | awk '{print $1}')"
+test ! -L "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs"
+cmp "$repo_dir/shared/agent-safety/repository-trust.cjs" "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs"
+test "$(<"$HOME/.local/libexec/agent-toolkit/repository-trust.cjs.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.local/libexec/agent-toolkit/repository-trust.cjs" | awk '{print $1}')"
+test ! -L "$HOME/.local/libexec/agent-toolkit/git-test"
+cmp "$repo_dir/shared/agent-safety/git-test.cjs" "$HOME/.local/libexec/agent-toolkit/git-test"
+test -x "$HOME/.local/libexec/agent-toolkit/git-test"
+test "$(<"$HOME/.local/libexec/agent-toolkit/git-test.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.local/libexec/agent-toolkit/git-test" | awk '{print $1}')"
+test ! -L "$HOME/.local/libexec/agent-toolkit/pg-test"
+cmp "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test"
+test -x "$HOME/.local/libexec/agent-toolkit/pg-test"
+test "$(<"$HOME/.local/libexec/agent-toolkit/pg-test.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.local/libexec/agent-toolkit/pg-test" | awk '{print $1}')"
+"$repo_dir/shared/agent-safety/git-yolo-guard" -C "$repo_dir" status >/dev/null
+if "$repo_dir/shared/agent-safety/git-yolo-guard" -C "$repo_dir" clean -nd >/dev/null 2>&1; then
+  printf 'git yolo guard allowed git clean\n' >&2
+  exit 1
+fi
+system_git=
+for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
+  if [[ -x $candidate ]]; then system_git=$candidate; break; fi
+done
+[[ -n $system_git ]]
+mkdir "$tmp_dir/system-git"
+ln -s "$system_git" "$tmp_dir/system-git/git"
+PATH="$tmp_dir/system-git:$PATH" python3 "$repo_dir/codex/skills/autoreview/scripts/autoreview_test.py"
+test ! -e "$HOME/.codex/skills/handoff" && test ! -L "$HOME/.codex/skills/handoff"
+cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$HOME/.codex/skills/explore-design/SKILL.md"
+cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$HOME/.codex/skills/fastapi/SKILL.md"
+cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.codex/skills/fastify/SKILL.md"
+cmp "$repo_dir/pi/skills/python/SKILL.md" "$HOME/.codex/skills/python/SKILL.md"
+cmp "$repo_dir/pi/extensions/simple-english/SKILL.md" "$HOME/.codex/skills/simple-english/SKILL.md"
+cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.codex/skills/vue/SKILL.md"
+cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$HOME/.claude/skills/explore-design/SKILL.md"
+cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$HOME/.claude/skills/fastapi/SKILL.md"
+cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$HOME/.claude/skills/fastify/SKILL.md"
+cmp "$repo_dir/pi/skills/python/SKILL.md" "$HOME/.claude/skills/python/SKILL.md"
+cmp "$repo_dir/pi/extensions/simple-english/SKILL.md" "$HOME/.claude/skills/simple-english/SKILL.md"
+cmp "$repo_dir/pi/skills/vue/SKILL.md" "$HOME/.claude/skills/vue/SKILL.md"
+cmp "$repo_dir/codex/skills/autoreview/SKILL.md" "$pi_agent_dir/skills/autoreview/SKILL.md"
+test ! -e "$pi_agent_dir/skills/handoff" && test ! -L "$pi_agent_dir/skills/handoff"
+cmp "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
+cmp "$repo_dir/pi/extensions/ask-user-question/index.ts" "$pi_agent_dir/extensions/ask-user-question/index.ts"
+cmp "$repo_dir/pi/extensions/codex-account/index.ts" "$pi_agent_dir/extensions/codex-account/index.ts"
+cmp "$repo_dir/pi/extensions/codex-fast/index.ts" "$pi_agent_dir/extensions/codex-fast/index.ts"
+cmp "$repo_dir/pi/extensions/codex-fast/fast-core.ts" "$pi_agent_dir/extensions/codex-fast/fast-core.ts"
+cmp "$repo_dir/pi/extensions/status-format/index.ts" "$pi_agent_dir/integrations/status-format/index.ts"
+node -e 'const settings=require(process.argv[1]); if (!settings.extensions?.includes(process.argv[2])) process.exit(1)' "$pi_agent_dir/settings.json" "$pi_agent_dir/integrations/status-format"
+cmp "$repo_dir/pi/extensions/git-push/index.ts" "$pi_agent_dir/extensions/git-push/index.ts"
+cmp "$repo_dir/pi/skills/deepsec/SKILL.md" "$pi_agent_dir/skills/deepsec/SKILL.md"
+cmp "$repo_dir/pi/skills/react-doctor/SKILL.md" "$pi_agent_dir/skills/react-doctor/SKILL.md"
+cmp "$repo_dir/pi/skills/explore-design/SKILL.md" "$pi_agent_dir/skills/explore-design/SKILL.md"
+cmp "$repo_dir/pi/skills/fastapi/SKILL.md" "$pi_agent_dir/skills/fastapi/SKILL.md"
+cmp "$repo_dir/pi/skills/fastify/SKILL.md" "$pi_agent_dir/skills/fastify/SKILL.md"
+cmp "$repo_dir/pi/skills/python/SKILL.md" "$pi_agent_dir/skills/python/SKILL.md"
+test ! -e "$pi_agent_dir/skills/simple-english" && test ! -L "$pi_agent_dir/skills/simple-english"
+cmp "$repo_dir/pi/skills/vue/SKILL.md" "$pi_agent_dir/skills/vue/SKILL.md"
+cmp "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
+cmp "$repo_dir/pi/extensions/orca-permission-bell/index.ts" "$pi_agent_dir/extensions/orca-permission-bell/index.ts"
+cmp "$repo_dir/pi/extensions/project-blueprint/index.ts" "$pi_agent_dir/extensions/project-blueprint/index.ts"
+cmp "$repo_dir/pi/extensions/project-blueprint/project-blueprint-core.ts" "$pi_agent_dir/extensions/project-blueprint/project-blueprint-core.ts"
+test -f "$repo_dir/vendor/agent-project-blueprint/distribution/bootstrap-questionnaire.json"
+cmp "$repo_dir/pi/extensions/review-mode/index.ts" "$pi_agent_dir/extensions/review-mode/index.ts"
+cmp "$repo_dir/pi/extensions/simple-english/index.ts" "$pi_agent_dir/extensions/simple-english/index.ts"
+cmp "$repo_dir/pi/extensions/side-question/index.ts" "$pi_agent_dir/extensions/side-question/index.ts"
+cmp "$repo_dir/pi/extensions/side-question/side-core.ts" "$pi_agent_dir/extensions/side-question/side-core.ts"
+cmp "$repo_dir/pi/extensions/skills-update/index.ts" "$pi_agent_dir/extensions/skills-update/index.ts"
+cmp "$repo_dir/pi/extensions/task-graph/index.ts" "$pi_agent_dir/extensions/task-graph/index.ts"
+cmp "$repo_dir/pi/extensions/task-graph/task-graph-core.ts" "$pi_agent_dir/extensions/task-graph/task-graph-core.ts"
+cmp "$repo_dir/pi/extensions/task-graph/workspaces.ts" "$pi_agent_dir/extensions/task-graph/workspaces.ts"
+test ! -e "$pi_agent_dir/extensions/task-graph/run-recovery.ts"
+test ! -e "$pi_agent_dir/extensions/task-graph/cleanup.ts"
+test ! -L "$pi_web_config_dir/web-search.json"
+node -e '
+  const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  process.exit(config.workflow === "none" && config.allowBrowserCookies === false ? 0 : 1);
+' "$pi_web_config_dir/web-search.json"
+
+ponytail_version=$(<"$repo_dir/shared/ponytail/VERSION")
+permission_version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
+if command -v claude >/dev/null 2>&1; then
+  "$HOME/.local/bin/claude-yolo" --help >/dev/null
+  claude plugin list --json | node -e '
+    const plugins = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    process.exit(plugins.some(plugin =>
+      plugin.id === "ponytail@ponytail" &&
+      plugin.version === process.argv[1] &&
+      plugin.scope === "user" &&
+      plugin.enabled === true
+    ) ? 0 : 1);
+  ' "$ponytail_version"
+  node -e '
+    const settings = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const deny = settings.permissions?.deny ?? [];
+    const roots = settings.permissions?.additionalDirectories ?? [];
+    process.exit(settings.sandbox?.enabled === true && settings.sandbox?.failIfUnavailable === true && !deny.includes("Bash(dangerouslyDisableSandbox:true)") && deny.includes("Bash(rm *)") && deny.includes("Bash(git reset --hard)") && roots.some((root) => root.endsWith("/Code")) ? 0 : 1);
+  ' "$HOME/.claude/settings.json"
+fi
+if command -v codex >/dev/null 2>&1; then
+  "$HOME/.local/bin/codex-yolo" --help >/dev/null
+  codex plugin list | grep "^ponytail@ponytail[[:space:]].*installed, enabled[[:space:]]*$ponytail_version[[:space:]]" >/dev/null
+  test ! -L "$HOME/.codex/rules/agent-safety.rules"
+  cmp "$repo_dir/shared/agent-safety/codex.rules" "$HOME/.codex/rules/agent-safety.rules"
+  test "$(<"$HOME/.codex/rules/agent-safety.rules.agent-toolkit.sha256")" = "$(shasum -a 256 "$HOME/.codex/rules/agent-safety.rules" | awk '{print $1}')"
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- rm -rf keep-me \
+    | grep -q '"decision": "forbidden"'
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- /bin/rm -rf keep-me \
+    | grep -q '"decision": "forbidden"'
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- git clean -fdx \
+    | grep -q '"decision": "forbidden"'
+  codex execpolicy check --pretty --rules "$HOME/.codex/rules/agent-safety.rules" -- git -C /tmp status \
+    | grep -q '"decision": "prompt"'
+  grep -Eq "^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*['\"](workspace-write|read-only)['\"]([[:space:]]*#.*)?$" "$HOME/.codex/config.toml"
+  grep -Eq "^[[:space:]]*approval_policy[[:space:]]*=[[:space:]]*(['\"](on-request|untrusted)['\"]|\\{)" "$HOME/.codex/config.toml"
+fi
+if command -v pi >/dev/null 2>&1; then
+  "$HOME/.local/bin/pi-yolo" --help >/dev/null
+  pi list --no-approve \
+    | grep -F "git:github.com/DietrichGebert/ponytail@v$ponytail_version" >/dev/null
+  pi list --no-approve | grep -F "npm:@ff-labs/pi-fff@0.10.3" >/dev/null
+  pi list --no-approve | grep -F "npm:pi-web-access@0.13.0" >/dev/null
+  pi list --no-approve | grep -F "npm:@gotgenes/pi-permission-system@$permission_version" >/dev/null
+  test ! -L "$pi_agent_dir/extensions/pi-permission-system/config.json"
+  cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$tmp_dir/pi-permission-system.json"
+  node "$repo_dir/shared/agent-safety/configure.cjs" pi "$tmp_dir/pi-permission-system.json" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
+  policy="$pi_agent_dir/extensions/pi-permission-system/config.json"
+  policy_hash=$(shasum -a 256 "$policy" | awk '{print $1}')
+  managed_hash=$(cat "$policy.agent-toolkit.sha256" 2>/dev/null || true)
+  if [[ $policy_hash == "$managed_hash" ]]; then
+    cmp "$tmp_dir/pi-permission-system.json" "$policy"
+  else
+    printf 'preserved user-managed Pi policy; launcher safety checks still apply\n'
+  fi
+  pi_settings=$pi_agent_dir/settings.json
+  node -e '
+    const settings = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const entry = settings.packages?.find((item) =>
+      typeof item === "object" && item?.source === "npm:pi-web-access@0.13.0"
+    );
+    process.exit(entry && Array.isArray(entry.skills) && entry.skills.length === 0 ? 0 : 1);
+  ' "$pi_settings"
+fi
+
+"$repo_dir/pi/skills/deepsec/scripts/deepsec" --help >/dev/null
+"$repo_dir/pi/skills/deepsec/scripts/deepsec" plan | grep -q 'no Vercel account'
+if "$repo_dir/pi/skills/deepsec/scripts/deepsec" init --max-cost-usd 1 --max-duration 1m >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed AI setup without explicit confirmation\n' >&2
+  exit 1
+fi
+if DEEPSEC_ALLOW_AI=1 DEEPSEC_ALLOW_VERCEL=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" init --max-cost-usd 1 >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed uncapped AI setup\n' >&2
+  exit 1
+fi
+if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" triage >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed triage without Claude approval\n' >&2
+  exit 1
+fi
+if DEEPSEC_ALLOW_AI=1 "$repo_dir/pi/skills/deepsec/scripts/deepsec" sandbox process >/dev/null 2>&1; then
+  printf 'DeepSec wrapper allowed sandbox use without Vercel approval\n' >&2
+  exit 1
+fi
+grep -q -- 'npx --yes deepsec@2.3.9' "$repo_dir/pi/skills/deepsec/scripts/deepsec"
+"$repo_dir/pi/skills/react-doctor/scripts/react-doctor" --help >/dev/null
+bash -n "$repo_dir/pi/skills/explore-design/scripts/scan-brand.sh"
+brand_fixture="$tmp_dir/explore-design-brand"
+mkdir -p "$brand_fixture/explorations" "$brand_fixture/node_modules/pkg" "$brand_fixture/build" "$brand_fixture/vendor" "$brand_fixture/src/explore-design"
+: > "$brand_fixture/explorations/_template.html"
+for i in {1..65}; do printf '.x {}\n' > "$brand_fixture/src/$i.css"; done
+printf ":root { --brand: red; } body { font-family: 'Product Font'; }\n" > "$brand_fixture/src/theme with spaces.css"
+printf ':root { --ignored: red; }\n' > "$brand_fixture/node_modules/pkg/ignored.css"
+printf "body { font-family: 'Generated Font'; }\n" > "$brand_fixture/build/generated.css"
+printf "body { font-family: 'Vendored Font'; }\n" > "$brand_fixture/vendor/vendored.css"
+printf "body { font-family: 'Skill Font'; }\n" > "$brand_fixture/src/explore-design/template.css"
+"$repo_dir/pi/skills/explore-design/scripts/scan-brand.sh" "$brand_fixture" > "$tmp_dir/explore-design-brand.txt"
+grep -q 'STATUS: TEMPLATE_FOUND' "$tmp_dir/explore-design-brand.txt"
+grep -q './src/theme with spaces.css' "$tmp_dir/explore-design-brand.txt"
+grep -q "font-family: 'Product Font'" "$tmp_dir/explore-design-brand.txt"
+if grep -Eq 'ignored.css|Generated Font|Vendored Font|Skill Font' "$tmp_dir/explore-design-brand.txt"; then
+  printf 'Explore Design brand scan included an excluded directory\n' >&2
+  exit 1
+fi
+node --experimental-strip-types --test "$repo_dir/pi/extensions/ask-user-question/tests/ask-user-question.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-account/tests/codex-account.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-fast/tests/codex-fast.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/codex-goal/tests/context-filter.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/status-format/tests/status-format.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/git-push/tests/"*.test.ts
+node --experimental-strip-types --test "$repo_dir/pi/extensions/orca-permission-bell/tests/orca-permission-bell.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/project-blueprint/tests/"*.test.ts
+node --experimental-strip-types --test "$repo_dir/pi/extensions/review-mode/tests/review-mode.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/simple-english/tests/simple-english.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/side-question/tests/side-question.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/skills-update/tests/skills-update.test.ts"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/task-graph/tests/"*.test.ts
+node --test "$repo_dir/shared/agent-safety/git-graph-boundaries.test.cjs"
+node --experimental-strip-types --test "$repo_dir/pi/extensions/web-access-gate/tests/web-access-core.test.ts"
+npm --prefix "$repo_dir/pi/extensions/figma-mcp" test
+test -f "$repo_dir/pi/extensions/figma-mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"
+pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/ask-user-question/index.ts" --list-models >"$tmp_dir/question-models.txt"
+pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/codex-goal/index.ts" --list-models >"$tmp_dir/retired-extension-models.txt"
+pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/side-question/index.ts" --list-models >"$tmp_dir/side-models.txt"
+pi --offline --no-session --no-extensions --extension "$repo_dir/pi/extensions/figma-mcp/index.ts" --list-models >"$tmp_dir/figma-models.txt"
+printf '%s\n' '{"id":"commands","type":"get_commands"}' \
+  | pi --offline --mode rpc --no-session >"$tmp_dir/rpc.jsonl" 2>"$tmp_dir/rpc.err"
+grep -q '"name":"figma"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"fff-health"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"push"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"ponytail"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"account"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"fast"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"reviews"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"simple-english"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skills-update"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"graph"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"web"' "$tmp_dir/rpc.jsonl"
+if grep -q '"name":"goal"' "$tmp_dir/rpc.jsonl"; then
+  printf 'The retired goal command is still available\n' >&2
+  exit 1
+fi
+grep -q '"name":"skill:autoreview"' "$tmp_dir/rpc.jsonl"
+if grep -q '"name":"skill:handoff"' "$tmp_dir/rpc.jsonl"; then
+  printf 'The retired handoff skill is still available\n' >&2
+  exit 1
+fi
+grep -q '"name":"skill:deepsec"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:react-doctor"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:explore-design"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:fastapi"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:fastify"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:python"' "$tmp_dir/rpc.jsonl"
+grep -q '"name":"skill:vue"' "$tmp_dir/rpc.jsonl"
+if grep -q '"name":"skill:simple-english"' "$tmp_dir/rpc.jsonl"; then
+  printf 'Simple English should be exposed only through /simple-english in Pi\n' >&2
+  exit 1
+fi
+if grep -q '"name":"skill:librarian"' "$tmp_dir/rpc.jsonl"; then
+  printf 'pi-web-access librarian skill should be filtered out\n' >&2
+  exit 1
+fi
+
+printf '\nAll checks passed.\n'

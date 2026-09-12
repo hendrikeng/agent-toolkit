@@ -1,0 +1,78 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const { execFileSync } = require('node:child_process')
+const { updateStore } = require('./repository-trust.cjs')
+
+test('repository trust replaces legacy script approvals without stale-file startup failures', () => {
+  const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || path.join(require('node:os').homedir(), 'Code/.agent-toolkit-scratch')
+  fs.mkdirSync(scratch, { recursive: true, mode: 0o700 })
+  assert.equal(fs.lstatSync(scratch).isSymbolicLink(), false)
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(scratch, 'approved-shell-check-')))
+  const policy = path.join(root, 'managed/extensions/pi-permission-system/config.json')
+  const output = path.join(root, 'runtime/extensions/pi-permission-system/config.json')
+  for (const file of [policy, output]) fs.mkdirSync(path.dirname(file), { recursive: true })
+  const repo = path.join(root, 'home/Code/project')
+  const other = path.join(root, 'home/Code/third-party')
+  for (const directory of [repo, other]) fs.mkdirSync(path.join(directory, '.git/objects'), { recursive: true })
+  const check = path.join(repo, 'check.sh'), alias = path.join(root, 'alias.sh')
+  fs.writeFileSync(check, '#!/bin/sh\nexit 99\n')
+  fs.symlinkSync(check, alias)
+  const base = JSON.parse(fs.readFileSync(path.join(__dirname, 'pi-permission-system.json'), 'utf8'))
+  Object.assign(base.permission.bash, {
+    'sh *': 'allow', [`sh ${check}`]: 'allow', [`sh ${alias}`]: 'allow',
+    [`sh ${root}/missing.sh`]: 'allow', [`sh ${root}/missing/../check.sh`]: 'allow',
+  })
+  fs.writeFileSync(policy, JSON.stringify(base))
+  const launcher = fs.readFileSync(path.join(__dirname, 'agent-yolo'), 'utf8')
+  const script = launcher.match(/node - "\$policy" "\$agent_dir\/extensions\/pi-permission-system\/config.json" "\$trust_helper" <<'NODE'\n([\s\S]*?)\nNODE/)[1]
+  const run = cwd => {
+    execFileSync(process.execPath, ['-', policy, output, path.join(__dirname, 'repository-trust.cjs')], {
+      cwd, input: script, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, HOME: path.join(root, 'home') },
+    })
+    return JSON.parse(fs.readFileSync(output, 'utf8'))
+  }
+  assert.equal(run(repo).permission.bash['*'].action, 'deny', 'old script approvals confer no repository trust')
+  const store = path.join(root, 'managed/repository-trust.json')
+  updateStore(store, 'approve', [repo])
+  const config = run(repo)
+  assert.equal(config.permission.bash['*'].action, 'deny', 'startup trust must not become a blanket grant for later selected repositories')
+  assert.equal(config.permission.bash['git status *'], 'allow')
+  for (const key of Object.keys(base.permission.bash).filter(key => key.startsWith('sh '))) {
+    assert.equal(config.permission.bash[key], undefined, 'no per-script or shell-family exceptions')
+  }
+  assert.equal(config.permission.external_directory[repo], 'allow')
+  assert.equal(config.permission.external_directory[other], undefined)
+  for (const rule of ['rm *', 'git push*', 'gh *', 'sudo *', 'psql *', 'docker *', 'infisical *', 'npm publish*']) assert.equal(config.permission.bash[rule], 'deny', rule)
+  for (const name of ['pg-test', 'git-test']) {
+    assert.equal(config.permission.bash[`${name} *`], 'deny', 'missing helpers do not prevent policy generation')
+    const helper = path.join(root, 'home/.local/libexec/agent-toolkit', name)
+    fs.mkdirSync(path.dirname(helper), { recursive: true })
+    const contents = fs.readFileSync(path.join(__dirname, `${name}.cjs`))
+    fs.writeFileSync(helper, contents, { mode: 0o700 })
+    fs.writeFileSync(`${helper}.agent-toolkit.sha256`, require('node:crypto').createHash('sha256').update(contents).digest('hex'))
+    assert.equal(run(repo).permission.bash[`${name} *`], undefined, 'verified helpers use ordinary repository trust')
+    fs.appendFileSync(helper, '\n// changed fixture helper\n')
+    assert.equal(run(repo).permission.bash[`${name} *`], 'deny')
+  }
+  assert.equal(run(other).permission.bash['*'].action, 'deny', 'a sibling checkout is not trusted')
+  updateStore(store, 'approve-repository', [repo])
+  for (const name of ['infisical-native-sync', 'future-worktree']) {
+    const checkout = path.join(root, 'home/orca/workspaces/project', name), admin = path.join(repo, '.git/worktrees', name)
+    fs.mkdirSync(checkout, { recursive: true }); fs.mkdirSync(admin, { recursive: true })
+    fs.writeFileSync(path.join(checkout, '.git'), `gitdir: ${admin}\n`)
+    fs.writeFileSync(path.join(admin, 'commondir'), '../..\n')
+    fs.writeFileSync(path.join(admin, 'gitdir'), `${checkout}/.git\n`)
+    const parentSession = run(repo)
+    assert.equal(parentSession.permission.external_directory[checkout], 'allow', 'registered worktree inspection is included at startup')
+    assert.equal(parentSession.permission.external_directory[path.join(root, 'home/orca/workspaces/*')], 'allow', 'Orca filesystem access is independent of registered-worktree execution trust')
+    assert.equal(run(checkout).permission.bash['*'].action, 'deny', 'registered worktree execution trust is checked per call, never cached as a blanket allow')
+    assert.equal(run(other).permission.bash['*'].action, 'deny')
+  }
+  updateStore(store, 'revoke', [repo])
+  assert.equal(run(repo).permission.bash['*'].action, 'deny')
+  assert.equal(fs.readFileSync(check, 'utf8'), '#!/bin/sh\nexit 99\n', 'fixture script never ran')
+  console.log(`Retained policy fixture: ${root}`)
+})

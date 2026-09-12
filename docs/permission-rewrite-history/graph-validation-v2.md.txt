@@ -1,0 +1,500 @@
+# Graph rewrite validation
+
+## Workspace-access correction
+
+This section supersedes the historical permission descriptions below. Earlier review verdicts do not cover this correction.
+
+The comparison covered `529910c`, its parent `1f89a5c`, and the current tracked and untracked source changes.
+Both commits retained Code and Orca directory access. The later uncommitted policy changes removed those grants, not the committed coordinator rewrite.
+The correction restores normal filesystem access within `~/Code` and `~/orca/workspaces` in future generated policy.
+Repository execution still requires explicit human trust. Directory access does not authorize secrets, destructive operations, production access, or publishing.
+Graph writes still require active-task ownership. Graph checks still require the exact approved command and workspace.
+
+The existing graph improvements remain: one coordinator, sequential tasks, separate planning and execution approvals, retained workspaces, and exact resume records.
+Declared repository checks already support shell scripts, Python, and package executables without per-script exceptions. This correction does not rewrite that command handling.
+Existing uncommitted helpers, tests, and permission-patch migration work remain intact.
+
+Focused graph validation passed seven tests: five core checks, one isolated trust-runtime check, and one complete planning-to-execution scenario.
+The complete scenario covered interruption, resume, closeout, source preservation, unauthorized writes, and exact command rejection.
+It used disposable Git repositories and simulated Orca and permission routing, not a live installed graph cycle.
+
+Six focused policy and installer tests also passed, plus the configurator self-test and shell syntax checks.
+The parser check passed against the retained public `20.7.3` package in private scratch, not the denied installed package or live policy.
+It now expects Code and Orca access while it still rejects paths and symlink escapes outside those roots.
+The verifier uses the same directory expectations and includes the new installer regression.
+
+The installer comparison found no configure-after-checksum bug in either historical commit. Both configured the temporary policy before installation.
+An external configurator write reproduces a stale marker, but that fixture does not identify the cause of the live mismatch.
+The installer now reports unverified ownership and the three hashes without claiming that unknown bytes are deliberate customization.
+Unknown Pi policy and marker bytes remain unchanged. Managed policy updates still receive backups.
+The README contains the trusted-human-shell backup and comparison procedure. A checksum reset is not a migration.
+
+Reproduction commands for this correction:
+
+```sh
+node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts
+node --experimental-strip-types --test --test-name-pattern='isolated runtime' pi/extensions/task-graph/tests/runtime-regressions.test.ts
+node --experimental-strip-types --test --test-name-pattern='closeout 1/20$' pi/extensions/task-graph/tests/runtime-regressions.test.ts
+node --test shared/agent-safety/pi-runtime-policy.test.cjs shared/agent-safety/approved-shell-check.test.cjs shared/agent-safety/managed-policy.test.cjs shared/agent-safety/launcher-syntax-contract.test.cjs
+node shared/agent-safety/configure.cjs --self-test
+AGENT_TOOLKIT_PI_AGENT_DIR=/Users/hendrik/Code/.agent-toolkit-scratch/pinned-parser-check.gMNSec/agent node shared/agent-safety/installed-permission.check.cjs
+git diff --check
+```
+
+The parser fixture remains at `/Users/hendrik/Code/.agent-toolkit-scratch/installed-permission-Pmwxdv/`.
+The installer fixture remains at `/Users/hendrik/Code/.agent-toolkit-scratch/managed-policy-JxAGJ4/`.
+The trust-policy fixture remains at `/Users/hendrik/Code/.agent-toolkit-scratch/approved-shell-check-llPA66/`.
+The full installer and verifier did not run against the real HOME.
+
+No live policy, trust registry, existing graph record, or installed package changed in this session.
+The earlier hard denial for the live Pi policy remains a boundary. No worker repeated that access.
+The current live policy contents and backup remain unverified. A trusted human shell must perform that comparison and backup.
+No commit, publishing, or automatic AI review was requested or performed.
+
+## Historical source repair — custom-policy upgrade review pending
+
+This historical section superseded earlier permission and activation descriptions at the time. The workspace-access correction above now takes precedence.
+
+The source now uses explicit repository identities for ordinary execution trust. It removes blanket Code and Orca grants and per-script execution exceptions.
+The trust helper binds checkout, Git-directory, and common-directory identities. Missing, replaced, and unrelated cloned repositories receive no general execution trust.
+The user explicitly selected repository-wide approval, including registered worktrees, after the checkout-only rollout blocked normal Orca workflows.
+The known-good comparison is commit `8105fe673665b7e0e597e6d7aa915b57f74ec14c`. It allowed the Orca parent directory.
+The correction restores registered-worktree access without restoring that blanket parent-directory grant.
+`approve-repository` includes current and future worktrees after bidirectional registration and common-identity checks. Existing checkout-only approvals never expand automatically.
+New sessions discover registered worktrees. Existing sessions retain their directory snapshot until restart.
+Trusted scripts and dependencies execute code as the local user. These workflow guards are not an OS sandbox.
+
+Graph workspaces receive per-call authority from the active record after identity checks. Only exact approved setup and validation commands receive that execution directory.
+The pinned parser patch uses the selected `repository` for shell paths. Relative file-tool paths keep their actual session directory.
+The command patch checks quote-removed words alongside raw words. Opaque commands and wrapper uncertainty produce denials, not asks that YOLO can allow.
+
+The complete local audit covered all 13 untracked files and all tracked diffs in this change bundle.
+Seventeen affected safety tests passed with no failures or skips. The configuration self-test and the fresh pinned-parser check also passed.
+The legacy-approval test passed without a launcher-provided scratch environment variable.
+The final graph suite passed 34 tests, including isolated runtime loading and 20 complete planning, execution, interruption, resume, and closeout scenarios.
+Elapsed time was 469,604.696125 ms after the repository-wide approval, revocation, and shared-guard corrections. No graph test failed or skipped.
+The final safety suite passed 17 tests. System Bash syntax validation passed for the shared guard.
+These fixtures use real Git and simulated Orca and permission routing. They do not prove a fresh installed Pi session.
+
+The graph-approval test compiles the pinned gate and pipeline with test substitutes for other components.
+Exact task approval replaces only the marked global missing-trust denial. Explicit denials and opaque-wrapper denials remain intact.
+This covers sessions that resume from an untrusted graph worktree without granting general execution trust.
+
+The current parser check passed against a fresh public copy of pinned version 20.7.3 in private scratch.
+Preparation verified the package integrity against npm registry metadata and disabled lifecycle scripts. It used an isolated HOME, cache, and empty npm configuration files.
+No denied installed resource was accessed. This result proves behavior against the fresh package, not the current live installation.
+The check covers quoted and uppercase commands, wrapper denials, exact graph approval, directory selection, and patch idempotence.
+It uses the real parser and matcher plus extracted visibility and directory-selection code. It does not load the full Pi lifecycle.
+
+A separate regression reproduced duplicate code insertion into an obsolete patch. The patcher now accepts only clean or fully patched files.
+Mixed, obsolete, and duplicate patches fail before installation writes. The regression and pinned gate/pipeline test both passed after the correction.
+
+Retained focused fixtures include:
+
+```text
+/Users/hendrik/Code/.agent-toolkit-scratch/pinned-parser-check.gMNSec/
+/Users/hendrik/Code/.agent-toolkit-scratch/installed-permission-29aLmm/
+/Users/hendrik/Code/.agent-toolkit-scratch/launcher-git-env-iCD0dC/
+/Users/hendrik/Code/.agent-toolkit-scratch/approved-shell-check-tErbgX/
+```
+
+### Audit corrections
+
+The graph extension no longer imports the trust helper through the source checkout layout. It loads the managed helper only for ordinary execution checks.
+An isolated runtime regression covers missing helpers, missing approvals, valid approvals, and revocation.
+Ordinary bash calls now accept an explicit or relative repository outside graphs. Execution and trust checks use that selected directory, not the session directory.
+The regression covers ordinary Git status, default and selected directories, and rejection of untrusted or revoked targets. Graph-only command restrictions remain unchanged.
+
+Independent Astra/medium review found that the native gate still denied selected trusted repositories when the session started outside a trusted checkout.
+The native gate now checks current trust for the selected repository before it applies the marked startup fallback.
+This does not grant directory access or replace explicit operator denials. The extension repeats the trust check before execution.
+The pinned pipeline, runtime callback, parser, patch-state, and narrow installer checks passed after this correction.
+The exact reviewer command also passed the parser check without launching a reviewer from the fixture.
+The initial report remains at `/Users/hendrik/.pi/agent/review-results/review-usrj5jbx/report.txt`.
+The next review found that the runtime callback could load a helper that failed launcher integrity checks.
+The runtime now verifies the helper and its checksum marker before each trust check. Missing, changed, and nonregular helper files fail closed.
+The runtime regression covers a missing marker, a changed helper, and an invalid checksum after successful execution.
+The second report remains at `/Users/hendrik/.pi/agent/review-results/review-apbnvixw/report.txt`.
+The correction received a scoped-clean Astra/medium review at `/Users/hendrik/.pi/agent/review-results/review-_ls0fxia/`.
+Review of the later repository-wide approval found that worktree-only revocation could falsely report success.
+Revocation now rejects inherited worktrees and explicit child approvals still covered by a remaining repository-wide approval.
+The operator must revoke the main approval first or include it in the same command. Regression checks verify that rejected revocation leaves the store unchanged.
+The report remains at `/Users/hendrik/.pi/agent/review-results/review-yhnx6qdu/`.
+The next review returned no findings, but source-snapshot verification rejected the run. It produced no accepted clean verdict.
+The rejected run remains under `/Users/hendrik/.pi/agent/review-results/review-_5gpijz_/`.
+The subsequent serial Astra/medium review passed source verification and returned `scoped-clean`, exit 0, with no actionable P0–P2 findings.
+Its verified status and report remain under `/Users/hendrik/.pi/agent/review-results/review-vzr_1v2n/`.
+This verdict covers the source bundle, not live installation or product acceptance.
+
+After the operator approval step, ordinary toolkit commands, the parser check, and independent review all ran in this session.
+System Bash syntax checks also passed separately for the installer, launcher, Git guard, and verifier.
+This restores previously blocked local checks. It does not prove installation of the latest source changes.
+
+The shared Git guard now accepts `GIT_CONFIG_COUNT=0` and normalizes only the two fixed non-interactive credential settings.
+This also covers engines that inject those settings after launcher startup. The final Git command retains both fixed credential values.
+Additional entries, unsafe values, executable selectors, and other inherited configuration remain denied. Five focused checks passed.
+The reported error alone does not identify the configuration values in another agent session.
+
+Missing or changed fixture helpers now deny only their command surfaces. They no longer prevent ordinary Pi startup.
+Bare PostgreSQL administrative commands retain the same denial as commands with arguments.
+Both Pi installation modes refuse missing trust approvals before changing installed files. The narrow mode also checks all required parser patches without modifying them.
+Full installation activates the new launchers only after package and helper setup succeeds. The installation guide establishes explicit trust before this step.
+No installer creates trust approvals automatically.
+
+Git fixture refusals no longer include configuration contents in assertion diffs or malformed-JSON errors. A canary regression covers both cases.
+These fixes passed disposable installation and policy fixtures. They do not change the current live trust registry or installation.
+
+### Disposable-fixture source support
+
+`pg-test start-admin` now creates a separate cluster with a non-superuser role that can create databases and roles.
+The default profile remains restricted. Both profiles disable bootstrap login and omit superuser, replication, RLS bypass, and server-file/program privileges.
+No operation accepts an existing database target. PostgreSQL validation uses process doubles, not a live service.
+
+The new managed `git-test` helper creates private repositories with an empty foundation commit and an external capability record.
+Its bounded checkout, lightweight tag, commit-tree, and update-ref operations check directory identities, unchanged configuration, and unshared metadata.
+It cannot adopt an existing repository, publish, sign, or perform cleanup. Ordinary Git remains guarded.
+Real Git fixtures passed, including rejection of replaced directories, changed configuration, symlinked references, and ordinary guarded tag creation.
+
+Seven focused helper, launcher, and installer-contract tests passed. JavaScript syntax and diff checks passed.
+No product checkout, vendor file, existing database, or live installation changed. Fixture files remain under private scratch.
+Product runners still need integration and compatibility checks. These helper tests do not establish product acceptance or live PostgreSQL behavior.
+
+The user reported a successful live planning, separate execution, resume, sequential-task, validation, rejection, and closeout cycle on an earlier version.
+That report is separate from this session's fixtures. Crash recovery and activation of the current trust changes remain unverified.
+The old preflight-only receipt is not evidence of that complete cycle.
+
+### Custom Policy Upgrade Correction
+
+The operator installation reached the parser patch, then refused an existing Pi policy whose checksum no longer matched the managed marker.
+Native inspection confirmed custom infrastructure read paths, including Code, Orca, and a specific legacy lock. This session did not change that live policy.
+The installer now preserves custom Pi policy bytes and their ownership state instead of aborting this upgrade.
+Other managed executables retain their strict ownership checks. Owned Pi policy files still update with backups.
+The verifier distinguishes custom and managed policy files. Launcher safety checks still apply in both cases.
+The focused fixture covers absent and stale markers, unchanged custom bytes, managed replacement, and backup contents.
+Three focused tests and separate installer/verifier Bash syntax checks passed. This is not a completed live installation.
+Independent review of this latest correction remains pending.
+
+Remaining gates:
+
+- Independent review of the custom-policy upgrade correction, then reviewed installation, explicit repository-wide approvals, and fresh-session validation.
+- Read-only evidence for denied installed launcher and guard files, six product repositories, and legacy records. No denied access was repeated through another tool.
+- Integration of disposable-fixture helpers into product runners and real database checks where still required. Existing Envest acceptance databases need separate authority.
+- Web now has a clean local merge at `f8c4c79f`, completed by the other workflow. Its evidence records human Git-history checks and split merge-gate validation.
+  This session did not edit Web or repeat its live proofs. Source-worktree inspection remains denied, and no alternate path bypassed that denial.
+- A full reviewed installation, fresh sessions, and installed graph validation. No trust registry or live permission file changed here.
+
+A later native search denied access to Booking and an installed parser source file. A separate `/bin/bash -n` command also received a denial.
+Those checks were not repeated through alternate commands. Guarded toolkit status and diff checks passed. The index remains unstaged.
+The narrow launcher installer now refuses an absent or outdated trust helper before it changes installed files. It cannot perform the trust rollout.
+
+## Result and scope
+
+The rewrite replaces the worker architecture. It does not retain a parallel or legacy execution mode.
+The coordinator owns one workspace per writing repository and runs tasks sequentially.
+Planning and execution have separate commands, approvals, records, and workspaces.
+
+The source checkout contained an unfinished redesign. This rewrite replaced its graph implementation and tests.
+Validation did not publish changes, execute Tracn plans, or consolidate user worktrees.
+Both Tracn consolidation evidence files were read. Their local `dev` foundations remain unchanged.
+Consolidation does not prove unfinished feature delivery. No legacy Run was retired or marked complete.
+
+## Cross-Repository Follow-Up
+
+The later permission audit found inherited launcher configuration in the Git fixtures. The keys disabled credential prompts, but the fixtures inherited them as unapproved Git configuration.
+
+Fixtures now select their own Git environment. Graph shell checks use the same environment normalization as internal Git calls. The guard still rejects arbitrary inherited configuration and disables credential prompts through fixed options.
+
+The follow-up also rejects unattended rebase, remote mutation, and init/clone/fetch executable or configuration overrides. Python repository scripts can retain PCVC's `-B -S` offline runner. Selected package test executables can run through `pnpm exec`, including Booking's declared migration check. Arbitrary interpreters, shell execution, publishing, and external configuration overrides remain blocked.
+
+The final follow-up suite passed 40 tests with no failures or skips. It included 20 complete fresh planning/execution/interruption/resume/closeout fixtures. Elapsed time was 431,553.306417 ms.
+
+```text
+/Users/hendrik/Code/.agent-toolkit-scratch/permission-fixes-final.TBtopp/checks.log
+/Users/hendrik/Code/.agent-toolkit-scratch/permission-fixes-final.TBtopp/checks.exit
+```
+
+These are real Git fixtures with simulated Orca and permission routing, not a live installed-runtime result. No new AI review, commit, installation, or live permission change occurred for this follow-up.
+
+Booking's separate correction passed six focused tests, including rejection before Vitest collection, and focused ESLint. Its plan remains in validation pending host proof. The blueprint smoke and golden runners now use private scratch when supplied and remove inherited Git configuration. Their full checks remain blocked by a release fixture that uses guarded checkout, tag, commit-tree, and update-ref operations. No system-Git fallback or raw-reference workaround was added.
+
+### Remaining Work — Not Completed
+
+- Narrow general repository access with the installed permission system, without breaking approved isolated graph workspaces.
+- Verify and gate GitHub CLI mutation routes. A Git push guard alone does not prove this boundary.
+- Complete the administrative test-fixture path for Tracn and Booking, and the named acceptance-database path for Envest. The existing restricted `pg-test` helper does not supply those capabilities.
+- Resolve the blueprint release-history fixture's guarded operations without expanding ordinary Git authority or removing its regression coverage.
+- Run Booking's real PostgreSQL tests with the new explicit target configuration.
+- Load the current graph interface and verify installed permissions and a live isolated Orca cycle.
+
+No broad Homebrew access, unrestricted SQL helper, credential access, or deletion permission was added. Existing launcher/helper work was preserved. The results below describe the earlier committed rewrite, not a new delivery approval.
+
+## Final Deterministic Results At The Earlier Rewrite
+
+| Check | Result |
+|---|---|
+| Complete affected graph suite | 33 passed, 0 failed, 0 skipped |
+| Complete final-version scenarios | 20 passed in 20 fresh fixtures |
+| Graph suite elapsed time | 460,213.4705 ms |
+| Permission, Git, gh, and guard installation tests | 5 passed, 0 failed |
+| Trusted push tests, including transport stub | 6 passed, 0 failed |
+| Permission configuration self-test | Passed |
+| `git diff --check` | Passed |
+| Separate shell syntax command | Blocked by the runtime rule `bash *` |
+
+Each repeated scenario performs all these steps:
+
+1. Initialize two real Git repositories with staged and unstaged source changes.
+2. Approve planning and capture an exact dirty input.
+3. Create one planning worktree per repository.
+4. Run setup, write plans, run hooks, commit scoped paths, validate, and close planning.
+5. Request separate execution approval from the exact planning commits.
+6. Create two new execution worktrees from those commits.
+7. Execute the cross-repository plan dependency chain in order.
+8. Promote and complete each plan through its scoped lifecycle tool.
+9. Interrupt between tasks and during an active task with uncommitted work.
+10. Resume without another approval, duplicate resources, or later input capture.
+11. Validate and close execution.
+12. Compare source files, source indexes, source HEADs, and planning HEADs with their expected values.
+
+The scenarios also reject premature task starts, unauthorized writes, duplicate checkpoint paths, and path aliases.
+A simulated native permission denial stops the shell before execution.
+Some repetitions lose a Run or workspace creation receipt and then recover the same resource.
+Every scenario uses the rewritten Git guard. No scenario dispatches a worker or performs integration or cleanup.
+
+Other tests cover failed validation, owned setup output, changed inactive workspaces, symlinks, legacy records, hooks, and exited coordinator processes.
+
+The commit-gate review found three gaps. The fixes reject bundled hook-bypass flags and dangerous long-option abbreviations, require explicit manual validation for read-only tasks, and reject unusable read-only foundations before approval.
+The user approved the manual-check contract. Regression tests cover all three fixes, including both direct inspection and approved snapshots.
+The second review found the same abbreviation gap in read-command flags. Those forms now fail before Git runs.
+A configured fixture diff driver proves that allowed reads keep helpers disabled; abbreviated overrides cannot run it or write an output file.
+Later review findings tightened decoded shell arguments and nested `uv run` checks. Quoted publishing, inline-code flags, and shell launchers now fail the same checks as their plain forms.
+The hook warning did not reproduce. A real scoped commit ran Git queries in a strict hook and exposed the correct staged file; a regression now covers that case.
+The full 20-scenario run above includes all accepted fixes.
+
+Final correctness and complexity review: `scoped-clean`, with no actionable P0–P2 findings or concrete over-engineering findings.
+The verified final report and status remain under `/Users/hendrik/.pi/agent/review-results/review-waq3nekv/`.
+
+Logs and per-run fixture paths remain here:
+
+```text
+/Users/hendrik/Code/.agent-toolkit-scratch/graph-rewrite-validation.qXznjq/
+  graph-suite.log
+  permission-git-gh.log
+  git-push.log
+  final-20-fixtures.json
+  production-size.json
+```
+
+Reproduction commands:
+
+```sh
+node --experimental-strip-types --test pi/extensions/task-graph/tests/*.test.ts
+node --test shared/agent-safety/git-graph-boundaries.test.cjs shared/agent-safety/git-yolo-guard.test.cjs shared/agent-safety/git-guard-install.test.cjs shared/agent-safety/pi-runtime-policy.test.cjs
+node --experimental-strip-types --test pi/extensions/git-push/tests/*.test.ts
+node shared/agent-safety/configure.cjs --self-test
+git diff --check
+```
+
+## Production size
+
+Counts below exclude test files and Markdown. They include blank lines and comments.
+The byte counts prevent line formatting from disguising the size change.
+The committed baseline is `1f89a5c9db17b48dbe75ae641334c3374efaa868`.
+
+| Scope | Before lines | After lines | Before bytes | After bytes |
+|---|---:|---:|---:|---:|
+| Graph production files, committed baseline | 2,882 | 756 | 207,723 | 62,797 |
+| All affected non-test, non-Markdown files, including installer and verifier | 4,046 | 1,952 | 268,144 | 124,700 |
+| Graph production files, initial dirty candidate | 2,913 | 756 | Not captured | 62,797 |
+
+Graph production bytes decreased by 69.8% against the committed baseline.
+The initial dirty candidate's production line count decreased by 74.0%.
+Test and documentation changes do not contribute to those reductions.
+
+Removed mechanisms:
+
+- Parallel-worker and source-checkout proposal options.
+- Worker worktrees, terminal launches, account pinning, quota checks, dispatches, and retries within graphs.
+- Internal worker DAGs and prerequisite workspace pins.
+- Worker integration merges and conflict reconciliation.
+- Worker cleanup, archived cleanup retries, and delivery relabeling.
+- Legacy Run binding, objective migration, and execution recovery.
+- Secondary plan-chain locks and separate recovery contracts.
+- Private snapshot indexes, raw snapshot commits, direct system-Git fallback, and capture hook bypasses.
+
+The replacement keeps one approved record, a coordinator lease, exact workspace receipts, and verified task results.
+Orca tasks mirror those results. A remote completion cannot replace local validation evidence.
+The scoped lifecycle move tool applies only to the active plan in the new workflow.
+
+## Permission-change ledger
+
+| Surface | Change and legitimate operation | Boundary evidence |
+|---|---|---|
+| Launcher policy | No new path, shell, credential, or temporary-directory allowance. Existing source and scratch roots remain subject to graph ownership. | `pi-runtime-policy.test.cjs` checks scratch access, protected credentials, symlink rejection, and closed runtime/temp roots. `configure.cjs --self-test` checks generated defaults. |
+| Graph shell | Only the active task's exact declared repository check runs. Before approval, bounded Git inspection disables optional index locks. | `task-graph.test.ts` rejects chaining, substitution, shell launchers, assignments, hosting commands, and executable/config/path overrides. It checks decoded arguments and supported nested `uv run` commands. Repeated scenarios compare source indexes. |
+| Graph writes and commits | Only active-task paths can change. Capture deletion requires an explicit input selection. Scoped checkpoints use normal Git hooks. | Graph tests reject source writes, implementation during planning, lifecycle promotion during planning, symlinks, unauthorized history, and duplicate paths. Capture tests exercise rejecting and successful hooks. |
+| Internal Git | Removed raw `commit-tree`, private-index operations, direct system-Git fallback, integration, and cleanup. Remaining calls use checked workspace paths and the guarded `git` executable. | All 20 scenarios run through the rewritten guard. Capture tests preserve source indexes and later source edits. |
+| Git global selectors | Removed `--git-dir`, `--work-tree`, namespace, super-prefix, bare/global pathspec variants, and executable overrides. Exact `-C` remains for repository-scoped operations. | `git-graph-boundaries.test.cjs` proves `-C` reads and rejects adjacent selectors and environment overrides. |
+| Git config reads | Retained explicit read actions needed by Git and gh. Options must precede operands. Config writes and config-file overrides remain blocked. | `git-yolo-guard.test.cjs` tests read forms and adjacent writes. It runs real `gh repo set-default --view` through the guard without network access. |
+| Git history and output | Added rejection of amend and hook-bypass flags, including bundled short forms and dangerous long-option abbreviations. Read commands reject output files, external diffs, and text conversion, including abbreviated options. | `git-graph-boundaries.test.cjs` checks return code 126 and unchanged files, index, and config. |
+| Git worktrees | Retained add/list for local workspace creation and inspection. Removed lock, unlock, repair, and move. Removal stays blocked. | Repeated real-Git fixtures exercise add. Guard boundary tests exercise list and reject repair, move, and removal. Graph shell never permits raw worktree commands. |
+| Trusted push | Removed `core.hooksPath=/dev/null` and `--no-verify`. Kept explicit user arming, confirmation, exact commit/ref, SSH restriction, and lease checks. | Six push tests pass. The runtime test uses a safe transport stub, rejects unarmed reuse and inherited executable config, and asserts that hooks are not disabled. |
+| Installation | Removed hook disabling from submodule commands. The managed-copy and extension-link mechanisms remain. | Guard installation tests verify managed updates and refusal to overwrite user policy. The graph link fixture preserves legacy records and exposes only the new implementation. |
+
+The Git guard remains shared with ordinary non-graph workflows. It is not a replacement for Pi's permission parser or an operating-system sandbox.
+Repository scripts and hooks remain trusted executable code. No test claims to contain a hostile script with workflow checks alone.
+
+## Installed and live verification
+
+The installed graph extension, push extension, and `AGENTS.md` links resolve to this checkout.
+The disposable installation fixture also verifies the real installer link function.
+Guard-only installation passes in a disposable HOME, including managed-copy integrity and user-policy preservation.
+No live installation or reload occurred.
+
+**Installed permission integration remains blocked, not passed.**
+A runtime denial stopped the attempted inspection of these paths:
+
+```text
+/Users/hendrik/.pi/agent/npm/node_modules/@gotgenes/pi-permission-system
+/Users/hendrik/.local/bin/git
+```
+
+The pinned permission-system version is `20.7.3`.
+The installed parser's full command/path handling and new tool routing were not inspected through another tool after that denial.
+The generated-policy tests and simulated hook routing do not replace that inspection.
+A separate syntax-check command also received a hard denial for `bash -n` under the `bash *` rule.
+No alternate executable or subprocess was used to repeat that denied syntax check.
+
+**Live Orca end-to-end verification remains not run.**
+Read-only `orca status --json` reported version `1.4.194`, a reachable runtime, and a ready orchestration graph.
+The version-matched guide and task command help were inspected.
+No live Run, user worktree, terminal, or repository registration changed.
+The remaining gate is the new extension's complete flow through installed permissions and an isolated live Orca fixture.
+Default terminal behavior must also be verified before live workspace creation.
+
+The local record and Git tests prove deterministic behavior with Orca RPC doubles. They do not prove live readiness.
+Read-only installed-parser inspection needs a policy that permits that operation. This session did not change its runtime policy.
+Neither `/reload` nor restarting an unchanged launcher grants a denied operation.
+
+## Launcher Environment Correction
+
+A targeted inspection found exactly two inherited entries: `credential.interactive=false` and `credential.guiPrompt=false`.
+The launcher now removes only that exact pair after it verifies the managed guard and its fixed credential arguments.
+All other Git overrides remain subject to guard rejection. This corrects the inherited environment at launcher entry, not only inside fixtures.
+The upstream process that originally adds the pair remains unidentified.
+
+The Pi invocation now uses separate lines for environment assignments. A shell fixture verifies distinct scratch and agent paths, including spaces.
+Five focused tests passed, including rejection of unsafe overrides and an older guard without fixed credential arguments.
+The narrow installer fixture also verifies managed backups, integrity markers, and refusal to overwrite user edits.
+The fixture remains at `/Users/hendrik/Code/.agent-toolkit-scratch/launcher-git-env-P9HrhI`.
+
+No live installation occurred. Git status and diff remained blocked in the current session. The source correction does not change this session.
+After maintainer review, run this command in a trusted human shell:
+
+```sh
+cd /Users/hendrik/Code/wewereyoung/agent-toolkit
+./install.sh --pi-launcher-only
+```
+
+This mode updates only the managed Pi launcher and Git guard. It does not install packages, change persistent permissions, or install PostgreSQL helpers.
+Start a fresh Pi session after installation. Verify guarded Git status there before other work.
+If the parent runtime injects configuration again after launcher startup, that later injection requires a separate correction.
+
+## Installed Parser Follow-Up
+
+Ordinary guarded `git status --short` and `git diff` now succeed in the live session.
+The resolved Git executable is `/Users/hendrik/.local/libexec/agent-toolkit/git`.
+`GIT_CONFIG_COUNT` is unset. No Git variable was removed for these commands.
+The scratch root and session Pi directory are distinct existing directories. The scratch root is not a symlink.
+The exact installed launcher and guard contents remain unverified because native reads were denied for both installed paths.
+The successful Git commands do not prove that the maintainer ran the narrow installer.
+
+Read-only inspection of installed permission-system `20.7.3` now succeeds.
+The inspection covered command enumeration, shell routing, path normalization, rule matching, the gate pipeline, and the public permission service.
+Command rules use raw shell text and last-match-wins order. The parser checks chains and substitutions but does not descend into control-flow bodies.
+The public service has no scoped directory-grant operation.
+Native `bash` routing also ignores the graph tool's `repository` argument when it resolves relative paths.
+That path-resolution mismatch still needs a graph integration correction and focused coverage.
+
+The source policy now removes blanket `~/Code` access. Native CWD access and private scratch access remain available.
+The `~/orca/workspaces` allowance remains an explicit exception, not proof of access limited to approved workspaces.
+Further narrowing must preserve graph access without modifying live permissions or relying on an unsupported grant API.
+
+The source shell policy now denies unmatched commands. Explicit repository runners and inspection commands remain available.
+Only listed GitHub read commands are allowed. API calls, GraphQL, aliases, extensions, global selectors, and mutation verbs are denied.
+Default denial also rejects quoted executables and opaque compound statements that evade simple command-name rules.
+Existing deletion and override rules follow the general allows. GitHub rules replace earlier matching grants in the correct order.
+Repository scripts and interpreters remain trusted executable code. This policy does not contain arbitrary programs or direct network clients.
+These changes affect future generated policies only. No live policy change or installation occurred.
+
+Focused checks passed:
+
+```sh
+node shared/agent-safety/installed-permission.check.cjs
+node --test shared/agent-safety/launcher-git-environment.test.cjs shared/agent-safety/pi-runtime-policy.test.cjs
+git diff --check
+```
+
+The first check loads the installed parser and matcher against a scratch-generated policy. It does not run GitHub commands or load live permissions.
+It covers read commands, mutation routes, quoting, nesting, wrappers, rule order, external repositories, scratch paths, and symlink escapes.
+The other two focused tests passed. These results do not prove activation of the new policy.
+
+Live Orca `1.4.194` preflight used a new remote-free scratch repository, not an existing user repository.
+The fixture foundation is `95cdbdc5961a4cb6d6bd582606f62db9f3e990cc`.
+Orca registered the fixture as `85af0348-53fc-4bd6-af3b-1a18fe9de0a6`.
+A separate terminal-preflight worktree used `--setup skip` and produced one terminal with a shell prompt.
+Native read access to its `check.cjs` succeeded. The fixture, worktree, and terminal remain available.
+No agent or Run started. Full graph approval, planning, separate execution, interruption, resume, and closeout remain unverified.
+The receipt records the exact identities and proposed next task:
+
+```text
+/Users/hendrik/Code/.agent-toolkit-scratch/live-graph-permissions.2efhOS-receipt.json
+```
+
+The next interactive command is:
+
+```text
+/graph plan isolated-permission-verification-2efhOS
+```
+
+A separate directory listing received a hard permission denial for this path:
+
+```text
+/Users/hendrik/.local/share/fnm/node-versions/v24.18.0/installation/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/jiti
+```
+
+No alternate tool repeated that access. The parser check uses Node's TypeScript transformation instead of Jiti.
+
+## macOS Launcher Syntax Regression
+
+The policy heredoc contained an unmatched apostrophe in a JavaScript comment. Bash 3.2 can misparse quotes inside command-substitution heredocs.
+The comment now avoids the apostrophe. A source regression rejects this exact failure pattern.
+The installer now runs system Bash syntax checks on the complete installer, launcher, and Git guard before installation side effects.
+Four focused source and policy checks passed. These checks do not execute the system Bash parser.
+The existing runtime rule denies that syntax command, so this session did not run it through another tool or subprocess.
+The trusted human installer must pass the full syntax gate before it can replace the installed files.
+Earlier extracted-section fixtures did not establish complete-launcher syntax compatibility.
+
+## Activation
+
+The extension links already point here. For the narrow guard update, run this from a trusted human shell:
+
+```sh
+cd /Users/hendrik/Code/wewereyoung/agent-toolkit
+./install.sh --git-guard-only
+```
+
+Then restart `pi-yolo` to verify the managed guard and load the new extension interfaces.
+`/reload` can reload the linked graph and push code, but it does not regenerate launcher permissions.
+If the installation links are absent on another machine, use the full `./install.sh` procedure instead.
+The full installer can initialize submodules and install pinned packages. It was not run against the live installation here.
+
+New commands:
+
+```text
+/graph plan <objective-or-plan-path>
+/graph execute <objective-or-plan-path>
+```
+
+Repeat the exact command to resume the same approved record. Do not use a legacy Run ID as execution authority.
+Activation instructions do not resolve the remaining installed-permission or live-verification gates.
