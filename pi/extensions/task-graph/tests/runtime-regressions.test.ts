@@ -59,6 +59,7 @@ function fixture() {
   } else if (op === "orchestration run-list") result = { runs }
   else if (op === "orchestration run-create") { const run = { id: "run_fixture", objective: value("--objective") }; runs.push(run); result = { run } }
   else if (op === "orchestration run-show") result = { run: runs.find(run => run.id === value("--id")) }
+  else if (op === "orchestration run-use") result = { run: runs.find(run => run.id === value("--id")) }
   else if (op === "orchestration task-list") result = { tasks }
   else if (op === "orchestration task-create") { const task = { id: `task_${tasks.length}`, run_id: value("--run"), spec: value("--spec"), deps: value("--deps"), status: "ready", parent_id: null }; tasks.push(task); result = { task } }
   else if (op === "orchestration task-update") { const task = tasks.find(task => task.id === value("--id")); task.status = value("--status"); result = { task } }
@@ -122,6 +123,7 @@ test("an active graph resumes across the final-validation prompt upgrade", async
  const resumed = f.runtime(f.source)
  try {
   await resumed.command(`execute ${f.plan.objective}`)
+  assert.ok(f.calls.some(call => call.slice(0, 2).join(" ") === "orchestration run-use" && call.includes("run_fixture")))
   await resumed.call("prepare_task_graph_workspace")
   const worker = (await resumed.call("start_task_graph_task", { task_id: "a" })).details.worker
   assert.equal(worker.ledgerTask, f.tasks.find(task => task.spec.includes(":a]"))?.id)

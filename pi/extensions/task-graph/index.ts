@@ -220,6 +220,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
     const path = join(directory, entry), saved = readGraphAdmission(path, [repositoryIdentity(root)], root)
     if (saved && !saved.completion && saved.root === root && saved.plan.mode === mode && saved.plan.objective === objective) {
      assertNoLegacyGraph(agentDir(), saved.repositories.map(repo => repo.identity)); release = acquireLease(path); file = path; record = saved
+     if (saved.runId) orcaJson(["orchestration", "run-use", "--id", saved.runId, "--json"])
      pi.sendUserMessage(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...saved, repositories: saved.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`); return
     }
    }
