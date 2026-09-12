@@ -61,7 +61,7 @@ export function owns(owners: string[], path: string): boolean {
  return owners.some(owner => path === owner || path.startsWith(`${owner}/`))
 }
 export function assertGraphMode(mode: TaskGraphPlan["mode"], path: string): void {
- if (mode === "plan-only" && (!path.startsWith("docs/") || !path.endsWith(".md") || path.toLowerCase().startsWith("docs/exec-plans/"))) throw new Error("Planning-only writes require Markdown under docs/, outside docs/exec-plans/. No implementation or promotion.")
+ if (mode === "plan-only" && (!path.startsWith("docs/") || !path.endsWith(".md") || path.toLowerCase().startsWith("docs/exec-plans/"))) throw new Error(`Planning-only ownership "${path}" must be a Markdown file under docs/, outside docs/exec-plans/. Put future implementation ownership in the planning document, not task owns.`)
 }
 // This validates the evidence contract, not a second command language. The
 // native parser and operation policy authorize every execution separately.
@@ -82,7 +82,7 @@ export function validateTaskGraph(plan: TaskGraphPlan, root: string): void {
   if (repositoryRoot(source) !== source || source !== resolve(root, task.repository)) throw new Error("Select an exact physical Git repository root, without a symlink alias.")
   for (const path of task.owns) {
    literalPath(path)
-   if (plan.mode === "plan-only" && !(path === "docs" || path.startsWith("docs/")) || plan.mode === "plan-only" && path.toLowerCase().startsWith("docs/exec-plans")) throw new Error("Planning-only ownership must stay in documentation outside the execution lifecycle.")
+   assertGraphMode(plan.mode, path)
   }
   if (task.owns.length) assertGraphShell(task.validation)
   else if (!/^manual: \S[\s\S]*$/.test(task.validation)) throw new Error("Read-only tasks require explicit validation: manual: <inspection criteria>. Script checks require a writing workspace.")
@@ -165,9 +165,10 @@ Independent ready tasks run through pi-yolo workers at medium thinking. Writing 
 Propose one to twelve tasks with literal owned paths, completion criteria, and exact setup and validation commands. Include every required closeout lane in validation. Resolve the full unfinished plan dependency chain, with priority then Plan-ID ordering. Stop on missing, duplicate, draft, blocked or unapproved execution plans. Never invent external approval.
 Read-only tasks require validation written as manual: <inspection criteria>, no setup, and inspection evidence at completion. They never claim a script ran. Without a snapshot or writing workspace, their foundation must equal source HEAD.
 Select one explicit source path and full foundation commit per repository. Execution starts from the selected retained planning commits or another explicitly selected foundation, never guessed historical workspaces. Include only exact necessary dirty inputs. Capture is not write ownership.
-Planning permits only Markdown under docs/, outside docs/exec-plans/. Planning ends without implementation. Execution requires a separate /graph execute command and approval.
+For plan-only graphs, every nonempty owns entry must be a Markdown planning file under docs/, outside docs/exec-plans/. Put future implementation paths and serial ownership in that document, not in task owns. Read-only repositories use owns: []. Planning ends without implementation. Execution requires a separate /graph execute command and approval.
 Declare a worktree budget. It includes integration workspaces and reusable writing lanes. After approval, call prepare_task_graph_workspace, then start any dependency-ready tasks up to the budget. The graph launches pi-yolo workers with the current model, records dispatches before retries, and reuses only clean integrated lanes. Workers run declared setup and validation and use checkpoint_task_graph with hooks enabled. Complete settled tasks to integrate their commits and validate the combined checkout before starting dependents.
 Before completing an execution plan, satisfy every must-land item, validation lane, review rule, approval gate, Done-Evidence, evidence index and plan-closeout check. Promote only the current eligible plan. Do not promote later plans early or close dependent future plans. Leave publication-dependent plans active in validation and report local-ready, never shipped.
+At plan-only closeout, return one exact copy-ready /graph execute <objective> command for the next eligible execution graph. Write a concise objective from the completed plan; the user must not reconstruct it from task details. If a later graph depends on execution results, return its start condition instead of speculative foundations.
 Finish only after every task and required closeout passes. Always retain source and integration worktrees. Retain dirty, interrupted, and conflicted lanes. Approval covers task records, worker launches, declared setup, diagnostics, validation, retries, task progression, bounded resources, internal integration, and verified clean-lane removal at closeout. It never covers unrelated cleanup, secrets, publishing, production administration, or merge-back to source branches.
 On interruption, repeat this exact /graph command. Resume its record and snapshots, never recapture changed inputs. Legacy Runs are unsupported evidence and require separate retirement authorization.`
 }

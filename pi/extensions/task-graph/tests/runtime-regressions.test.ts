@@ -163,6 +163,37 @@ test("one approval runs concurrent workers, reuses bounded lanes, and delivers p
  } finally { coordinator.stop() }
 })
 
+test("a completed worker missing final-checkpoint validation is redispatched", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [f.plan.tasks[0]]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"
+  const previous = process.cwd(); process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "a\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "a" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  const firstDispatch = worker.dispatch
+  f.dispatches.find(item => item.id === firstDispatch).status = "completed"
+  f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+  await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "missing final validation" }), /final checkpoint/)
+  const retried = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  assert.notEqual(retried.dispatch, firstDispatch)
+  assert.equal(retried.workspace, worker.workspace)
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(retried.workspace)
+  try { await f.runtime(retried.workspace).call("bash", { repository: retried.workspace, command: "node check.cjs" }) }
+  finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === retried.dispatch).status = "completed"
+  f.tasks.find(task => task.id === retried.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated after checkpoint" })
+ } finally { coordinator.stop() }
+})
+
 test("lost lane creation receipts reconcile without another worktree", async () => {
  const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [f.plan.tasks[0]]
  const coordinator = f.runtime(f.source)

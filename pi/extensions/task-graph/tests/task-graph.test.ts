@@ -11,7 +11,7 @@ test("literal ownership and planning boundary", () => {
  for (const path of ["src/file.ts", "docs/future/plan.md", ".env.example"]) assert.doesNotThrow(() => literalPath(path))
  for (const path of [".", "../secret", "/etc/file", "src/../file", "src//file", "src/*.ts", "src/[file]", ".git/config", "docs/.git/config", ".env", ".env.local", "key.pem", "secret.key", ".netrc", "foo\0bar"]) assert.throws(() => literalPath(path), /literal/)
  assert.doesNotThrow(() => assertGraphMode("plan-only", "docs/future/plan.md"))
- for (const path of ["src/code.ts", "docs/code.ts", "docs/exec-plans/active/plan.md", "docs/EXEC-PLANS/active/plan.md", "docs/exec-plans/completed/plan.md"]) assert.throws(() => assertGraphMode("plan-only", path), /Planning-only/)
+ for (const path of ["src/code.ts", "docs/code.ts", "docs/exec-plans/active/plan.md", "docs/EXEC-PLANS/active/plan.md", "docs/exec-plans/completed/plan.md"]) assert.throws(() => assertGraphMode("plan-only", path), error => String(error).includes(`Planning-only ownership "${path}"`) && String(error).includes("not task owns"))
 })
 test("graph declaration shape does not introduce another shell language", () => {
  for (const command of [
@@ -64,6 +64,6 @@ test("coordinator lease excludes live writers and resumes an exited process with
 })
 test("one prompt states the bounded lane and approval contract", () => {
  const prompt = taskGraphPrompt("Build search", "plan-only")
- for (const rule of [/separate \/graph execute/, /pi-yolo workers/, /worktree budget/, /reusable lanes/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /internal integration/]) assert.match(prompt, rule)
+ for (const rule of [/separate \/graph execute/, /pi-yolo workers/, /worktree budget/, /reusable lanes/, /future implementation paths and serial ownership/, /Read-only repositories use owns: \[\]/, /one exact copy-ready \/graph execute <objective> command/, /user must not reconstruct it from task details/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /internal integration/]) assert.match(prompt, rule)
  assert.doesNotMatch(prompt, /per-task worktree|current_checkout|worker-start/)
 })

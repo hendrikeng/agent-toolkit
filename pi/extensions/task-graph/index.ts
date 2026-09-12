@@ -16,7 +16,7 @@ const object = <T extends TProperties>(properties: T) => Type.Object(properties,
 const resourceSchema = object({ id: string(), type: StringEnum(["postgres", "storage", "scanner"] as const), image: string(), purpose: string(), memoryMiB: Type.Integer(), storageMiB: Type.Integer(), lifetimeSeconds: Type.Integer(), reset: Type.Optional(string()), targets: Type.Optional(Type.Array(string())), database: Type.Optional(string()), downloads: Type.Optional(Type.Array(string())) })
 const resourceHelper = () => createRequire(import.meta.url)(join(process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE!, "local-resources.cjs"))
 const foundationSchema = object({ repository: string(), commit: Type.String({ pattern: "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }) })
-const taskDeclarationSchema = object({ id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }), goal: string(), repository: string(), depends_on: Type.Array(string()), owns: Type.Array(string()), done_when: Type.Array(string(), { minItems: 1 }), validation: string(), setup: Type.Optional(string()) })
+const taskDeclarationSchema = object({ id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]*$" }), goal: string(), repository: string(), depends_on: Type.Array(string()), owns: Type.Array(string(), { description: "Repository-relative paths this task writes. In plan-only mode, use only Markdown planning files under docs/, never future implementation paths or docs/exec-plans/. Use [] for read-only repositories." }), done_when: Type.Array(string(), { minItems: 1 }), validation: string(), setup: Type.Optional(string()) })
 const inputSchema = object({ repository: string(), paths: Type.Array(string(), { maxItems: 100 }) })
 const graphSchema = object({
  objective: string(), mode: StringEnum(["plan-only", "execute"] as const), worktree_budget: Type.Integer({ minimum: 1, maximum: 12 }), resources: Type.Optional(Type.Array(resourceSchema, { maxItems: 4 })),
@@ -52,7 +52,7 @@ function inventory(orca: Orca, args: string[], field: string): any[] {
 }
 function marker(record: GraphRecord, id: string): string { return `[graph-v4:${record.key}:${id}]` }
 function taskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number]): string {
- return `${marker(record, task.id)}\n${task.goal}\nOwn only: ${task.owns.join(", ") || "read-only"}.\nDone when:\n${task.done_when.map(item => `- ${item}`).join("\n")}\n${task.setup ? `Setup: ${task.setup}\n` : ""}Validation: ${task.validation}\nUse checkpoint_task_graph for commits. Do not publish, delete worktrees, or modify unrelated paths.`
+ return `${marker(record, task.id)}\n${task.goal}\nOwn only: ${task.owns.join(", ") || "read-only"}.\nDone when:\n${task.done_when.map(item => `- ${item}`).join("\n")}\n${task.setup ? `Setup: ${task.setup}\n` : ""}Validation: ${task.validation}\nCheckpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count. Do not publish, delete worktrees, or modify unrelated paths.`
 }
 export function prepareLedger(record: GraphRecord, orca: Orca, persist: () => void): void {
  const objective = `Pi graph v4: ${record.key}: ${record.plan.objective}`
@@ -274,6 +274,14 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    if (terminalInventory(orcaJson).some(item => item.handle === worker!.terminal)) orcaJson(["terminal", "close", "--terminal", worker.terminal!, "--json"])
    worker.base = graphGit(worker.workspace, "rev-parse", "HEAD"); worker.attempt++; worker.dispatch = undefined; worker.terminal = undefined; worker.launch = undefined
    orcaJson(["orchestration", "task-update", "--id", ledger.id, "--status", "ready", "--run", state.runId, "--json"]); persist(); dispatch = undefined
+  }
+  if (worker && task.owns.length && dispatch?.status === "completed" && !worker.repair) {
+   const repo = state.repositories.find(repo => repo.source === worker!.source)!, lane = state.lanes.find(lane => lane.id === worker!.lane)!, head = verifyGraphWorkspace(repo, lane.workspace), receipt = readReceipt(file!, task.id)
+   if (head === worker.base || receipt.validated !== head || receipt.validation !== task.validation) {
+    if (terminalInventory(orcaJson).some(item => item.handle === worker!.terminal)) orcaJson(["terminal", "close", "--terminal", worker.terminal!, "--json"])
+    worker.attempt++; worker.dispatch = undefined; worker.terminal = undefined; worker.launch = undefined
+    orcaJson(["orchestration", "task-update", "--id", ledger.id, "--status", "ready", "--run", state.runId, "--result", JSON.stringify({ retry: head === worker.base ? "checkpoint-required" : "final-validation-required" }), "--json"]); persist(); dispatch = undefined
+   }
   }
   if (worker && dispatch && ["pending", "running", "dispatched", "completed"].includes(dispatch.status) && !(worker.repair && dispatch.status === "completed")) { worker.dispatch ??= dispatch.id; persist(); return text({ status: dispatch.status, worker }) }
   if (worker?.repair && dispatch?.status === "completed") {
