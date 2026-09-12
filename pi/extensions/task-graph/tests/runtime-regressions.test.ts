@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -355,6 +355,9 @@ test("an unrelated read-only worker does not block integration", async () => {
    const child = f.runtime(reader.workspace)
    await assert.rejects(child.call("bash", { repository: reader.workspace, command: "git status --short" }), /checkout advanced/)
    await assert.rejects(child.call("bash", { repository: reader.workspace, command: "./orca orchestration send --message bypass" }), /checkout advanced/)
+   const fake = join(reader.workspace, "orca"), path = process.env.PATH; writeFileSync(fake, "#!/bin/sh\nexit 0\n"); chmodSync(fake, 0o755); process.env.PATH = `${reader.workspace}:${path}`
+   try { await assert.rejects(child.call("bash", { repository: reader.workspace, command: "orca orchestration send --message bypass" }), /checkout advanced/) }
+   finally { process.env.PATH = path; unlinkSync(fake) }
    await child.call("bash", { repository: reader.workspace, command: "orca orchestration send --message 'restart needed'" })
   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
   f.dispatches.find(item => item.id === reader.dispatch).status = "completed"
