@@ -44,7 +44,7 @@ After successful installation, exit the old Pi session. Start a fresh session fr
 pi-yolo
 ```
 
-`pi-yolo` defaults to `openai-codex/gpt-5.6-sol` with medium thinking. Explicit `--model` and `--thinking` options override those defaults.
+`pi-yolo` defaults to `openai-codex/gpt-5.6-sol` with high thinking. Explicit `--model` and `--thinking` options override these defaults.
 Source changes and `/reload` do not update installed permissions.
 The message `repository execution requires trust` identifies the old runtime. Repository-trust approval is not the migration procedure.
 `./install.sh` is the only installation mode and updates the installed toolkit after its preflight checks pass.

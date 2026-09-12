@@ -342,7 +342,7 @@ NODE
     done
     pi_args=()
     [[ $has_model == true ]] || pi_args+=(--model openai-codex/gpt-5.6-sol)
-    [[ $has_thinking == true ]] || pi_args+=(--thinking medium)
+    [[ $has_thinking == true ]] || pi_args+=(--thinking high)
     pi_args+=("$@")
     PATH=$PATH \
       AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile \

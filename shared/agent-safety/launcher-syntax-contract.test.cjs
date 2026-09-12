@@ -33,12 +33,12 @@ test('installer defaults to one no-argument installation', () => {
  assert.equal(run(['--unknown']).status, 2)
 })
 
-test('pi-yolo defaults to Sol at medium thinking while preserving explicit overrides', () => {
+test('pi-yolo defaults to Sol at high thinking while preserving explicit overrides', () => {
  const block = launcher.slice(launcher.indexOf('    has_model=false'), launcher.indexOf('    PATH=$PATH', launcher.indexOf('    has_model=false')))
  const args = values => spawnSync('/bin/bash', ['-uc', `${block}\nprintf '%s\\n' "\${pi_args[@]}"`, 'launcher-test', ...values], { encoding: 'utf8' })
  const defaults = args([])
  assert.equal(defaults.status, 0, defaults.stderr)
- assert.deepEqual(defaults.stdout.trim().split('\n'), ['--model', 'openai-codex/gpt-5.6-sol', '--thinking', 'medium'])
+ assert.deepEqual(defaults.stdout.trim().split('\n'), ['--model', 'openai-codex/gpt-5.6-sol', '--thinking', 'high'])
  const explicit = args(['--model', 'google/gemini', '--thinking', 'high'])
  assert.equal(explicit.status, 0, explicit.stderr)
  assert.deepEqual(explicit.stdout.trim().split('\n'), ['--model', 'google/gemini', '--thinking', 'high'])
