@@ -69,7 +69,14 @@ function fixture() {
    const terminal = { handle: `terminal_${calls.filter(call => call.slice(0, 2).join(" ") === "terminal create").length}`, title: value("--title"), worktreePath: path, command: value("--command") }
    terminals.push(terminal); result = { terminal }
   } else if (op === "terminal close") { if (globals.graphTerminalCloseFailure) throw new Error("terminal close failed"); const index = terminals.findIndex(item => item.handle === value("--terminal")); if (index >= 0) terminals.splice(index, 1); result = {} }
-  else if (op === "orchestration dispatch") { const dispatch = { id: `dispatch_${dispatches.length}`, task_id: value("--task"), run_id: value("--run"), assignee_handle: value("--to"), status: "running" }; dispatches.push(dispatch); tasks.find(task => task.id === dispatch.task_id).status = "dispatched"; result = { dispatch } }
+  else if (op === "terminal wait") {
+   const satisfied = !globals.graphTerminalNotReady; delete globals.graphTerminalNotReady
+   result = { wait: { handle: value("--terminal"), condition: "tui-idle", satisfied } }
+  }
+  else if (op === "orchestration dispatch") {
+   if (globals.graphDispatchFailures > 0) { globals.graphDispatchFailures--; throw new Error("dispatch failed") }
+   const dispatch = { id: `dispatch_${dispatches.length}`, task_id: value("--task"), run_id: value("--run"), assignee_handle: value("--to"), status: "running" }; dispatches.push(dispatch); tasks.find(task => task.id === dispatch.task_id).status = "dispatched"; result = { dispatch }
+  }
   else if (op === "orchestration dispatch-show") result = { dispatch: dispatches.findLast(item => item.task_id === value("--task")) }
   else throw new Error(`Unexpected Orca RPC: ${op}`)
   return { ok: true, result }
@@ -99,7 +106,7 @@ function fixture() {
   { id: "b", goal: "write b", repository: source, depends_on: [], owns: ["b.txt"], done_when: ["validated"], validation: "node check.cjs" },
   { id: "c", goal: "write c", repository: source, depends_on: ["a", "b"], owns: ["c.txt"], done_when: ["validated"], validation: "node check.cjs" },
  ] }
- return { root, agent: globals.agentDir, source, dependency, base, dependencyBase: graphGit(dependency, "rev-parse", "HEAD"), plan, tasks, worktrees, terminals, dispatches, calls, integrationValidations, loseNextWorktreeReceipt: () => { loseWorktreeReceipt = true }, runtime }
+ return { root, agent: globals.agentDir, source, dependency, base, dependencyBase: graphGit(dependency, "rev-parse", "HEAD"), plan, tasks, worktrees, terminals, dispatches, calls, integrationValidations, loseNextWorktreeReceipt: () => { loseWorktreeReceipt = true }, failNextTerminalWait: () => { globals.graphTerminalNotReady = true }, failNextDispatch: () => { globals.graphDispatchFailures = 1 }, runtime }
 }
 
 test("graph commands preserve multiline objectives without a model round trip", async () => {
@@ -148,6 +155,10 @@ test("one approval runs concurrent workers, reuses bounded lanes, and delivers p
   assert.ok(f.worktrees.some(item => item.displayName.endsWith(" · a"))); assert.ok(f.worktrees.some(item => item.displayName.endsWith(" · b")))
   assert.equal(f.calls.filter(call => call.slice(0, 2).join(" ") === "terminal create").length, 2)
   for (const terminal of f.terminals) assert.match(terminal.command, /pi-yolo --model 'test\/model' --thinking medium/)
+  for (const dispatch of f.calls.filter(call => call.slice(0, 2).join(" ") === "orchestration dispatch")) {
+   const dispatchIndex = f.calls.indexOf(dispatch), terminal = dispatch[dispatch.indexOf("--to") + 1]
+   assert.ok(f.calls.slice(0, dispatchIndex).some(call => call.slice(0, 2).join(" ") === "terminal wait" && call.includes(terminal)))
+  }
   await assert.rejects(coordinator.call("start_task_graph_task", { task_id: "c" }), /dependencies/)
   for (const [id, worker, path] of [["a", a, "a.txt"], ["b", b, "b.txt"]] as const) {
    process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = id
@@ -202,7 +213,14 @@ test("a completed worker missing final-checkpoint validation is redispatched", a
   f.dispatches.find(item => item.id === firstDispatch).status = "completed"
   f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
   await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "missing final validation" }), /final checkpoint/)
+  f.failNextTerminalWait()
+  await assert.rejects(coordinator.call("start_task_graph_task", { task_id: "a" }), /not ready/)
+  const retainedTerminal = JSON.parse(readFileSync(approval.record, "utf8")).workers.a.terminal
+  f.failNextDispatch()
+  await assert.rejects(coordinator.call("start_task_graph_task", { task_id: "a" }), /dispatch failed/)
   const retried = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  assert.equal(retried.terminal, retainedTerminal)
+  assert.equal(f.calls.filter(call => call.slice(0, 2).join(" ") === "terminal create").length, 2)
   assert.notEqual(retried.dispatch, firstDispatch)
   assert.equal(retried.workspace, worker.workspace)
   process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(retried.workspace)

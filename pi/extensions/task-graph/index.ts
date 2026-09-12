@@ -46,7 +46,13 @@ function trustedOrcaReportExecutables(): Set<string> {
  return orcaReportExecutables
 }
 export function orcaJson(args: string[]): any {
- const response = JSON.parse(execFileSync(trustedOrcaExecutable(), args, { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }))
+ let output: string
+ try { output = execFileSync(trustedOrcaExecutable(), args, { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }) }
+ catch (error: any) {
+  try { throw new Error(JSON.parse(error.stdout)?.error?.message ?? "Orca failed; preserve the graph and inspect the error.") }
+  catch (parsed) { if (parsed instanceof SyntaxError) throw error; throw parsed }
+ }
+ const response = JSON.parse(output)
  if (response?.ok !== true) throw new Error(response?.error?.message ?? "Orca failed; preserve the graph and inspect the error.")
  return response
 }
@@ -280,6 +286,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   }
   let dispatch: any
   try { dispatch = orcaJson(["orchestration", "dispatch-show", "--task", ledger.id, "--json"])?.result?.dispatch } catch {}
+  if (worker && !worker.dispatch && ledger.status === "ready" && dispatch?.status === "completed") dispatch = undefined
   if (worker && !task.owns.length && dispatch?.status === "completed" && graphGit(worker.workspace, "rev-parse", "HEAD") !== worker.base) {
    if (terminalInventory(orcaJson).some(item => item.handle === worker!.terminal)) orcaJson(["terminal", "close", "--terminal", worker.terminal!, "--json"])
    worker.base = graphGit(worker.workspace, "rev-parse", "HEAD"); worker.attempt++; worker.dispatch = undefined; worker.terminal = undefined; worker.launch = undefined
@@ -337,6 +344,8 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    if (!receipt?.handle || realpathSync(terminalPath(receipt)!) !== worker.workspace) throw new Error("Worker terminal receipt is missing or points at another workspace.")
    worker.terminal = receipt.handle; persist()
   }
+  const readiness = orcaJson(["terminal", "wait", "--terminal", worker.terminal, "--for", "tui-idle", "--timeout-ms", "20000", "--json"])?.result?.wait
+  if (readiness?.satisfied !== true) throw new Error("Worker terminal is not ready; retain it and retry this task.")
   const created = orcaJson(["orchestration", "dispatch", "--task", ledger.id, "--to", worker.terminal, "--run", state.runId, "--inject", "--json"])?.result?.dispatch
   if (!created?.id) throw new Error("Dispatch receipt missing; resume the task to reconcile it.")
   worker.dispatch = created.id; persist(); return text({ status: "dispatched", worker, worktrees_used: state.repositories.filter(repo => repo.workspace).length + state.lanes.filter(lane => !lane.cleanup).length })
