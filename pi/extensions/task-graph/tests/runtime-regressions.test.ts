@@ -16,7 +16,7 @@ const hooks = registerHooks({ resolve(specifier, context, next) {
   "@earendil-works/pi-ai": "export const StringEnum=()=>({});",
   typebox: "export const Type=new Proxy({}, {get:()=>()=>({})});",
   "node:child_process": "export const execFileSync=(_binary,args)=>JSON.stringify(globalThis.orcaRpc(args));",
-  "../development-access/index.ts": "export const inspectShell=async(command,cwd)=>({command,cwd,inspection:command.startsWith('git ')||command.startsWith('cross-check '),effects:command.includes('>'),gitMutation:/^git (?:add|commit|merge)/.test(command),commands:[command.startsWith('orca ')?['orca','orchestration','send']:['node','check.cjs']],paths:command.startsWith('cross-')?[command.slice(command.indexOf(' ')+1)]:[],candidates:[],directories:[]}); export const runBash=async(_id,params,_signal,_update,cwd,env)=>{globalThis.graphBashRuns.push({command:params.command,cwd,env}); if(globalThis.graphBashFailure) throw new Error(globalThis.graphBashFailure); return {content:[]}};",
+  "../development-access/index.ts": "export const inspectShell=async(command,cwd)=>({command,cwd,inspection:command.startsWith('git ')||command.startsWith('cross-check '),effects:command.includes('>'),gitMutation:/^git (?:add|commit|merge)/.test(command),commands:[command.startsWith('orca ')?['orca','orchestration','send']:command.startsWith('./orca ')?['./orca','orchestration','send']:['node','check.cjs']],paths:command.startsWith('cross-')?[command.slice(command.indexOf(' ')+1)]:[],candidates:[],directories:[]}); export const runBash=async(_id,params,_signal,_update,cwd,env)=>{globalThis.graphBashRuns.push({command:params.command,cwd,env}); if(globalThis.graphBashFailure) throw new Error(globalThis.graphBashFailure); return {content:[]}};",
  }
  return modules[specifier] ? { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true } : next(specifier, context)
 } })
@@ -354,6 +354,7 @@ test("an unrelated read-only worker does not block integration", async () => {
   try {
    const child = f.runtime(reader.workspace)
    await assert.rejects(child.call("bash", { repository: reader.workspace, command: "git status --short" }), /checkout advanced/)
+   await assert.rejects(child.call("bash", { repository: reader.workspace, command: "./orca orchestration send --message bypass" }), /checkout advanced/)
    await child.call("bash", { repository: reader.workspace, command: "orca orchestration send --message 'restart needed'" })
   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
   f.dispatches.find(item => item.id === reader.dispatch).status = "completed"

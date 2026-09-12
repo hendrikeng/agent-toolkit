@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from "node:fs"
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { getAgentDir, truncateHead, withFileMutationQueue, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -25,9 +25,9 @@ const graphSchema = object({
 const taskSchema = object({ task_id: string() })
 const POLICY_VERSION = "development-roots-v1"
 
+function orcaBinary(): string { return process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : process.platform === "linux" ? "orca-ide" : "orca") }
 export function orcaJson(args: string[]): any {
- const binary = process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : process.platform === "linux" ? "orca-ide" : "orca")
- const response = JSON.parse(execFileSync(binary, args, { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }))
+ const response = JSON.parse(execFileSync(orcaBinary(), args, { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }))
  if (response?.ok !== true) throw new Error(response?.error?.message ?? "Orca failed; preserve the graph and inspect the error.")
  return response
 }
@@ -410,7 +410,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
       const head = item.repo.workspace ? verifyGraphWorkspace(item.repo) : graphGit(item.repo.source, "rev-parse", "HEAD")
       if (head !== worker.prerequisites[item.repo.source]) throw new Error("A used cross-repository prerequisite changed after worker launch.")
      }
-     const reporting = !facts.effects && facts.commands.every(args => basename(args[0]) === "orca" && args[1] === "orchestration" && ["send", "ask", "check"].includes(args[2]))
+     const reporting = !facts.effects && facts.commands.every(args => args[0] === orcaBinary() && args[1] === "orchestration" && ["send", "ask", "check"].includes(args[2]))
      if (!reporting) workerContext()
      if (usedForeign.length && !facts.inspection && !reporting) throw new Error("Cross-repository prerequisites are read-only.")
      if (facts.gitMutation || facts.integration) throw new Error("Graph workers commit through checkpoint_task_graph; shell Git mutations are not allowed.")
