@@ -110,6 +110,24 @@ test("graph commands preserve multiline objectives without a model round trip", 
  } finally { coordinator.stop() }
 })
 
+test("an active graph resumes across the final-validation prompt upgrade", async () => {
+ const f = fixture(), coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  await coordinator.call("propose_task_graph", f.plan)
+  await coordinator.call("prepare_task_graph_workspace")
+ } finally { coordinator.stop() }
+ const upgraded = "Checkpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count."
+ for (const task of f.tasks) task.spec = task.spec.replace(upgraded, "Use checkpoint_task_graph for commits.")
+ const resumed = f.runtime(f.source)
+ try {
+  await resumed.command(`execute ${f.plan.objective}`)
+  await resumed.call("prepare_task_graph_workspace")
+  const worker = (await resumed.call("start_task_graph_task", { task_id: "a" })).details.worker
+  assert.equal(worker.ledgerTask, f.tasks.find(task => task.spec.includes(":a]"))?.id)
+ } finally { resumed.stop() }
+})
+
 test("one approval runs concurrent workers, reuses bounded lanes, and delivers prerequisite commits", async () => {
  const f = fixture(), coordinator = f.runtime(f.source)
  try {

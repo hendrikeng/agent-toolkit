@@ -51,8 +51,12 @@ function inventory(orca: Orca, args: string[], field: string): any[] {
  return result[field]
 }
 function marker(record: GraphRecord, id: string): string { return `[graph-v4:${record.key}:${id}]` }
-function taskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number]): string {
- return `${marker(record, task.id)}\n${task.goal}\nOwn only: ${task.owns.join(", ") || "read-only"}.\nDone when:\n${task.done_when.map(item => `- ${item}`).join("\n")}\n${task.setup ? `Setup: ${task.setup}\n` : ""}Validation: ${task.validation}\nCheckpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count. Do not publish, delete worktrees, or modify unrelated paths.`
+function taskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number], legacy = false): string {
+ const finish = legacy ? "Use checkpoint_task_graph for commits." : "Checkpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count."
+ return `${marker(record, task.id)}\n${task.goal}\nOwn only: ${task.owns.join(", ") || "read-only"}.\nDone when:\n${task.done_when.map(item => `- ${item}`).join("\n")}\n${task.setup ? `Setup: ${task.setup}\n` : ""}Validation: ${task.validation}\n${finish} Do not publish, delete worktrees, or modify unrelated paths.`
+}
+function matchesTaskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number], spec: string): boolean {
+ return spec === taskSpec(record, task) || spec === taskSpec(record, task, true)
 }
 export function prepareLedger(record: GraphRecord, orca: Orca, persist: () => void): void {
  const objective = `Pi graph v4: ${record.key}: ${record.plan.objective}`
@@ -75,15 +79,15 @@ export function prepareLedger(record: GraphRecord, orca: Orca, persist: () => vo
  if (run?.id !== record.runId || run.objective !== objective) throw new Error("Run identity changed.")
  for (const declaration of record.plan.tasks) {
   const tasks = inventory(orca, ["orchestration", "task-list", "--run", record.runId!], "tasks")
-  if (tasks.some(entry => entry.parent_id != null || !record.plan.tasks.some(task => entry.spec === taskSpec(record, task)) || entry.run_id !== record.runId)) throw new Error("Run contains foreign or changed tasks.")
-  const matches = tasks.filter(entry => entry.spec === taskSpec(record, declaration))
+  if (tasks.some(entry => entry.parent_id != null || !record.plan.tasks.some(task => matchesTaskSpec(record, task, entry.spec)) || entry.run_id !== record.runId)) throw new Error("Run contains foreign or changed tasks.")
+  const matches = tasks.filter(entry => matchesTaskSpec(record, declaration, entry.spec))
   if (matches.length > 1) throw new Error("Duplicate task receipts.")
-  const dependencies = declaration.depends_on.map(id => tasks.find(entry => entry.spec === taskSpec(record, record.plan.tasks.find(task => task.id === id)!))?.id)
+  const dependencies = declaration.depends_on.map(id => { const dependency = record.plan.tasks.find(task => task.id === id)!; return tasks.find(entry => matchesTaskSpec(record, dependency, entry.spec))?.id })
   if (dependencies.some(id => !id)) throw new Error("Missing prerequisite ledger task.")
   if (!matches.length) { persist(); orca(["orchestration", "task-create", "--run", record.runId!, "--spec", taskSpec(record, declaration), "--deps", JSON.stringify(dependencies), "--json"]) }
  }
  for (const [id, evidence] of Object.entries(record.completed)) {
-  const task = inventory(orca, ["orchestration", "task-list", "--run", record.runId!], "tasks").find(entry => entry.spec === taskSpec(record, record.plan.tasks.find(task => task.id === id)!))
+  const declaration = record.plan.tasks.find(task => task.id === id)!, task = inventory(orca, ["orchestration", "task-list", "--run", record.runId!], "tasks").find(entry => matchesTaskSpec(record, declaration, entry.spec))
   if (task?.status !== "completed") orca(["orchestration", "task-update", "--id", task.id, "--status", "completed", "--run", record.runId!, "--result", JSON.stringify({ evidence: evidence.evidence, head: evidence.head }), "--json"])
  }
 }
@@ -260,7 +264,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   const state = bound(), task = state.plan.tasks.find(task => task.id === params.task_id)
   if (!task || state.completed[task.id] || task.depends_on.some(id => !state.completed[id])) throw new Error("Start an unfinished task only after all dependencies are integrated.")
   verify(taskSources(state, task)); if (!state.runId || !state.workerModel) throw new Error("Prepare the graph first.")
-  const tasks = inventory(orcaJson, ["orchestration", "task-list", "--run", state.runId], "tasks"), ledger = tasks.find(entry => entry.spec === taskSpec(state, task))
+  const tasks = inventory(orcaJson, ["orchestration", "task-list", "--run", state.runId], "tasks"), ledger = tasks.find(entry => matchesTaskSpec(state, task, entry.spec))
   if (!ledger) throw new Error("Approved ledger task is missing.")
   let worker = state.workers[task.id]
   if (worker?.launch && !worker.terminal) {
