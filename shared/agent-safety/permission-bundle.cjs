@@ -30,7 +30,7 @@ function verifyBundle(root) {
  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'))
  assert.equal(manifest.version, POLICY_VERSION, 'Installation version mismatch; reviewed installation required')
  assert.equal(manifest.permissionPackage, '20.7.3')
- assert.equal(manifest.graphVersion, 3)
+ assert.equal(manifest.graphVersion, 4)
  assert.match(manifest.piVersion, /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/)
  for (const file of ['dispatch', 'pi-yolo', 'git', 'policy.json', 'development-policy.cjs', 'local-resources.cjs', 'extensions/development-access/index.ts', 'extensions/task-graph/index.ts']) assert.ok(manifest.files?.[file]?.hash, `Missing bundle component: ${file}`)
  assert.deepEqual(inventory(root), manifest.files, 'Installation bytes differ; do not repair a running session')
@@ -39,8 +39,7 @@ function verifyBundle(root) {
  assert.deepEqual(developmentRoots(process.env.HOME), manifest.roots, 'Accepted development roots changed')
  return manifest
 }
-function stage(source, parent, home, restrictionsFile, accept) {
- assert.equal(accept, POLICY_VERSION, 'Explicit human acceptance of development-roots-v1 is required')
+function stage(source, parent, home) {
  const roots = developmentRoots(home)
  fs.mkdirSync(parent, { recursive: true, mode: 0o700 })
  assert.equal(fs.realpathSync(parent), parent)
@@ -60,11 +59,10 @@ function stage(source, parent, home, restrictionsFile, accept) {
  execFileSync('npm', ['install', '--prefix', root, '--ignore-scripts', '--no-audit', '--no-fund', '--save-exact', '@gotgenes/pi-permission-system@20.7.3', `@earendil-works/pi-coding-agent@${piVersion}`], { stdio: 'inherit' })
  const packageRoot = path.join(root, 'node_modules/@gotgenes/pi-permission-system')
  require('./patch-permission-tool-visibility.cjs').install(packageRoot)
- const restrictions = restrictionsFile ? JSON.parse(fs.readFileSync(restrictionsFile, 'utf8')) : {}
  const defaults = JSON.parse(fs.readFileSync(path.join(safety, 'pi-permission-system.json'), 'utf8'))
- const config = buildDevelopmentPolicy(defaults, { home, scratchRoot: path.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: path.join(home, 'Code/.agent-toolkit-reports'), restrictions })
+ const config = buildDevelopmentPolicy(defaults, { home, scratchRoot: path.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: path.join(home, 'Code/.agent-toolkit-reports') })
  fs.writeFileSync(path.join(root, 'policy.json'), JSON.stringify(config.policy, null, 2) + '\n')
- const manifest = { version: POLICY_VERSION, roots, acceptedAt: new Date().toISOString(), restrictions: digest(JSON.stringify(restrictions)), permissionPackage: '20.7.3', graphVersion: 3, piVersion, files: inventory(root) }
+ const manifest = { version: POLICY_VERSION, roots, acceptedAt: new Date().toISOString(), permissionPackage: '20.7.3', graphVersion: 4, piVersion, files: inventory(root) }
  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2), { flag: 'wx', mode: 0o600 })
  verifyBundle(root)
  return root

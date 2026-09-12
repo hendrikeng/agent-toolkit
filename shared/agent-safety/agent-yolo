@@ -251,8 +251,8 @@ const bundle = process.argv[4];
 const access = require(path.join(bundle, "development-policy.cjs"));
 access.assertDevelopmentPath(process.cwd(), access.developmentRoots(os.homedir()));
 const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
-config.permission.path[runtimeAgentDir] = "deny";
-config.permission.path[path.join(runtimeAgentDir, "*")] = "deny";
+for (const surface of ["write", "edit"]) config.permission[surface] = { ...config.permission.path, [runtimeAgentDir]: "deny", [path.join(runtimeAgentDir, "*")]: "deny" };
+config.permission.bash[`*${runtimeAgentDir}*`] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";
 // Keep scratch data across exits/resumes, inside the already trusted Code tree.
@@ -274,7 +274,12 @@ config.piInfrastructureReadPaths = [...new Set([
   ...(config.piInfrastructureReadPaths ?? []),
   fs.realpathSync(reviewRoot),
   path.join(runtimeAgentDir, "extensions"),
+  path.join(runtimeAgentDir, "skills"),
   path.join(managedAgentDir, "extensions"),
+  path.join(managedAgentDir, "skills"),
+  path.join(os.homedir(), ".agents/skills"),
+  path.join(os.homedir(), ".claude/skills"),
+  path.join(os.homedir(), ".codex/skills"),
   path.join(managedAgentDir, "git"),
   path.join(managedAgentDir, "npm/node_modules"),
   // Orca and terminal clipboard integrations put pasted images here.
@@ -337,6 +342,16 @@ NODE
     else
       unset AGENT_TOOLKIT_CODEX_PROFILE_HOME
     fi
+    has_model=false
+    has_thinking=false
+    for argument in "$@"; do
+      [[ $argument != -- ]] || break
+      case $argument in --model|--model=*) has_model=true ;; --thinking|--thinking=*) has_thinking=true ;; esac
+    done
+    pi_args=()
+    [[ $has_model == true ]] || pi_args+=(--model openai-codex/gpt-5.6-sol)
+    [[ $has_thinking == true ]] || pi_args+=(--thinking medium)
+    pi_args+=("$@")
     PATH=$PATH \
       AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile \
       AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir \
@@ -345,7 +360,7 @@ NODE
       AGENT_TOOLKIT_SCRATCH_ROOT="$scratch_root" \
       AGENT_TOOLKIT_PERMISSION_BUNDLE="$bundle" \
       PI_CODING_AGENT_DIR=$agent_dir \
-      pi "$@"
+      pi "${pi_args[@]}"
     ;;
   *)
     printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2

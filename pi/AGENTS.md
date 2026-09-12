@@ -3,14 +3,15 @@
 ## Browser control
 
 When Pi runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
+Pass static browser values as direct quoted arguments. Never hide them behind shell variables, command substitution, or `printf` escapes; the permission parser correctly treats those wrappers as opaque. For example, use `orca fill ... --value '/runtime'` directly.
 
 ## Task graphs
 
-`/graph` uses one coordinator-owned worktree per writing repository. The coordinator writes tasks sequentially. Tasks do not imply spawned agents.
-Planning permits documentation only and ends without implementation. Execution requires a separate `/graph execute` approval with explicit foundation commits and new execution worktrees.
-Use the graph's scoped tools for task starts, declared validation, checkpoints, and closeout. Native-policy-safe diagnostics can run in the active writing workspace after setup. Only declared validation on the clean checkpoint counts as completion evidence. Keep source checkouts, indexes, planning commits, and all retained worktrees unchanged.
-Repeat the exact graph command to resume its version-3 record. Version-2 approvals remain unchanged evidence and receive no expanded authority. Never recapture later source edits or recreate a missing resource without its recorded identity.
-Legacy graph records are evidence, not an execution path. Do not migrate, retire, delete, complete, or restart them. State retirement needs separate scope, verification, and authorization.
+`/graph` runs independent ready tasks through `pi-yolo` workers. It creates one integration worktree per writing repository, then assigns writing tasks to a bounded set of exclusive lanes. It reuses a lane only after its previous commit is integrated and the lane is clean. Read-only workers use an existing checkout.
+Planning permits documentation only and ends without implementation. Execution requires a separate `/graph execute` approval with explicit foundation commits and a worktree budget. That approval covers worker launches, declared setup in worker and integration worktrees, worker and combined integration validation, in-scope repair retries, task progression, bounded test resources, internal integration, and verified clean-lane removal at closeout.
+Use the graph's scoped tools for task starts, checkpoints, integration, and closeout. Never let two writing workers use one worktree at the same time. Complete and integrate dependencies before starting dependent tasks. Keep source checkouts, indexes, dirty lanes, and interrupted work unchanged. Remove only clean integrated lanes.
+Repeat the exact graph command to resume its version-4 record without duplicate workers or worktrees. Older approvals remain unchanged evidence and receive no expanded authority. Never recapture later source edits or recreate a missing resource without its recorded identity.
+Legacy graph records are evidence, not an execution path. Do not migrate, retire, delete, complete, or restart them. Completed and unrelated historical records do not block admission; an unfinished record blocks only repositories it identifies as owned. State retirement needs separate scope, verification, and authorization.
 
 ## Agent delegation
 
@@ -18,7 +19,7 @@ Use `pi-yolo` for all spawned task workers and full handoffs, including ordinary
 
 In Orca, launch workers through `terminal create --command 'pi-yolo --model provider/model --thinking medium'` in the target worktree, then deliver the task using the version-matched handoff or orchestration guide. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent`/`worker-start` launchers that do not guarantee `pi-yolo`. If the wrapper cannot launch, report the blocker rather than falling back to another agent.
 
-Review exception: `autoreview` continues to use its Codex CLI engine with Astra at medium thinking and its documented access-only fallback. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
+Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at high thinking and retries `gpt-5.6-terra` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
 ## Scratch files and permission denials
 

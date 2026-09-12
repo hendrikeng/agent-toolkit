@@ -50,10 +50,7 @@ function assertDevelopmentPath(target, roots) {
   return physicalPath(target)
 }
 
-function buildDevelopmentPolicy(defaults, { home, scratchRoot, reportRoot, restrictions = {} }) {
-  assert.ok(restrictions && typeof restrictions === 'object' && !Array.isArray(restrictions), 'Restrictions must be an object')
-  const surfaces = ['bash', 'path', 'external_directory', 'read', 'write', 'edit']
-  assert.ok(Object.keys(restrictions).every(key => surfaces.includes(key)), 'Unsupported human restriction surface; do not silently discard policy')
+function buildDevelopmentPolicy(defaults, { home, scratchRoot, reportRoot }) {
   const roots = developmentRoots(home)
   assertDevelopmentPath(scratchRoot, roots)
   const reports = physicalPath(reportRoot)
@@ -68,35 +65,6 @@ function buildDevelopmentPolicy(defaults, { home, scratchRoot, reportRoot, restr
     policy.permission.external_directory[path.join(root, '*')] = 'allow'
   }
   for (const pattern of ['*.env', '*.env.*', '*.pem', '*.key']) policy.permission.path[pattern] = 'deny'
-  for (const surface of surfaces) {
-    const narrower = restrictions[surface]
-    if (narrower === undefined) continue
-    const entries = typeof narrower === 'string' ? { '*': narrower } : narrower
-    assert.ok(entries && typeof entries === 'object' && !Array.isArray(entries), 'Invalid human restriction')
-    for (const decision of Object.values(entries)) {
-      assert.ok(['deny', 'ask'].includes(typeof decision === 'string' ? decision : decision?.action), 'Human restrictions can narrow, not expand, the root contract')
-    }
-    const base = policy.permission[surface]
-    const baseEntries = typeof base === 'string' ? { '*': base } : base
-    if (surface === 'external_directory') {
-      for (const [pattern, decision] of Object.entries(entries)) {
-        const action = typeof decision === 'string' ? decision : decision.action
-        assert.ok(action === 'deny' || baseEntries[pattern] === 'allow', 'An external ask must narrow an exact existing root grant')
-      }
-    }
-    const merged = { ...baseEntries }
-    for (const [pattern, decision] of Object.entries(entries)) { delete merged[pattern]; merged[pattern] = decision }
-    // Required operation/secret denials remain last-match-wins. External root
-    // denies are a fallback, not a blanket denial to move after root grants.
-    if (surface !== 'external_directory') {
-      for (const [pattern, decision] of Object.entries(baseEntries || {})) {
-        if ((typeof decision === 'string' ? decision : decision?.action) !== 'deny') continue
-        delete merged[pattern]
-        merged[pattern] = decision
-      }
-    }
-    policy.permission[surface] = merged
-  }
   return { version: POLICY_VERSION, roots, scratchRoot: physicalPath(scratchRoot), reportRoot: reports, policy }
 }
 

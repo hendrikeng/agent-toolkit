@@ -66,8 +66,8 @@ test("coordinator lease excludes live writers and resumes an exited process with
  acquireLease(file)()
  assert.equal(readFileSync(file, "utf8"), "preserved approval")
 })
-test("one prompt states separate approval, retention and no legacy execution", () => {
+test("one prompt states the bounded lane and approval contract", () => {
  const prompt = taskGraphPrompt("Build search", "plan-only")
- for (const rule of [/separate \/graph execute/, /sequentially/, /No dispatch/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /plan-closeout/]) assert.match(prompt, rule)
- assert.doesNotMatch(prompt, /parallel_workers|cleanup_workers|current_checkout|integrate_task_graph_worker|worker-start/)
+ for (const rule of [/separate \/graph execute/, /pi-yolo workers/, /worktree budget/, /reusable lanes/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /internal integration/]) assert.match(prompt, rule)
+ assert.doesNotMatch(prompt, /per-task worktree|current_checkout|worker-start/)
 })

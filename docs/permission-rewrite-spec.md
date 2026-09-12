@@ -215,16 +215,16 @@ The graph extension owns graph state only. Removing or disabling it does not cha
 
 ### Preserved behavior
 
-- One coordinator writes tasks sequentially.
-- One isolated workspace exists per writing repository.
+- Independent ready tasks use separate `pi-yolo` workers.
+- Each writing repository has one integration worktree and a bounded set of reusable lanes.
 - Foundations and approved input snapshots retain exact identities.
 - Planning writes documentation only and does not start implementation.
 - Execution requires a separate explicit approval.
-- Native writes stay within active task ownership.
+- Each writing worker has exclusive access to its lane and stays within task ownership.
 - Source checkouts, unrelated workspaces, and retained inputs remain unchanged.
-- Completion requires evidence from the clean final checkpoint.
-- Resume reuses recorded resources and snapshots.
-- Graph completion does not authorize publication, integration, or cleanup.
+- Completion requires evidence from the clean worker checkpoint and validation of the combined integration checkpoint.
+- Resume reuses workers, lanes, resources, and snapshots.
+- Graph approval covers internal integration and removal of verified clean lanes at closeout. It does not authorize publication, source-branch merge-back, or unrelated cleanup.
 
 ### Changed behavior
 
@@ -290,15 +290,15 @@ A policy mismatch requires a human decision before activation. The agent never r
 
 The launcher grants creation, reading, and writing within its designated scratch and report directories. These grants do not expose the surrounding agent configuration.
 
-A startup probe must use the same native tool routes as normal work. Shell directory creation alone does not prove that native report writes work.
+A startup probe is not required. Root access applies to existing and newly created worktrees without registration or restart.
 
-Probes and unfinished reports remain available for diagnosis. Cleanup is not an implicit part of startup, resume, or exit.
+Unfinished reports remain available for diagnosis. Cleanup is not an implicit part of startup, resume, or exit.
 
 ## 6. Legacy and interrupted state
 
 The current execution path supports one graph format. It has no old worker mode, old trust fallback, or automatic migration path.
 
-Existing version-2 graphs retain their approved contracts. Resuming an old approval does not silently expand its shell authority to the new contract.
+Older graphs retain their approved contracts. Resuming an old approval does not silently expand its authority to the new contract.
 
 Any changed approval semantics require an explicit reviewed transition or separate scope. New permissions do not retroactively authorize old tasks.
 

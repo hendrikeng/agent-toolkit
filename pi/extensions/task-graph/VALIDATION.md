@@ -2,34 +2,34 @@
 
 ## Current contract
 
-The source uses graph record version 3 with `development-roots-v1`.
-Native shell policy and graph ownership remain separate checks.
-Version-2 approvals do not gain new authority.
+The source uses graph record version 4 with `development-roots-v1`.
+Older approvals do not get new authority.
 
-The focused source suite passed ten tests.
-It covered separate planning and execution, retained snapshots, interrupted preparation, source preservation, enabled hooks, and validation evidence.
-It also covered declared inspection checks, incremental scope expansion, directory escapes, leases, and pending Product and Security approvals.
+The graph uses `pi-yolo` workers for independent ready tasks.
+Each writing worker gets an exclusive lane.
+The approved worktree budget includes integration worktrees and writing lanes.
+A clean lane returns to the pool after its commit is integrated, integration setup runs, and the combined checkout passes validation.
+A failed combined validation keeps the lane and receives an in-scope repair dispatch without another approval.
+A dirty or interrupted lane stays intact.
+Closeout removes only clean integrated lanes and keeps the integration worktree.
+Read-only workers use an existing checkout.
 
-These tests use real Git fixtures and scripts. Orca RPCs and native inspection routing are simulated.
-They do not prove installed permissions, live Orca behavior, or fresh-session acceptance.
+## Source checks
 
-## Remaining work
-
-Source checks passed. See [the current status](../../../docs/permission-rewrite-status.md) for the required installation and acceptance gates.
-No installation or live graph acceptance occurred for this candidate.
-
-Focused source commands:
+The focused tests use real Git repositories in `AGENT_TOOLKIT_SCRATCH_ROOT`.
+The tests simulate Orca RPCs and worker terminals.
+They cover concurrent workers, lane reuse, dependency commits, lost creation receipts, selective cross-repository pins, integration setup, combined validation repair, cleanup, resume, and worktree budgets.
+They also cover source preservation, input capture, hooks, protected paths, and old records.
 
 ```sh
-node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts
+node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts
 node --test shared/agent-safety/git-operation-policy.test.cjs
 ```
 
-The runtime fixture requires the separately bounded `git-test` capability.
-All generated repositories and workspaces remain available for inspection.
+These tests do not prove installed permissions or live Orca behavior.
+A new installed session must complete the acceptance checks.
 
 ## Historical evidence
 
-The complete earlier report remains in [the historical archive](../../../docs/permission-rewrite-history/graph-validation-v2.md.txt).
-Its trust-policy descriptions, twenty-run results, reviews, and installation procedures describe the earlier implementation.
-They do not establish acceptance of this candidate.
+The [historical archive](../../../docs/permission-rewrite-history/graph-validation-v2.md.txt) describes the old implementation.
+It does not establish acceptance of this candidate.

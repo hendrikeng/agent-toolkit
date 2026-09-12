@@ -24,28 +24,8 @@ else
   pi_web_config_dir=$HOME/.pi
 fi
 
-restrictions=
-use_defaults=false
-case ${1:-} in
-  --git-guard-only) [[ $# -eq 1 ]] || exit 2 ;;
-  --accept-development-roots)
-    if [[ $# -eq 2 && $2 == --use-defaults ]]; then
-      use_defaults=true
-      printf 'Explicitly selecting the new default policy. Existing custom restrictions will NOT be imported; the original policy file remains unchanged.\n'
-    elif [[ $# -gt 1 ]]; then
-      [[ $# -eq 3 && $2 == --restrictions && -f $3 ]] || exit 2
-      restrictions=$3
-    fi
-    printf 'Accepting development-roots-v1 for %s/Code and %s/orca/workspaces, including future directories.\n' "$HOME" "$HOME"
-    printf 'Scripts, dependencies and hooks run as your account. This is not an OS sandbox. Secrets, deletion, publication, deployment and existing database administration remain restricted.\n'
-    ;;
-  *) printf 'Usage: ./install.sh --accept-development-roots [--use-defaults | --restrictions <reviewed-json>] | --git-guard-only\nNo files changed. Root execution needs explicit human acceptance.\n' >&2; exit 2 ;;
-esac
-# A custom policy requires explicit review, never a reset checksum marker.
-if [[ ${1:-} != --git-guard-only && -f $pi_agent_dir/extensions/pi-permission-system/config.json && -z $restrictions && $use_defaults != true ]]; then
-  printf 'An existing Pi policy needs an explicit choice. Use --accept-development-roots --use-defaults for the new defaults, or --accept-development-roots --restrictions JSON to retain reviewed custom restrictions. The original policy remains unchanged.\n' >&2
-  exit 1
-fi
+[[ $# -eq 0 ]] || { printf 'Usage: ./install.sh\n' >&2; exit 2; }
+printf 'Installing development access for %s/Code and %s/orca/workspaces. Secrets, deletion, publication, deployment and existing database administration remain restricted.\n' "$HOME" "$HOME"
 
 initialize_blueprint_submodule() {
   local git_bin=
@@ -318,7 +298,7 @@ install_agent_safety() {
 
   # Pi permissions are staged as one retained bundle, never patched in place.
   if command -v pi >/dev/null 2>&1; then
-    permission_bundle=$(node "$repo_dir/shared/agent-safety/permission-bundle.cjs" stage "$repo_dir" "$HOME/.local/libexec/agent-toolkit/permission-bundles" "$HOME" "$restrictions" development-roots-v1 | tail -n 1)
+    permission_bundle=$(node "$repo_dir/shared/agent-safety/permission-bundle.cjs" stage "$repo_dir" "$HOME/.local/libexec/agent-toolkit/permission-bundles" "$HOME" | tail -n 1)
   fi
 }
 
@@ -374,11 +354,6 @@ install_ponytail() {
     printf 'skipped Pi Ponytail package (pi not found)\n'
   fi
 }
-
-if [[ ${1:-} == --git-guard-only ]]; then
-  install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
-  exit
-fi
 
 initialize_blueprint_submodule
 

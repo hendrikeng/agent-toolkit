@@ -22,29 +22,18 @@ cd agent-toolkit
 ### Install or update with the new defaults
 
 Review the [development-root contract](docs/permission-rewrite-operations.md) before installation.
-This command explicitly selects the new defaults, including for an existing installation.
-It does **not** import custom restrictions from the old policy. The original policy file remains unchanged.
 
 From a human terminal in this checkout, run:
 
 ```sh
-./install.sh --accept-development-roots --use-defaults
+./install.sh
 ```
 
 For the permission-rewrite worktree on this machine, the complete command is:
 
 ```sh
 cd /Users/hendrik/orca/workspaces/agent-toolkit/permission-rewrite
-./install.sh --accept-development-roots --use-defaults
-```
-
-### Preserve custom restrictions instead
-
-If you need custom restrictions, prepare a reviewed JSON file as described in the contract guide.
-Use that file instead of `--use-defaults`:
-
-```sh
-./install.sh --accept-development-roots --restrictions /absolute/path/to/reviewed-restrictions.json
+./install.sh
 ```
 
 ### Activate the installation
@@ -55,9 +44,10 @@ After successful installation, exit the old Pi session. Start a fresh session fr
 pi-yolo
 ```
 
+`pi-yolo` defaults to `openai-codex/gpt-5.6-sol` with medium thinking. Explicit `--model` and `--thinking` options override those defaults.
 Source changes and `/reload` do not update installed permissions.
 The message `repository execution requires trust` identifies the old runtime. Repository-trust approval is not the migration procedure.
-Bare `./install.sh` makes no changes because it lacks explicit acceptance.
+`./install.sh` is the only installation mode and updates the installed toolkit after its preflight checks pass.
 
 Make sure that `~/.local/bin` is on `PATH`.
 
@@ -71,14 +61,6 @@ The installer:
 
 Pi retains its selected permission bundle for the session. `/reload` does not install or change that bundle.
 After a reviewed installation, start a fresh session.
-
-To update only the installed Git guard, without package or account changes:
-
-```bash
-./install.sh --git-guard-only
-```
-
-This uses the same backup and ownership checks as the full installer. It refuses to overwrite user-modified policy.
 
 On macOS, install the review scanner with Homebrew:
 
@@ -140,7 +122,7 @@ It retains fixed credential restrictions and rejects other inherited configurati
 
 Use [the development-root guide](docs/permission-rewrite-operations.md) for installation, resource scopes, and acceptance checks.
 Graph approval adds task ownership. It does not replace native shell policy or authorize publication.
-Native asks remain asks. Scripts and hooks run as the local user, not inside an operating-system sandbox.
+The default policy has ordinary access and hard safety denials, not routine approval prompts. Scripts and hooks run as the local user, not inside an operating-system sandbox.
 
 ### Historical trust-policy notes
 
@@ -317,7 +299,7 @@ After review, install from a trusted human shell:
 
 ```sh
 cd ~/Code/wewereyoung/agent-toolkit
-./install.sh --accept-development-roots --restrictions /absolute/path/to/reviewed-restrictions.json
+./install.sh
 ```
 
 Then start a new API session:
@@ -500,11 +482,12 @@ The workflow infers values from repository evidence. It asks only for missing de
 
 ### Task graphs
 
-The coordinator writes every task itself. Tasks record progress, not agents to launch. There is no parallel-worker option.
+The graph runs independent tasks through `pi-yolo` workers. Each writing worker gets an exclusive lane.
 
-- Planning uses one planning worktree per writing repository.
-- Separately approved execution uses one new execution worktree per writing repository.
-- Read-only inspection needs no worktree unless approved dirty inputs need a snapshot.
+- Each writing repository gets one integration worktree.
+- The approved worktree budget limits integration worktrees, writing lanes, and read-only input snapshots.
+- Clean lanes return to the pool after integration.
+- Read-only workers use an existing checkout.
 
 Planning does not start implementation. Source files, indexes, branches, and planning commits remain separate from execution.
 
@@ -520,39 +503,36 @@ Keep Orca open with orchestration enabled. Use one of these commands:
 Without a mode, `/graph` means planning. The coordinator reads repository rules and resolves the requested plan dependencies before approval.
 The coordinator must stop on ambiguous plans, blocked dependencies, or missing approvals. It must not infer feature completion from repository consolidation.
 
-The proposal lists tasks in dependency order. Each writing task declares its repository, literal owned paths, completion criteria, and exact setup and validation commands.
-Read-only tasks declare `validation: "manual: <inspection criteria>"`, have no setup, and report inspection evidence at completion. They do not claim a script ran.
-Without a snapshot or writing workspace, a read-only repository's selected foundation must equal its source HEAD. Approval rejects other foundations before creating a record or Run.
-Each repository needs an explicit full foundation commit. Branch names and abbreviated hashes are not foundation selectors.
-The approval screen shows source paths, commits, input hashes, workspace roles, and permissions.
+The proposal lists tasks in dependency order. Each writing task declares its repository, owned paths, completion criteria, setup, and validation.
+Read-only tasks use `validation: "manual: <inspection criteria>"` and have no setup. They report inspection evidence without a new worktree, can use safe Git inspection, and do not block unrelated integration.
+Each repository needs a full foundation commit. Branch names and short hashes are not valid foundation selectors.
+The proposal also declares a worktree budget. The approval screen shows the paths, commits, input hashes, and budget.
 
-Approval permits the listed input captures and scoped local commits. It does not permit source writes, publishing, merge-back, or worktree removal.
+One approval covers the Run, task records, worker launches, setup, validation, retries, bounded resources, and internal integration.
+Closeout removes verified clean lanes and keeps each integration worktree.
+It does not permit source writes, publication, source-branch merge-back, unrelated or dirty cleanup, or production administration.
 Planning writes must be Markdown under `docs/`, outside `docs/exec-plans/`. Planning cannot implement code or promote execution plans.
 
 #### Work and closeout
 
-1. Call `prepare_task_graph_workspace` to prepare or verify the Run, task ledger, and workspaces.
-2. Call `start_task_graph_task` for the first unfinished task.
-3. Run its declared setup through `bash`, with `repository` set to the exact workspace path.
-4. Edit only the active task's paths in that workspace.
-5. Use `checkpoint_task_graph` to commit explicit paths.
-6. Run its declared validation on the clean final checkpoint.
-7. Call `complete_task_graph_task` with evidence.
-8. After all tasks and repository closeout requirements pass, call `finish_task_graph`.
+1. Call `prepare_task_graph_workspace` to prepare the Run and integration worktrees.
+2. Call `start_task_graph_task` for each ready task.
+3. Let each worker operate only in its assigned checkout. Orca labels its lane with the plan name and task ID.
+4. Let each writing worker use `checkpoint_task_graph` for commits. Commit subjects include the task ID.
+5. Call `complete_task_graph_task` after the worker completes its validation. The graph merges the checkpoint, runs its declared setup in the integration checkout, then validates the combined commit. Set `delivery_pending` when the task intentionally leaves its plan active for delivery.
+6. Start dependent tasks only after their dependencies are integrated.
+7. Call `finish_task_graph` after all closeout requirements pass.
 
-Use `move_task_graph_plan` for the current approved plan's lifecycle move. Update its status and `Done-Evidence` before the final move.
+Start independent tasks until the budget is full. Never assign two writing workers to one lane.
+The graph reuses a lane only after successful integration. A dirty or interrupted lane stays intact.
 
-Cross-repository scripts use the returned repository map or `AGENT_TOOLKIT_GRAPH_REPOSITORIES`. They must not assume sibling paths.
-The native parser checks graph shell commands. Ordinary diagnostics can run in the active writing workspace after setup.
-Only the declared validation command can create validation evidence. Later mutation invalidates that evidence.
-There is no raw shell Git mutation channel inside a graph.
+Cross-repository scripts use `AGENT_TOOLKIT_GRAPH_REPOSITORIES`. The map contains approved paths, branch names, and pinned commits. Workers can inspect those repositories and reference them from checks, but cannot write to them. Unused repositories can progress independently; a command fails only when a repository it uses changed from its pinned commit.
+Only the declared validation command creates validation evidence. Integration commands receive the approved repository map and local resource endpoints automatically. A later mutation invalidates that evidence. If integration setup or combined validation fails, the same task receives a repair dispatch in its retained lane without another approval. Resume also retries terminal closure after durable task completion.
+Git hooks remain enabled for input capture, worker checkpoints, and integration commits.
 
-Git hooks remain enabled for input captures and task checkpoints. Orca workspace creation skips setup hooks, but configured default terminals can still start.
-Inspect those terminal settings before approval. Trusted repository scripts and Git hooks retain host access: graph checks are not an operating-system sandbox.
-
-A task's focused check does not replace repository closeout. The coordinator must satisfy required validation lanes, reviews, approval gates, and evidence updates.
-If publication is required for completion, leave the plan active in `validation` and use `delivery_pending: true`.
-Local completion never means shipped completion. All planning and execution worktrees remain available after closeout.
+A focused check does not replace repository closeout. Complete all required validation, review, approval, and evidence work.
+If publication is required, leave the plan in `validation` and use `delivery_pending: true`.
+Local completion does not mean shipped completion. The integration worktree and branch use the plan name and remain available for a pull request. Merge commits identify each task. Clean lanes are removed; dirty, interrupted, and conflicted lanes remain.
 
 #### Select the execution foundation
 
@@ -560,14 +540,13 @@ Start a separate execution graph from the retained planning worktree. Select the
 Verify each full foundation commit on the execution approval screen. Another explicitly selected foundation is also supported.
 The runtime never chooses a historical Run or a branch because it appears newer.
 
-For two writing repositories, planning and execution leave four worktrees: two planning worktrees and two execution worktrees.
-There are no per-task worktrees, worker accounts, quota checks, dispatches, integration merges, or cleanup tasks.
+The worktree count never exceeds the approved budget. The graph reuses lanes across compatible tasks instead of creating per-task worktrees.
 
 #### Interruption and legacy state
 
 Repeat the exact `/graph` command from the same selected repository to resume. Keep the original command even after plan files move.
-The repository identity, mode, and exact objective select the retained version-3 record under the managed agent directory's `task-graphs/` directory.
-Version-2 approvals remain unchanged evidence. They do not inherit the new contract.
+The repository identity, mode, and exact objective select the retained version-4 record in the managed agent directory.
+Older approvals remain unchanged evidence. They do not inherit the new contract.
 Resume does not need a second proposal or another approval. It verifies the saved contract and reuses its resource names, commits, and input bytes.
 
 Input bytes enter the record before any workspace mutation. Capture accepts only unchanged base files or approved bytes.
@@ -586,7 +565,6 @@ The retained Pi bundle includes its graph extension. `/reload` keeps that versio
 Use the reviewed full-installation procedure in [the development-root guide](docs/permission-rewrite-operations.md).
 Then start a fresh `pi-yolo` session.
 
-The Git-guard-only installer does not update a retained Pi bundle.
 
 The current focused graph suite uses retained Git fixtures for planning, separate execution, failed checks, and interrupted preparation.
 Earlier twenty-run results describe the superseded implementation.

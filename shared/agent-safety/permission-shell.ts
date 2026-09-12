@@ -5,25 +5,12 @@ import { getParser } from './access-intent/bash/parser'
 import { resolveNodeText } from './access-intent/bash/node-text'
 import { PathNormalizer } from './path-normalizer'
 import { pathFlavorForPlatform } from './path/path-flavor'
-import { PermissionManager } from './permission-manager'
-import { physicalPath } from './agent-toolkit-path.cjs'
-import { getProjectConfigPath } from './config-paths'
 import { normalizeFlatConfig } from './normalize'
 import { evaluate } from './rule'
 
 // An additive floor: callers cannot use this result to override native decisions.
 export function evaluateDevelopmentPolicy(permission: Parameters<typeof normalizeFlatConfig>[0], surface: string, target: string) {
  return evaluate(surface, target, normalizeFlatConfig(permission), pathFlavorForPlatform(process.platform)).action
-}
-
-export function developmentDirectoryPolicy(agentDir: string, cwd: string) {
- const project = getProjectConfigPath(cwd)
- if (physicalPath(project) !== project) throw new Error('Project permission configuration must not use a symlink alias')
- const manager = new PermissionManager({ agentDir, flavor: pathFlavorForPlatform(process.platform) })
- manager.configureForCwd(cwd)
- const rules = manager.getComposedConfigRules()
- if (manager.getConfigIssues().length) throw new Error('Selected directory has invalid native permission configuration')
- return (surface: string, target: string) => evaluate(surface, target, rules, pathFlavorForPlatform(process.platform)).action
 }
 
 export async function inspectDevelopmentShell(command: string, cwd: string, permission?: Parameters<typeof normalizeFlatConfig>[0]) {

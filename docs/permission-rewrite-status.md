@@ -6,33 +6,30 @@ The source implementation passes the focused checks. The full specification is n
 Installation, fresh-session acceptance, and live resource acceptance remain separate required gates.
 No live installation, permission change, publication, or removal of retained resources occurred during these checks.
 
-The implementation uses `development-roots-v1`, graph records version 3, and `@gotgenes/pi-permission-system@20.7.3`.
-The package exports the native shell inspector, the accepted-policy evaluator, and the selected-directory policy evaluator.
-The original `.permission-api-reference/` snapshot remains unchanged.
+The implementation uses `development-roots-v1`, graph records version 4, and `@gotgenes/pi-permission-system@20.7.3`.
+The package exports the native shell inspector and the accepted-policy evaluator.
+It ignores checkout-local permission files. The original `.permission-api-reference/` snapshot remains unchanged.
 
 ## Passed source checks
 
-The checks passed 26 focused tests, the configuration self-test, shell and TypeScript syntax checks, and `git diff --check`.
-The real-package compatibility check reported an empty blocker list.
-It used a fresh scratch installation and standard TypeScript compilation. It did not modify package source during loading.
+The focused checks passed for root access, launchers, resources, and graph lanes.
+The real-package compatibility check and installed-session checks remain pending.
 
 | Area | Evidence from source checks |
 | --- | --- |
-| Development roots | Future non-Git directories, physical paths, sibling paths, traversal, and symlink escapes |
-| Required restrictions | Accepted-policy denials survive later allows. Native asks and additional restrictions remain effective |
-| Selected directories | Bash uses the selected directory. Its native project restrictions apply to that command |
-| Shell classification | The native parser covers chains, directory changes, normalized executable names, and unsupported wrappers |
-| Native extension | A simulated host exercises startup, the native probe prerequisite, tool routing, and inactive-service failures |
-| Probe safety | A symlink cannot redirect the probe into another file |
-| Bundles | Manifest integrity, repeatable patching, atomic selection, interrupted staging, failed activation, retained sessions, and dispatcher routing |
-| Shared launchers | Codex and Claude preserve their sandbox, account environment, and Git safeguards |
-| Git boundaries | Inspection, local mutations, integration separation, active hooks, metadata selectors, inherited overrides, and destructive flags |
-| Graph lifecycle | One initial approval, sequential tasks, lost-response recovery, setup, diagnostics, clean checkpoints, and stale evidence |
-| Graph scope | Separate execution, incremental expansion, preserved inputs, source changes, leases, and old-record rejection |
-| Plan approval | Pending Product and Security approvals block named plans |
-| Resource identity | Simulated creation, interrupted responses, authoritative loss, uncertain state, and changed identities |
-| Resource limits | Simulated scanner mounts, version checks, memory, storage, lifetime, reset scope, and shutdown |
-| Database privileges | PostgreSQL initialization preserves the database owner boundary. Redis disables service administration |
+| Development roots | Existing and new directories work without checkout registration |
+| Required restrictions | Secret, destructive, publication, and administration rules remain denied |
+| Native extension | Ordinary access has no startup probe or second tool-call gate |
+| Shared launchers | Codex and Claude retain their sandbox, account environment, and Git safeguards |
+| Git boundaries | Ordinary local commands use a denylist with narrow protected operations |
+| Graph workers | Independent tasks use separate `pi-yolo` workers with the selected model |
+| Graph lanes | The worktree budget holds, clean lanes return to the pool, and read-only workers add no worktree |
+| Graph resume | Task receipts do not look like graph records, lost worktree receipts reconcile, and repeated starts do not create duplicates |
+| Graph dependencies | Dependent lanes contain integrated prerequisite commits, and approved cross-repository checks work |
+| Graph validation | Worker checkpoints and combined integration commits run the declared validation |
+| Graph cleanup | Approved closeout removes clean integrated lanes and retains the integration worktree |
+| Graph conflicts | The coordinator can edit and checkpoint an owned integration conflict |
+| Resource identity | Simulated resources retain their limits and identities |
 
 The resource tests use a simulated Docker runtime. They do not prove real container startup, process limits, or service privileges.
 The graph tests use real Git fixtures and simulated Orca and permission routing. They do not prove a live Orca session.
@@ -66,7 +63,7 @@ The package rerun retained `/Users/hendrik/Code/.agent-toolkit-scratch/permissio
 A later review found that container restarts could extend the approved lifetime.
 The fixed wrapper uses the original absolute deadline across restarts and replacements.
 A shell regression check covers shortened timeouts and refusal after expiry without starting a service.
-The installer also accepts `--use-defaults` as an explicit policy choice. Its argument checks preserve the original policy file.
+The installer now uses the default policy with `./install.sh`.
 The affected checks passed. The final package rerun retained `/Users/hendrik/Code/.agent-toolkit-scratch/permission-api-reference-OhSqa9/result.json`.
 The user then reported an installed startup failure on Pi 0.85.1: the session extension could not resolve its permission package.
 The launcher now links session dependencies to the retained bundle.

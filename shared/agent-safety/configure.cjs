@@ -153,23 +153,10 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
   const toolkit = canonical(toolkitDir);
   const agentDir = canonical(piAgentDir);
   const webConfigDir = canonical(piWebConfigDir);
-  const input = JSON.parse(text);
+  JSON.parse(text);
   const home = os.homedir();
   const defaults = JSON.parse(fs.readFileSync(pathModule.join(__dirname, 'pi-permission-system.json'), 'utf8'));
-  const restrictions = {};
-  for (const [surface, rules] of Object.entries(input.permission ?? {})) {
-    if (JSON.stringify(rules) === JSON.stringify(defaults.permission[surface])) continue;
-    if (surface === '*' && rules === 'allow') continue;
-    restrictions[surface] = {};
-    for (const [pattern, decision] of Object.entries(typeof rules === 'string' ? { '*': rules } : rules)) {
-      const baseline = typeof defaults.permission[surface] === 'string' ? defaults.permission[surface] : defaults.permission[surface]?.[pattern];
-      if (JSON.stringify(decision) === JSON.stringify(baseline)) continue;
-      if (!['ask', 'deny'].includes(typeof decision === 'string' ? decision : decision?.action)) throw new Error('Pi generation cannot import a broader permission grant');
-      restrictions[surface][pattern] = decision;
-    }
-    if (!Object.keys(restrictions[surface]).length) delete restrictions[surface];
-  }
-  const settings = buildDevelopmentPolicy(defaults, { home, scratchRoot: pathModule.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: pathModule.join(home, 'Code/.agent-toolkit-reports'), restrictions }).policy;
+  const settings = buildDevelopmentPolicy(defaults, { home, scratchRoot: pathModule.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: pathModule.join(home, 'Code/.agent-toolkit-reports') }).policy;
   settings.piInfrastructureReadPaths = [
     pathModule.join(toolkit, "codex/skills"),
     pathModule.join(toolkit, "pi/skills"),
@@ -177,6 +164,8 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
     canonical(pathModule.join(home, ".claude/skills")),
     canonical(pathModule.join(home, ".codex/skills")),
   ];
+  for (const surface of ["write", "edit"]) settings.permission[surface] = { ...settings.permission.path, [agentDir]: "deny", [pathModule.join(agentDir, "*")]: "deny" };
+  settings.permission.bash[`*${agentDir}*`] = "deny";
   settings.permission.path[pathModule.join(agentDir, "auth.json")] = "deny";
   settings.permission.path[pathModule.join(agentDir, "auth-profiles")] = "deny";
   settings.permission.path[pathModule.join(agentDir, "auth-profiles/*")] = "deny";
@@ -241,6 +230,11 @@ if (process.argv[2] === "--self-test") {
   assert.equal(pi.yoloMode, false);
   assert.equal(pi.permission.bash['*'], 'allow');
   assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'Code', '*')], 'allow');
+  assert.equal(pi.permission.write["*.env"], "deny");
+  assert.equal(pi.permission.edit["*/.git/config"], "deny");
+  assert.equal(pi.permission.write["/pi-agent/*"], "deny");
+  assert.equal(pi.permission.edit["/pi-agent/*"], "deny");
+  assert.equal(pi.permission.bash["*/pi-agent*"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth-profiles"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth-profiles/*"], "deny");

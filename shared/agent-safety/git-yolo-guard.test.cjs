@@ -107,9 +107,8 @@ test('allows read-only ancestry queries and new-branch switch while preserving l
     assert.equal(readFileSync(join(cwd, 'tracked'), 'utf8'), 'unstaged\n')
     assert.equal(readFileSync(join(cwd, 'untracked'), 'utf8'), 'keep\n')
     assert.notEqual(run('switch', '-c', 'slice/new').status, 0)
-    for (const args of [[], ['slice/new'], ['-c'], ['-c', ''], ['-C', 'slice/new'], ['--discard-changes', '-c', 'other'], ['-c', 'other', '--force'], ['-c', '--discard-changes'], ['-c', 'other', 'HEAD~1'], ['--detach']]) {
-      assert.equal(run('switch', ...args).status, 126, JSON.stringify(args))
-    }
+    for (const args of [['--discard-changes', '-c', 'other'], ['-c', 'other', '--force'], ['-c', '--discard-changes']]) assert.equal(run('switch', ...args).status, 126, JSON.stringify(args))
+    assert.equal(run('switch', 'slice/new').status, 0)
     assert.equal(run('-C', cwd, 'switch', '-c', 'slice/second').status, 0)
     assert.equal(git('status', '--porcelain'), before)
   } finally {

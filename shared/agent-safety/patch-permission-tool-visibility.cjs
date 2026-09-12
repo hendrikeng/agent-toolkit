@@ -43,9 +43,13 @@ const PATCHES = {
   ['      commandName = basename(child.text);', '      commandName = basename(resolveNodeText(child.type === "command_name" ? child.child(0) ?? child : child)).toLowerCase();'],
   ['    args.push(child.text);', '    args.push(resolveNodeText(child));'],
  ],
- 'service.ts': [['import type { ToolAccessExtractor }', 'export { inspectDevelopmentShell, evaluateDevelopmentPolicy, developmentDirectoryPolicy } from "./agent-toolkit-shell";\nimport type { ToolAccessExtractor }']],
+ 'permission-manager.ts': [
+  ['import {\n  getGlobalConfigPath,\n  getProjectAgentsDir,\n  getProjectConfigPath,\n} from "./config-paths";', 'import { getGlobalConfigPath } from "./config-paths";'],
+  ['function derivePolicyLoaderOptions(\n  agentDir: string,\n  cwd: string | undefined | null,\n): PolicyLoaderOptions {\n  return {\n    globalConfigPath: getGlobalConfigPath(agentDir),\n    agentsDir: join(agentDir, "agents"),\n    projectGlobalConfigPath: cwd ? getProjectConfigPath(cwd) : undefined,\n    projectAgentsDir: cwd ? getProjectAgentsDir(cwd) : undefined,\n  };\n}', 'function derivePolicyLoaderOptions(\n  agentDir: string,\n  _cwd: string | undefined | null,\n): PolicyLoaderOptions {\n  return {\n    globalConfigPath: getGlobalConfigPath(agentDir),\n    agentsDir: join(agentDir, "agents"),\n  };\n}'],
+ ],
+ 'service.ts': [['import type { ToolAccessExtractor }', 'export { inspectDevelopmentShell, evaluateDevelopmentPolicy } from "./agent-toolkit-shell";\nimport type { ToolAccessExtractor }']],
 }
-const PUBLIC_TYPES = '\n// agent-toolkit development-roots-v1 compatibility API\nexport declare function developmentDirectoryPolicy(agentDir: string, cwd: string): (surface: string, target: string) => "allow" | "ask" | "deny";\nexport declare function inspectDevelopmentShell(command: string, cwd: string, permission?: Record<string, unknown>): Promise<{ commands: string[][]; effects: boolean; paths: string[]; candidates: string[]; directories: string[] }>;\nexport declare function evaluateDevelopmentPolicy(permission: Record<string, unknown>, surface: string, target: string): "allow" | "ask" | "deny";\n'
+const PUBLIC_TYPES = '\n// agent-toolkit development-roots-v1 compatibility API\nexport declare function inspectDevelopmentShell(command: string, cwd: string, permission?: Record<string, unknown>): Promise<{ commands: string[][]; effects: boolean; paths: string[]; candidates: string[]; directories: string[] }>;\nexport declare function evaluateDevelopmentPolicy(permission: Record<string, unknown>, surface: string, target: string): "allow" | "ask" | "deny";\n'
 const additions = { 'agent-toolkit-shell.ts': 'permission-shell.ts', 'agent-toolkit-path.cjs': 'development-policy.cjs' }
 const FILES = [...Object.keys(PATCHES), ...Object.keys(additions)]
 function patchFile(name, source) {

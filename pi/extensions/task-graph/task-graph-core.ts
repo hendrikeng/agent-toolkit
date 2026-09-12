@@ -22,6 +22,7 @@ export interface TaskGraphPlan {
  foundations: Array<{ repository: string; commit: string }>
  inputs?: Array<{ repository: string; paths: string[] }>
  resources?: Array<{ id: string; type: "postgres" | "storage" | "scanner"; image: string; purpose: string; memoryMiB: number; storageMiB: number; lifetimeSeconds: number; reset?: string; targets?: string[]; database?: string; downloads?: string[] }>
+ worktree_budget: number
 }
 export type Orca = (args: string[]) => any
 export const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex")
@@ -68,8 +69,8 @@ export function assertGraphShell(command: string): void {
  if (typeof command !== "string" || !command.trim() || command.includes("\0")) throw new Error("A nonempty validation command is required.")
 }
 export function validateTaskGraph(plan: TaskGraphPlan, root: string): void {
- if (Object.keys(plan).some(key => !["objective", "mode", "tasks", "foundations", "inputs", "resources"].includes(key))) throw new Error("Unsupported graph option. Workers, cleanup and source-checkout execution were removed.")
- if (!plan.objective?.trim() || !["plan-only", "execute"].includes(plan.mode) || !Array.isArray(plan.tasks) || !plan.tasks.length || plan.tasks.length > 12) throw new Error("A graph needs an objective, mode and one to twelve tasks.")
+ if (Object.keys(plan).some(key => !["objective", "mode", "tasks", "foundations", "inputs", "resources", "worktree_budget"].includes(key))) throw new Error("Unsupported graph option.")
+ if (!plan.objective?.trim() || !["plan-only", "execute"].includes(plan.mode) || !Array.isArray(plan.tasks) || !plan.tasks.length || plan.tasks.length > 12 || !Number.isInteger(plan.worktree_budget) || plan.worktree_budget < 1 || plan.worktree_budget > 12) throw new Error("A graph needs an objective, mode, one to twelve tasks, and a worktree budget from one to twelve.")
  const ids = new Set(plan.tasks.map(task => task.id))
  if (ids.size !== plan.tasks.length) throw new Error("Duplicate task IDs.")
  const completed = new Set<string>()
@@ -94,6 +95,9 @@ export function validateTaskGraph(plan: TaskGraphPlan, root: string): void {
   if (!sources.includes(source) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(foundation.commit) || graphGit(source, "rev-parse", `${foundation.commit}^{commit}`) !== foundation.commit) throw new Error("Foundation must be an exact existing commit, not a branch or ambiguous selector.")
  }
  if (new Set(sources.map(repositoryIdentity)).size !== sources.length) throw new Error("Select one source checkout per Git repository.")
+ const writingSources = new Set(sources.filter(source => plan.tasks.some(task => task.owns.length && realpathSync(resolve(root, task.repository)) === source)))
+ const snapshotSources = new Set((plan.inputs ?? []).filter(input => input.paths.length).map(input => realpathSync(resolve(root, input.repository))).filter(source => !writingSources.has(source)))
+ if (plan.worktree_budget < writingSources.size * 2 + snapshotSources.size) throw new Error("The worktree budget must cover each integration workspace, one reusable lane per writing repository, and each read-only input snapshot.")
 }
 
 // Old records are evidence, never a source of executable authority. Unknown scope fails closed.
@@ -157,13 +161,13 @@ export function acquireLease(file: string): () => void {
 export function taskGraphPrompt(objective: string, mode: TaskGraphPlan["mode"]): string {
  return `Graph ${mode}: ${objective}
 Read AGENTS.md, repository planning rules, the named plan and actual callers first. Use read/search tools before approval.
-The coordinator writes all tasks itself, sequentially in the listed dependency order. Tasks track progress, not agents.
+Independent ready tasks run through pi-yolo workers at medium thinking. Writing workers use exclusive reusable lanes; read-only workers use an existing checkout. Never put two writing workers in one worktree.
 Propose one to twelve tasks with literal owned paths, completion criteria, and exact setup and validation commands. Include every required closeout lane in validation. Resolve the full unfinished plan dependency chain, with priority then Plan-ID ordering. Stop on missing, duplicate, draft, blocked or unapproved execution plans. Never invent external approval.
 Read-only tasks require validation written as manual: <inspection criteria>, no setup, and inspection evidence at completion. They never claim a script ran. Without a snapshot or writing workspace, their foundation must equal source HEAD.
 Select one explicit source path and full foundation commit per repository. Execution starts from the selected retained planning commits or another explicitly selected foundation, never guessed historical workspaces. Include only exact necessary dirty inputs. Capture is not write ownership.
 Planning permits only Markdown under docs/, outside docs/exec-plans/. Planning ends without implementation. Execution requires a separate /graph execute command and approval.
-After propose_task_graph approval, call prepare_task_graph_workspace. Start the first unfinished task with start_task_graph_task. Use returned absolute workspace paths for file tools. Run declared setup and validation through bash with repository set to the exact workspace. Cross-repository checks use AGENT_TOOLKIT_GRAPH_REPOSITORIES, not implicit siblings. Use checkpoint_task_graph for explicit-path commits with hooks enabled. Use move_task_graph_plan for the current plan's active/completed move; edit its status and Done-Evidence explicitly. Then complete_task_graph_task with evidence.
+Declare a worktree budget. It includes integration workspaces and reusable writing lanes. After approval, call prepare_task_graph_workspace, then start any dependency-ready tasks up to the budget. The graph launches pi-yolo workers with the current model, records dispatches before retries, and reuses only clean integrated lanes. Workers run declared setup and validation and use checkpoint_task_graph with hooks enabled. Complete settled tasks to integrate their commits and validate the combined checkout before starting dependents.
 Before completing an execution plan, satisfy every must-land item, validation lane, review rule, approval gate, Done-Evidence, evidence index and plan-closeout check. Promote only the current eligible plan. Do not promote later plans early or close dependent future plans. Leave publication-dependent plans active in validation and report local-ready, never shipped.
-Finish only after every task and required closeout passes. Retain all source, planning and execution worktrees. No dispatch, worker accounts, quota, integration, cleanup, publishing or merge-back authority. A permission denial is a blocker, never a reason to bypass a guard.
+Finish only after every task and required closeout passes. Always retain source and integration worktrees. Retain dirty, interrupted, and conflicted lanes. Approval covers task records, worker launches, declared setup, diagnostics, validation, retries, task progression, bounded resources, internal integration, and verified clean-lane removal at closeout. It never covers unrelated cleanup, secrets, publishing, production administration, or merge-back to source branches.
 On interruption, repeat this exact /graph command. Resume its record and snapshots, never recapture changed inputs. Legacy Runs are unsupported evidence and require separate retirement authorization.`
 }

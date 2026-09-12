@@ -15,13 +15,14 @@ test('Git preflight never executes commands and keeps the operation boundary in 
   }
  }
  for (const args of [
-  ['clean', '-fd'], ['reset', '--hard'], ['push'], ['commit', '--amend'], ['commit', '-nm', 'bypass'],
+  ['clean', '-fd'], ['reset', '--hard'], ['reset', '--har'], ['push'], ['commit', '--amend'], ['commit', '-nm', 'bypass'],
   ['-c', 'core.hooksPath=/elsewhere', 'commit'], ['--git-dir=/elsewhere', 'status'], ['--work-tree=/elsewhere', 'status'],
   ['--namespace=other', 'status'], ['config', '--local', 'core.hooksPath', '/elsewhere'], ['log', '--output=file'],
-  ['diff', '--ext-diff'], ['show', '--textconv'], ['worktree', 'remove', 'path'], ['worktree', 'repair'], ['tag', 'v1'],
-  ['checkout', 'other'], ['rebase', 'HEAD~1'], ['update-ref', 'refs/heads/main', 'HEAD'],
+  ['diff', '--ext-diff'], ['show', '--textconv'], ['worktree', 'remove', 'path'],
+  ['rebase', 'HEAD~1'], ['update-ref', '-d', 'refs/heads/main'], ['branch', '-D', 'topic'], ['tag', '-d', 'v1'],
+ ['checkout', 'other'], ['checkout', '-B', 'other'], ['checkout', '--', 'file'], ['switch', '-C', 'other'],
  ]) assert.equal(check(args).status, 126, args.join(' '))
- assert.equal(check(['add', '--', 'file']).stdout.trim(), 'local')
+ for (const args of [['add', '--', 'file'], ['switch', 'other'], ['branch', 'topic'], ['tag', 'v1'], ['worktree', 'repair']]) assert.equal(check(args).stdout.trim(), 'local', args.join(' '))
  assert.equal(check(['merge', 'topic']).stdout.trim(), 'integration')
  assert.equal(check(['add', '--', 'file'], true).status, 126)
  assert.equal(check(['merge', 'topic'], true).status, 126)

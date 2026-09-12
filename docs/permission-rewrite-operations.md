@@ -18,61 +18,39 @@ Each session keeps that bundle. Source edits and `/reload` do not activate anoth
 
 Installation requires a reviewed source candidate and a human terminal. Source validation does not authorize installation.
 
-For a new installation or an update with the new defaults, explicitly select that policy:
+For a new installation or update, run:
 
 ```sh
-./install.sh --accept-development-roots --use-defaults
-```
-
-This choice does not import custom restrictions. The original policy file remains unchanged.
-
-For an existing policy, compare its rules before installation. Put the restrictions to retain in a JSON file.
-Then provide that reviewed file:
-
-```sh
-./install.sh --accept-development-roots --restrictions /absolute/path/to/reviewed-restrictions.json
-```
-
-An empty object explicitly selects the new defaults, like `--use-defaults`. It does not import the existing policy.
-Supported restriction surfaces are `bash`, `path`, `external_directory`, `read`, `write`, and `edit`.
-Restrictions can use `deny` or `ask`. They cannot weaken required denials.
-A blanket restriction takes precedence over earlier specific allowances.
-
-Example restriction:
-
-```json
-{
-  "bash": { "npm ci*": "ask" },
-  "path": { "*/private-project/*": "deny" }
-}
+./install.sh
 ```
 
 The installer stages a new bundle before selection. It replaces the launcher symlink atomically after dependency installation and bundle checks.
 Earlier bundles remain available. A failed staging step leaves the selected bundle unchanged.
 A changed or incomplete bundle fails verification. Sessions do not repair it.
 The launcher-only update path cannot install this contract.
-The Git-guard-only installer does not update a retained Pi bundle.
 
-After installation, start a fresh session. Complete its native report probe before ordinary work.
-The probe requires native `write` followed by native `read`. Shell filesystem access is not equivalent evidence.
+After installation, start a fresh session. Existing and new worktrees in the development roots work without registration or a startup probe.
 
 ## Graphs
 
-Graph records use version 3. Earlier approvals remain evidence and receive no expanded authority.
-Planning and execution require separate approvals and separate writing workspaces.
+Graph records use version 4. Earlier approvals remain evidence and receive no expanded authority.
+Planning and execution require separate approvals.
 
-One approval covers the declared task scope. The coordinator runs tasks sequentially.
-Ordinary diagnostics can run in the active writing workspace after setup.
+The proposal declares a worktree budget. This budget includes integration worktrees and writing lanes.
+One approval covers task records, worker launches, declared setup, validation, retries, bounded resources, and internal integration.
+Independent ready tasks run through `pi-yolo` workers. Each writing worker gets an exclusive lane labeled with the plan and task ID.
+Worker commits include the task ID. The integration branch uses the plan name, and merge commits identify each task.
+The worker validates its checkpoint. After integration, the graph runs the same validation on the combined checkout.
+A clean lane returns to the pool after integration. A dirty or interrupted lane stays intact.
+Closeout removes verified clean lanes and keeps the integration worktree.
+Read-only workers use an existing checkout.
+
+Read-only Git inspection works before approval. Ordinary diagnostics do not need new permission approval.
 Only successful declared validation on the clean checkpoint creates validation evidence.
-Later mutation invalidates that evidence.
+A later mutating command invalidates that evidence. Read-only inspection and completion reports do not invalidate it.
 
-Read-only Git inspection can run before, during, and after a graph.
-A later mutation in a command chain does not inherit inspection authority.
-Git hooks remain enabled. Graph checkpoints do not authorize publication or branch integration.
-
-Resume with the exact original graph command. Keep the original snapshots and resource identities.
+Resume with the exact graph command. The graph reuses recorded workers, lanes, snapshots, and resource identities.
 Do not recapture changed source files or recreate missing workspaces.
-A scope change requires incremental approval. New tasks and repositories do not replace earlier snapshots or approval records.
 Pending Product and Security approvals block a named plan.
 
 ## Local resources
@@ -120,7 +98,7 @@ From an authorized human shell, inspect a retained bundle:
 ```
 
 Bundle verification does not prove native tool routing or fresh-session behavior.
-Fresh-session acceptance must cover the native probe, selected repository, physical path boundaries, operator restrictions, graph lifecycle, and declared resources.
+Fresh-session acceptance must cover ordinary access in existing and new worktrees, physical path boundaries, hard safety denials, graph lifecycle, and declared resources.
 It must also cover failed updates, retained sessions, and changed resource identities.
 
 [Current validation status](permission-rewrite-status.md) records the remaining work.

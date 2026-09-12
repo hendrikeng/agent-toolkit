@@ -16,7 +16,7 @@ case ${1:---source} in
     node --experimental-strip-types --check pi/extensions/task-graph/index.ts
     node shared/agent-safety/configure.cjs --self-test
     node --test shared/agent-safety/development-policy.test.cjs shared/agent-safety/local-resources.test.cjs shared/agent-safety/resource-boundaries.test.cjs shared/agent-safety/git-operation-policy.test.cjs shared/agent-safety/launcher-syntax-contract.test.cjs shared/agent-safety/shared-launcher.test.cjs
-    node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts
+    node --experimental-strip-types --test pi/extensions/development-access/tests/development-access.test.ts pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts
     node --experimental-transform-types shared/agent-safety/permission-api-reference.check.cjs "$2"
     node shared/agent-safety/extension-loader.check.cjs "$2"
     printf 'Source checks passed. Installed runtime and fresh sessions are NOT accepted by these checks.\n'

@@ -22,10 +22,10 @@ exports.check = async function ({ root: packageRoot, fixture, service, defaults 
  fs.writeFileSync(path.join(bundle, 'git.agent-toolkit.sha256'), createHash('sha256').update(fs.readFileSync(path.join(bundle, 'git'))).digest('hex'))
  for (const name of ['development-access', 'task-graph']) fs.cpSync(path.join(__dirname, '../../pi/extensions', name), path.join(bundle, 'extensions', name), { recursive: true })
  fs.cpSync(packageRoot, path.join(bundle, 'node_modules/@gotgenes/pi-permission-system'), { recursive: true })
- const config = buildDevelopmentPolicy(defaults, { home, scratchRoot: path.join(home, 'Code/scratch'), reportRoot: reports, restrictions: { bash: { 'npm ci*': 'ask' } } })
+ const config = buildDevelopmentPolicy(defaults, { home, scratchRoot: path.join(home, 'Code/scratch'), reportRoot: reports })
  fs.writeFileSync(path.join(bundle, 'policy.json'), JSON.stringify(config.policy))
  fs.writeFileSync(path.join(runtime, 'extensions/pi-permission-system/config.json'), JSON.stringify(config.policy))
- const manifest = { version: config.version, roots: config.roots, permissionPackage: '20.7.3', graphVersion: 3, piVersion: '0.79.1', files: inventory(bundle) }
+ const manifest = { version: config.version, roots: config.roots, permissionPackage: '20.7.3', graphVersion: 4, piVersion: '0.79.1', files: inventory(bundle) }
  fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify(manifest))
  Object.assign(process.env, { HOME: home, AGENT_TOOLKIT_PERMISSION_BUNDLE: bundle, PI_CODING_AGENT_DIR: runtime, AGENT_TOOLKIT_REVIEW_ROOT: reports, AGENT_TOOLKIT_SCRATCH_ROOT: path.join(home, 'Code/scratch') })
  let executed, confirmations = 0, allowConfirmation = false, nativeDecision = 'allow', nativeOrigin
@@ -66,7 +66,7 @@ exports.check = async function ({ root: packageRoot, fixture, service, defaults 
   process.env.PATH = `${bin}:${oldPath}`
   assert.throws(() => stage(path.join(__dirname, '../..'), path.join(home, 'Code/staged'), home, '', 'not-accepted'), /acceptance/)
   assert.equal(fs.existsSync(path.join(home, 'Code/staged')), false)
-  assert.throws(() => stage(path.join(__dirname, '../..'), path.join(home, 'Code/staged'), home, '', 'development-roots-v1'), /Command failed/)
+  assert.throws(() => stage(path.join(__dirname, '../..'), path.join(home, 'Code/staged'), home), /Command failed/)
   assert.equal(fs.realpathSync(pointer), path.join(nextBundle, 'dispatch'), 'interrupted staging did not change selection')
   process.env.PATH = oldPath
   const launcher = path.join(home, '.local/bin/pi-yolo')
@@ -82,64 +82,24 @@ exports.check = async function ({ root: packageRoot, fixture, service, defaults 
   assert.equal(fs.realpathSync(fromSession.resolve('@gotgenes/pi-permission-system')), path.join(bundle, 'node_modules/@gotgenes/pi-permission-system/src/service.ts'))
   assert.equal(captured.config.yoloMode, false)
   assert.equal(captured.config.permission.bash['*'], 'allow')
-  assert.equal(captured.config.permission.path[`${captured.runtime}/*`], 'deny')
+  assert.equal(captured.config.permission.write[`${captured.runtime}/*`], 'deny')
+ assert.equal(captured.config.permission.edit[`${captured.runtime}/*`], 'deny')
+ assert.equal(captured.config.permission.bash[`*${captured.runtime}*`], 'deny')
+  assert.equal(captured.config.permission.path[`${captured.runtime}/auth.json`], 'deny')
   assert.ok(fs.existsSync(captured.runtime), 'session artifacts are retained')
   assert.ok(captured.runtime.startsWith(`${home}/Code/.agent-toolkit-scratch/`))
   const { default: extension } = await import(extensionUrl)
   const events = new Map(), tools = new Map()
   extension({ registerTool: tool => tools.set(tool.name, tool), on: (name, handler) => events.set(name, handler) })
   const ctx = { cwd, hasUI: true, ui: { notify() {}, confirm: async () => { confirmations++; return allowConfirmation } } }
-  let serial = 0
-  const call = async (toolName, input, fail = false) => {
-   const toolCallId = String(++serial), event = { toolName, input, toolCallId }
-   const gate = await events.get('tool_call')(event, ctx)
-   if (gate?.block) throw Error(gate.reason)
-   if (!fail) {
-    if (toolName === 'write') fs.writeFileSync(input.path, input.content)
-    else if (toolName === 'read') fs.readFileSync(input.path)
-    else if (toolName === 'bash') await tools.get('bash').execute(toolCallId, input, undefined, undefined, ctx)
-   }
-   await events.get('tool_result')?.({ ...event, isError: fail })
-  }
-  events.get('session_start')({}, ctx)
-  await assert.rejects(call('bash', { command: 'node --version' }), /probe is incomplete/)
-  const probe = path.join(reports, `.native-probe-${process.pid}.txt`)
-  await call('write', { path: probe, content: 'native report probe' }, true)
-  await assert.rejects(call('bash', { command: 'node --version' }), /probe is incomplete/)
-  await call('write', { path: probe, content: 'native report probe' }); await call('read', { path: probe })
-  for (const repository of [undefined, selected]) { await call('bash', { command: 'node --version', repository }); assert.equal(executed, repository ?? cwd) }
-  const file = path.join(selected, 'file.txt'); await call('write', { path: file, content: 'synthetic' }); await call('read', { path: file })
-  await assert.rejects(call('read', { path: path.join(home, 'outside.txt') }), /bounded path/)
-  for (const command of ['cat .env', 'rm file', 'node --version; git clean -fd', 'npm install -g pkg', 'gh pr create', 'PATH=/outside node --version']) await assert.rejects(call('bash', { command }))
-  await assert.rejects(call('write', { path: path.join(cwd, '.env'), content: 'synthetic' }), /policy denied/)
-  await assert.rejects(call('bash', { command: 'npm ci' }), /authorization was not granted/)
-  assert.equal(confirmations, 1, 'later native allowance did not erase accepted ask')
-  allowConfirmation = true; await call('bash', { command: 'npm ci' }); assert.equal(confirmations, 2)
-  nativeDecision = 'deny'; await assert.rejects(call('bash', { command: 'node --version' }), /Native operation policy denied/)
-  assert.equal(confirmations, 2)
-  nativeDecision = 'allow'
-  const projectPolicy = path.join(selected, '.pi/extensions/pi-permission-system/config.json')
-  fs.mkdirSync(path.dirname(projectPolicy), { recursive: true })
-  fs.writeFileSync(projectPolicy, JSON.stringify({ permission: { bash: { 'node*': 'deny' } } }))
-  await assert.rejects(call('bash', { command: 'node --version', repository: selected }), /policy denied/)
-  await call('bash', { command: 'node --version' })
-  fs.writeFileSync(projectPolicy, JSON.stringify({ permission: { bash: { 'node*': 'ask' } } }))
-  const prior = confirmations; allowConfirmation = false
-  await assert.rejects(call('bash', { command: 'node --version', repository: selected }), /authorization was not granted/)
-  assert.equal(confirmations, prior + 1, 'selected-project asks remain authoritative')
-  nativeOrigin = 'session'
-  await assert.rejects(call('bash', { command: 'node --version', repository: selected }), /authorization was not granted/)
-  assert.equal(confirmations, prior + 2, 'another project cannot inherit a session approval')
-  allowConfirmation = true
-  await call('bash', { command: 'node --version', repository: selected })
-  assert.equal(confirmations, prior + 3)
-  nativeOrigin = undefined
-  fs.writeFileSync(projectPolicy, '{}')
-  const probeTarget = path.join(cwd, 'probe-target.txt')
-  fs.writeFileSync(probeTarget, 'preserved')
-  fs.renameSync(probe, `${probe}.retained`); fs.symlinkSync(probeTarget, probe)
-  await assert.rejects(call('write', { path: probe, content: 'native report probe' }), /probe path identity changed/)
-  assert.equal(fs.readFileSync(probeTarget, 'utf8'), 'preserved')
+  const callBash = async (repository) => tools.get('bash').execute('bash', { command: 'node --version', ...(repository ? { repository } : {}) }, undefined, undefined, ctx)
+  assert.equal(events.has('tool_call'), false, 'ordinary development has no second permission gate')
+  await callBash(); assert.equal(executed, cwd)
+  await callBash(selected); assert.equal(executed, selected)
+  const newWorktree = path.join(home, 'orca/workspaces/created-after-session-start')
+  fs.mkdirSync(newWorktree, { recursive: true })
+  await callBash(newWorktree); assert.equal(executed, newWorktree)
+  assert.equal(confirmations, 0, 'ordinary development never asks for checkout trust')
   const resources = require(path.join(bundle, 'local-resources.cjs'))
   const originals = { ...resources }, previousURL = process.env.RESOURCE_CACHE_URL
   try {
@@ -154,10 +114,9 @@ exports.check = async function ({ root: packageRoot, fixture, service, defaults 
    assert.ok(process.env.RESOURCE_CACHE_URL === 'synthetic-fixture-url')
    await tools.get('operate_local_resource').execute('stop', { resource_id: 'cache', operation: 'stop' })
    assert.ok(process.env.RESOURCE_CACHE_URL === previousURL, 'shutdown restores the previous environment')
-   await call('bash', { command: 'node --version' })
+   await callBash(selected)
   } finally { Object.assign(resources, originals) }
   service.unpublishPermissionsService(native)
-  await assert.rejects(call('read', { path: file }), /service is not active/)
   assert.equal(tools.has('propose_task_graph'), false, 'ordinary root access has no graph dependency')
   console.log(`Source extension and retained-bundle checks passed: ${home}`)
  } finally {

@@ -57,6 +57,13 @@ while ((i < ${#args[@]})); do
 done
 
 command=${args[i]:-}
+if [[ -n $command ]]; then
+  [[ $command =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'git yolo guard: invalid subcommand\n' >&2; exit 126; }
+  case $command in credential|credential-*|p4|svn|archimport|cvsimport|cvsserver|imap-send|send-email|difftool|mergetool|gui|gitk|instaweb|citool|submodule|bisect|hook|for-each-repo) printf 'git yolo guard: credential and publication helpers are disabled\n' >&2; exit 126 ;; esac
+  if ! "$real_git" help -a --no-external-commands --no-aliases | grep -Eq "^[[:space:]]+$command([[:space:]]|$)"; then
+    printf 'git yolo guard: aliases and external subcommands are disabled\n' >&2; exit 126
+  fi
+fi
 for argument in "${args[@]:i+1}"; do
   if [[ $argument == --?* && ( --no-verify == "$argument"* || --amend == "$argument"* || $argument == --no-no-* ) ]]; then
     printf 'git yolo guard: hook bypass/history replacement is disabled\n' >&2; exit 126
@@ -72,58 +79,75 @@ if [[ $command == commit ]]; then
     done
   done
 fi
+# Default to ordinary local Git. Block only publication, destructive history or
+# worktree changes, hook bypasses, and configuration writes.
 case $command in
-  status|diff|diff-tree|log|show|add|commit|fetch|merge|merge-base|cherry-pick|revert|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|init|clone|version|help)
-    ;;
+  push|http-push|send-pack|receive-pack|daemon|clean|rebase|filter-branch|replace|update-ref|prune|gc|rm|restore|checkout-index|read-tree|sparse-checkout|reset|fast-import|maintenance|repack|am|apply)
+    printf 'git yolo guard: blocked protected git operation: %s\n' "$command" >&2; exit 126 ;;
+  mv)
+    for argument in "${args[@]:i+1}"; do case $argument in -f|-?*f*|--f|--fo|--for|--forc|--force) printf 'git yolo guard: forced overwrite is disabled\n' >&2; exit 126 ;; esac; done ;;
+  merge|cherry-pick|revert)
+    for argument in "${args[@]:i+1}"; do case $argument in --a|--ab|--abo|--abor|--abort|--q|--qu|--qui|--quit|--s|--sk|--ski|--skip) printf 'git yolo guard: destructive integration abort is disabled\n' >&2; exit 126 ;; esac; done ;;
+  checkout)
+    printf 'git yolo guard: checkout is ambiguous and disabled; use git switch for branches\n' >&2; exit 126 ;;
+  switch)
+    for argument in "${args[@]:i+1}"; do
+      case $argument in -f|-C|-C?*|--f|--fo|--for|--forc|--force|--force-*|--d|--di|--dis|--disc|--disca|--discar|--discard|--discard-*|--o|--or|--orp|--orph|--orpha|--orphan ) printf 'git yolo guard: branch replacement is disabled\n' >&2; exit 126 ;; esac
+      [[ $argument == -?* && $argument != --* ]] || continue
+      short=${argument:1}
+      while [[ -n $short ]]; do
+        option=${short:0:1}
+        if [[ $option == f || $option == C ]]; then printf 'git yolo guard: branch replacement is disabled\n' >&2; exit 126; fi
+        [[ $option != c ]] || break
+        short=${short:1}
+      done
+    done ;;
+  branch|tag)
+    for argument in "${args[@]:i+1}"; do
+      case $argument in --d|--de|--del|--dele|--delet|--delete|--delete=*|--f|--fo|--for|--forc|--force|--e|--ed|--edi|--edit|--edit-|--edit-d|--edit-de|--edit-des|--edit-desc|--edit-descr|--edit-descri|--edit-descrip|--edit-descript|--edit-descripti|--edit-descriptio|--edit-description|--m|--mo|--mov|--move|--s|--se|--set|--set-|--set-u|--set-up|--set-ups|--set-upst|--set-upstr|--set-upstre|--set-upstrea|--set-upstream|--set-upstream-|--set-upstream-t|--set-upstream-to|--set-upstream-to=*|--u|--un|--uns|--unse|--unset|--unset-|--unset-u|--unset-up|--unset-ups|--unset-upst|--unset-upstr|--unset-upstre|--unset-upstrea|--unset-upstream) printf 'git yolo guard: ref deletion or replacement is disabled\n' >&2; exit 126 ;; esac
+      [[ $argument == -?* && $argument != --* ]] || continue
+      short=${argument:1}
+      while [[ -n $short ]]; do
+        option=${short:0:1}
+        if [[ $option == d || $option == f || $command == branch && ( $option == C || $option == D || $option == M || $option == m || $option == u ) ]]; then printf 'git yolo guard: ref deletion or replacement is disabled\n' >&2; exit 126; fi
+        case $option in m|c|C|F|u) break ;; esac
+        short=${short:1}
+      done
+    done ;;
+  stash)
+    case ${args[i+1]:-push} in drop|clear|pop|branch) printf 'git yolo guard: stash deletion is disabled\n' >&2; exit 126 ;; esac ;;
   remote)
     case ${args[i+1]:-} in
-      '') [[ ${#args[@]} -eq $((i + 1)) ]] || exit 126 ;;
-      -v|--verbose) [[ ${#args[@]} -eq $((i + 2)) ]] || exit 126 ;;
-      get-url) ;;
-      show) [[ ${args[i+2]:-} == -n ]] || { printf 'git yolo guard: remote show requires -n\n' >&2; exit 126; } ;;
-      *) printf 'git yolo guard: remote mutation requires separate authorization\n' >&2; exit 126 ;;
-    esac
-    ;;
-  config)
-    # Explicit reads only. Never let an option or extra operand turn a query into a write.
-    action=
+      ""|get-url) ;;
+      -v|--verbose) [[ -z ${args[i+2]:-} ]] || { printf 'git yolo guard: remote configuration changes are disabled\n' >&2; exit 126; } ;;
+      *) printf 'git yolo guard: remote configuration changes are disabled\n' >&2; exit 126 ;;
+    esac ;;
+  reflog)
+    case ${args[i+1]:-show} in delete|expire) printf 'git yolo guard: reflog deletion is disabled\n' >&2; exit 126 ;; esac ;;
+  symbolic-ref)
     operands=0
+    for argument in "${args[@]:i+1}"; do case $argument in -q|--q|--qu|--qui|--quie|--quiet) ;; -*) printf 'git yolo guard: ref mutation is disabled\n' >&2; exit 126 ;; *) operands=$((operands + 1)) ;; esac; done
+    ((operands <= 1)) || { printf 'git yolo guard: ref mutation is disabled\n' >&2; exit 126; } ;;
+  notes)
+    j=$((i + 1))
+    while ((j < ${#args[@]})); do case ${args[j]} in --ref) j=$((j + 2)) ;; --ref=*) j=$((j + 1)) ;; *) break ;; esac; done
+    case ${args[j]:-list} in list|show|get-ref) ;; *) printf 'git yolo guard: note mutation is disabled\n' >&2; exit 126 ;; esac ;;
+  worktree)
+    case ${args[i+1]:-list} in
+      remove|prune|move) printf 'git yolo guard: worktree deletion is disabled\n' >&2; exit 126 ;;
+      add) for argument in "${args[@]:i+2}"; do case $argument in -f|-B|-?*f*|-?*B*|--f|--fo|--for|--forc|--force) printf 'git yolo guard: forced worktree or branch replacement is disabled\n' >&2; exit 126 ;; esac; done ;;
+    esac ;;
+  config)
+    action= operands=0
     for ((j = i + 1; j < ${#args[@]}; j++)); do
       case ${args[j]} in
-        --get|--get-all|--get-regexp|--get-urlmatch|--list|-l)
-          [[ -z $action && $operands -eq 0 ]] || { printf 'git yolo guard: one Git config read action must precede all operands\n' >&2; exit 126; }
-          action=${args[j]}
-          ;;
-        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes|--path)
-          [[ $operands -eq 0 ]] || { printf 'git yolo guard: config options must precede operands\n' >&2; exit 126; } ;;
-        -*) printf 'git yolo guard: unsupported Git config read option: %s\n' "${args[j]}" >&2; exit 126 ;;
-        *)
-          if [[ -z $action && $operands -eq 0 && ( ${args[j]} == get || ${args[j]} == list ) ]]; then
-            action=${args[j]}
-          else
-            operands=$((operands + 1))
-          fi
-          ;;
+        --get|--get-all|--get-regexp|--get-urlmatch|--list|-l) action=${args[j]} ;;
+        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes|--path) ;;
+        -*) printf 'git yolo guard: config writes are disabled\n' >&2; exit 126 ;;
+        *) if [[ -z $action && ( ${args[j]} == get || ${args[j]} == list ) ]]; then action=${args[j]}; else operands=$((operands + 1)); fi ;;
       esac
     done
-    case $action:$operands in
-      --get:1|--get:2|--get-all:1|--get-all:2|--get-regexp:1|--get-regexp:2|--get-urlmatch:2|--list:0|-l:0|get:1|list:0) ;;
-      *) printf 'git yolo guard: only explicit read-only Git config queries are allowed\n' >&2; exit 126 ;;
-    esac
-    ;;
-  switch)
-    [[ ${#args[@]} -eq $((i + 3)) && ${args[i+1]:-} == -c && -n ${args[i+2]:-} && ${args[i+2]} != -* ]] || { printf 'git yolo guard: only git switch -c <new-branch> is allowed unattended\n' >&2; exit 126; }
-    ;;
-  branch)
-    [[ ${#args[@]} -eq $((i + 2)) && ${args[i+1]:-} == --show-current ]] || { printf 'git yolo guard: unsupported unattended git branch operation\n' >&2; exit 126; }
-    ;;
-  worktree)
-    case ${args[i+1]:-list} in add|list) ;; *) printf 'git yolo guard: blocked git worktree %s\n' "${args[i+1]:-}" >&2; exit 126 ;; esac
-    ;;
-  *)
-    printf 'git yolo guard: unsupported unattended git command: %s\n' "$command" >&2
-    exit 126
-    ;;
+    case $action:$operands in --get:1|--get:2|--get-all:1|--get-all:2|--get-regexp:1|--get-regexp:2|--get-urlmatch:2|--list:0|-l:0|get:1|list:0) ;; *) printf 'git yolo guard: config writes are disabled\n' >&2; exit 126 ;; esac ;;
 esac
 case $command in
   clone|fetch|init)
@@ -161,7 +185,9 @@ case $command in
 esac
 operation=local
 case $command in
-  status|diff|diff-tree|log|show|merge-base|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|version|branch|remote|config) operation=inspection ;;
+  status|diff|diff-tree|log|show|merge-base|blame|grep|ls-files|ls-tree|rev-parse|rev-list|describe|name-rev|cat-file|for-each-ref|version|config) operation=inspection ;;
+  branch) [[ -z ${args[i+1]:-} || ${args[i+1]:-} == --show-current || ${args[i+1]:-} == --list ]] && operation=inspection ;;
+  remote) [[ -z ${args[i+1]:-} || ${args[i+1]:-} == -v || ${args[i+1]:-} == --verbose || ${args[i+1]:-} == get-url ]] && operation=inspection ;;
   worktree) [[ ${args[i+1]:-} != list ]] || operation=inspection ;;
   merge|cherry-pick|revert) operation=integration ;;
 esac

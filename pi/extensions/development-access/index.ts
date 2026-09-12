@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
-import { lstatSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { StringEnum } from '@earendil-works/pi-ai'
-import { join, isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { createBashTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { inspectDevelopmentShell, evaluateDevelopmentPolicy, developmentDirectoryPolicy, getPermissionsService } from '@gotgenes/pi-permission-system'
+import { evaluateDevelopmentPolicy, inspectDevelopmentShell } from '@gotgenes/pi-permission-system'
 import { Type } from 'typebox'
 
 const require = createRequire(import.meta.url)
@@ -19,12 +19,13 @@ export async function inspectShell(command: string, cwd: string) {
  const selected = physicalPath(cwd)
  const permission = JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR!, 'extensions/pi-permission-system/config.json'), 'utf8')).permission
  const facts = await inspectDevelopmentShell(command, selected, permission)
+ if (facts.commands.some(args => evaluateDevelopmentPolicy(permission, 'bash', args.join(' ')) !== 'allow')) throw new Error('Accepted bash policy denied this command')
  let inspection = !facts.effects && facts.commands.length > 0
  let gitMutation = false
  let integration = false
  for (const args of facts.commands) {
   if (args[0].split('/').at(-1)?.toLowerCase() !== 'git') { inspection = false; continue }
-  try { const operation = execFileSync(join(bundle, 'git'), ['--agent-toolkit-selected', ...args.slice(1)], { cwd: selected, stdio: 'pipe', encoding: 'utf8' }).trim(); integration = integration || operation === 'integration' } catch { throw new Error('Git guard rejected the operation or its arguments; no command ran. For mutations, select the target with the repository parameter instead of Git -C') }
+  try { const operation = execFileSync(join(bundle, 'git'), ['--agent-toolkit-selected', ...args.slice(1)], { cwd: selected, stdio: 'pipe', encoding: 'utf8' }).trim(); integration ||= operation === 'integration' } catch { throw new Error('Git guard rejected the operation or its arguments; no command ran. For mutations, select the target with the repository parameter instead of Git -C') }
   try { execFileSync(join(bundle, 'git'), ['--agent-toolkit-inspect', ...args.slice(1)], { cwd: selected, stdio: 'pipe' }) } catch { inspection = false; gitMutation = true }
  }
  if (gitMutation && facts.directories.some(directory => directory !== selected)) throw new Error('For Git mutations, select the target with the repository parameter instead of shell directory changes')
@@ -34,19 +35,6 @@ export function runBash(id: string, params: { command: string; timeout?: number;
  return createBashTool(cwd, { spawnHook: context => ({ ...context, env: { ...context.env, ...env } }) }).execute(id, params, signal, update)
 }
 export default function developmentAccess(pi: ExtensionAPI) {
- const localGit = new Set<string>()
- let floor: Record<string, unknown>
- let infrastructure: Record<string, unknown> = {}
- const narrow = async (surface: string, target: string, ctx: any, selected: 'allow' | 'ask' | 'deny' = 'allow') => {
-  if (!floor) throw new Error('Installation floor is not loaded')
-  const floorDecision = evaluateDevelopmentPolicy(floor, surface, target)
-  const decision = [floorDecision, selected].includes('deny') ? 'deny' : [floorDecision, selected].includes('ask') ? 'ask' : 'allow'
-  if (decision === 'deny') throw new Error(`Accepted ${surface} policy denied this target or command unit`)
-  // Native asks already use their own prompt. A later allowance must not erase
-  // the installer's narrower policy. Never disclose argument credential values.
-  const native = getPermissionsService()?.checkPermission(surface, target)
-  if (decision === 'ask' && (selected === 'ask' || native?.state === 'allow' && native.origin !== 'session') && (!ctx.hasUI || !await ctx.ui.confirm('Accepted policy requires authorization', `Approve this ${surface} operation for this call? Values are omitted to protect credentials.`))) throw new Error('Accepted policy authorization was not granted')
- }
  let resourceScope: any
  const resourceEnv = new Map<string, string | undefined>()
  const clearResourceEnv = () => {
@@ -97,97 +85,21 @@ export default function developmentAccess(pi: ExtensionAPI) {
    return { content: [{ type: 'text', text: output || 'Operation complete; resources retained' }], details: {} }
   },
  })
- pi.on('session_shutdown', clearResourceEnv)
- const pendingProbe = new Map<string, 'write' | 'read'>()
- let probeWritten = false, probeRead = false
  pi.registerTool({
-  name: 'bash', label: 'bash', description: 'Native permission-gated shell. repository selects its working directory independently of graph mode.',
+  name: 'bash', label: 'bash', description: 'Native permission-gated shell. repository selects any physical working directory in the accepted development roots.',
   parameters: Type.Object({ command: Type.String({ minLength: 1 }), timeout: Type.Optional(Type.Number()), repository: Type.Optional(Type.String({ minLength: 1 })) }), executionMode: 'sequential',
   async execute(id, params, signal, update, ctx) {
-   const { physicalPath } = contract()
+   const { assertDevelopmentPath, developmentRoots } = contract()
    const cwd = params.repository ? isAbsolute(params.repository) ? params.repository : `${ctx.cwd}/${params.repository}` : ctx.cwd
-   return runBash(id, params, signal, update, physicalPath(cwd))
+   const roots = developmentRoots(process.env.HOME), selected = assertDevelopmentPath(cwd, roots), runtime = process.env.PI_CODING_AGENT_DIR!, facts = await inspectShell(params.command, selected), targets = [...facts.paths, ...facts.candidates, ...facts.directories].filter(path => path && path !== '/dev/null').map(path => assertDevelopmentPath(path, roots))
+   if ([selected, ...targets].some(path => path === runtime || path.startsWith(`${runtime}/`))) throw new Error('Runtime agent files are read-only during the session')
+   return runBash(id, params, signal, update, selected)
   },
  })
  pi.on('session_start', (_event, ctx) => {
   const { bundle, POLICY_VERSION, developmentRoots } = contract()
   require(join(bundle, 'permission-bundle.cjs')).verifyBundle(bundle)
-  const config = JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR!, 'extensions/pi-permission-system/config.json'), 'utf8'))
-  floor = config.permission
-  const readPaths: Record<string, string> = { '*': 'deny' }
-  for (const path of config.piInfrastructureReadPaths ?? []) { readPaths[path] = 'allow'; readPaths[`${path}/*`] = 'allow' }
-  infrastructure = { external_directory: readPaths }
-  ctx.ui.notify(`${POLICY_VERSION}: ${developmentRoots(process.env.HOME).join(', ')}. Reload retains this permission version.`, 'info')
+  ctx.ui.notify(`${POLICY_VERSION}: ${developmentRoots(process.env.HOME).join(', ')}. New worktrees under these roots need no registration or restart.`, 'info')
  })
- pi.on('before_agent_start', event => probeRead ? undefined : ({ systemPrompt: event.systemPrompt + `\nPermission startup probe: before ordinary work, use native write on ${process.env.AGENT_TOOLKIT_REVIEW_ROOT}/.native-probe-${process.pid}.txt with content "native report probe", then native read on that exact path. Retain it. This verifies native routing, not shell-only filesystem access.` }))
- pi.on('tool_call', async (event, ctx) => {
-  let selectedCwd = ctx.cwd, targetHint = '', operation = event.toolName
-  try {
-   const { physicalPath, developmentRoots, within } = contract()
-   if (!getPermissionsService()) throw new Error('Native permission service is not active')
-   const roots = developmentRoots(process.env.HOME)
-   const input = event.input as any
-   const probe = `${process.env.AGENT_TOOLKIT_REVIEW_ROOT}/.native-probe-${process.pid}.txt`
-   if (['write', 'read'].includes(event.toolName) && input.path === probe) {
-    if (physicalPath(probe) !== probe) throw new Error('Native probe path identity changed')
-    try { const stat = lstatSync(probe); if (!stat.isFile() || stat.nlink !== 1) throw new Error('Native probe must be an unshared regular file') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-    if (event.toolName === 'write' && input.content !== 'native report probe') throw new Error('Startup probe content mismatch')
-    pendingProbe.set(event.toolCallId, event.toolName as 'write' | 'read')
-   } else if (!probeWritten || !probeRead) throw new Error(`Installation [development-roots-v1]: native report probe is incomplete. Write and read ${probe} through native tools first.`)
-   if (event.toolName === 'bash') {
-    const cwd = input.repository ? isAbsolute(input.repository) ? input.repository : `${ctx.cwd}/${input.repository}` : ctx.cwd
-    selectedCwd = physicalPath(cwd)
-    if (!within(cwd, roots)) throw new Error('Selected working directory is outside accepted roots')
-    const facts = await inspectShell(input.command, cwd)
-    const service = getPermissionsService()
-    const selectedPolicy = developmentDirectoryPolicy(process.env.PI_CODING_AGENT_DIR!, facts.cwd)
-    await narrow('external_directory', facts.cwd, ctx, selectedPolicy('external_directory', facts.cwd))
-    for (const args of facts.commands) {
-     const name = args[0].split('/').at(-1)?.toLowerCase()
-     operation = name ?? 'bash'
-     if (['npm', 'pnpm', 'yarn', 'bun'].includes(name!) && args.slice(1).some((arg, index) => /^-[^-]*g/.test(arg) || /^--(?:global|location=global)(?:=|$)/.test(arg) || (arg === '--location' && args[index + 2] === 'global'))) throw new Error('Global package installation requires separate host authorization')
-     await narrow('bash', [name, ...args.slice(1)].join(' '), ctx, selectedPolicy('bash', [name, ...args.slice(1)].join(' ')))
-     if (!service || service.checkPermission('bash', [name, ...args.slice(1)].join(' ')).state === 'deny') throw new Error('Native operation policy denied this parsed command')
-    }
-    for (const target of [...facts.paths, ...facts.candidates, ...facts.directories]) {
-     targetHint = target
-     if (target && target !== '/dev/null') { await narrow('path', target, ctx, selectedPolicy('path', target)); await narrow('external_directory', target, ctx, selectedPolicy('external_directory', target)) }
-     if (target && target !== '/dev/null' && !within(target, roots)) throw new Error(`Explicit shell target is outside accepted roots: ${target}`)
-    }
-    for (const args of facts.commands) {
-     const name = args[0].split('/').at(-1)?.toLowerCase()
-     if (['pg-test', 'git-test'].includes(name!) && ['start', 'start-admin', 'create'].includes(args[1])) {
-      if (process.env.AGENT_TOOLKIT_GIT_INSPECTION_ONLY === 'true') throw new Error('Additional fixture creation is outside graph resource declarations. Use the approved graph resource tools.')
-      if (!ctx.hasUI || !await ctx.ui.confirm('Authorize one bounded fixture?', `Create one ${name} fixture for this task? The managed helper retains its identity and evidence. No existing repository or database administration is authorized.`)) throw new Error('Fixture creation requires bounded setup authorization')
-     }
-    }
-    if (facts.integration && (!ctx.hasUI || !await ctx.ui.confirm('Authorize branch integration?', `This operation integrates history in ${facts.cwd}. Proceed only for an explicit user integration request after preserving local work.`))) throw new Error('Branch integration needs separate operation-specific authorization')
-    if (facts.gitMutation && !facts.integration && !localGit.has(facts.cwd)) {
-     if (!ctx.hasUI || !await ctx.ui.confirm('Approve local Git mutation scope?', `Allow local Git mutations in ${facts.cwd} for this session task? Hooks stay enabled. Publication, deletion and history replacement remain excluded.`)) throw new Error('Local Git mutation needs task-specific human authorization')
-     localGit.add(facts.cwd)
-    }
-    if (resourceScope) exposeResources()
-   } else if (typeof input.path === 'string') {
-    const value = input.path.replace(/^@/, '')
-    const target = physicalPath(isAbsolute(value) ? value : `${ctx.cwd}/${value}`)
-    targetHint = target
-    await narrow('path', target, ctx)
-    await narrow(event.toolName === 'write' || event.toolName === 'edit' ? event.toolName : 'read', target, ctx)
-    if (within(target, roots)) await narrow('external_directory', target, ctx)
-    if (getPermissionsService()?.checkPermission('path', target).state === 'deny') throw new Error('Native protected-path policy denied this target')
-    // The native package owns protected-secret rules and bounded infrastructure
-    // reads. Physical aliases must also meet its external-directory decision.
-    if (!within(target, roots) && !within(target, [physicalPath(process.env.AGENT_TOOLKIT_REVIEW_ROOT!)])) {
-     if (!['read', 'fffind', 'ffgrep', 'grep', 'find', 'ls'].includes(event.toolName) || evaluateDevelopmentPolicy(infrastructure, 'external_directory', target) !== 'allow') throw new Error(`Target requires bounded path authorization: ${target}`)
-    }
-   }
-  } catch (error) { return { block: true, reason: `Path/operation policy [development-roots-v1], cwd=${JSON.stringify(selectedCwd)}, operation=${JSON.stringify(operation)}${targetHint ? `, target=${JSON.stringify(targetHint)}` : ''}: ${error instanceof Error ? error.message : 'Rejected operation'}. No in-session grant overrides this denial. Use a separately authorized human operation, or the declared resource tools where applicable; chat approval does not change policy.` } }
- })
- pi.on('tool_result', event => {
-  const probe = pendingProbe.get(event.toolCallId)
-  pendingProbe.delete(event.toolCallId)
-  if (event.isError) return
-  if (probe === 'write') probeWritten = true
-  if (probe === 'read' && probeWritten) probeRead = true
- })
+ pi.on('session_shutdown', clearResourceEnv)
 }

@@ -24,27 +24,18 @@ test('physical roots cover future non-Git directories and reject symlink/travers
   assert.throws(() => developmentRoots(`${home}/Code/escape/..`), /physical directories/)
 })
 
-test('root policy preserves secrets and human restrictions without ask-to-allow conversion', () => {
-  const defaults = { permission: { bash: { '*': 'allow', 'rm *': 'deny' }, path: { '*': 'allow', '*.key': 'deny' }, read: 'allow', write: 'allow', edit: 'allow' } }
-  const before = JSON.stringify(defaults)
-  const restrictions = { bash: { 'node *': 'deny', 'rm *': 'ask' }, path: { '*.key': 'ask' }, read: 'ask', external_directory: { [`${home}/Code/private/*`]: 'deny' } }
-  const options = { home, scratchRoot: `${home}/Code/scratch`, reportRoot: `${home}/.pi/agent/review-results`, restrictions }
-  const result = buildDevelopmentPolicy(defaults, options)
-  assert.equal(JSON.stringify(defaults), before)
-  assert.equal(result.policy.yoloMode, false)
-  assert.equal(result.policy.permission.bash['*'], 'allow')
-  assert.equal(result.policy.permission.bash['node *'], 'deny')
-  assert.equal(result.policy.permission.bash['rm *'], 'deny')
-  assert.equal(result.policy.permission.path['*.key'], 'deny')
-  assert.equal(result.policy.permission.read['*'], 'ask')
-  assert.equal(result.policy.permission.external_directory['*'], 'deny')
-  assert.equal(result.policy.permission.external_directory[`${home}/.pi/agent/review-results/*`], 'allow')
-  assert.equal(result.policy.permission.external_directory[`${home}/.pi/agent/*`], undefined)
-  assert.throws(() => buildDevelopmentPolicy(defaults, { ...options, restrictions: { bash: 'allow' } }), /narrow/)
-  assert.throws(() => buildDevelopmentPolicy(defaults, { ...options, restrictions: { external_directory: 'ask' } }), /exact existing root grant/)
-  const prompted = buildDevelopmentPolicy(defaults, { ...options, restrictions: { external_directory: { [`${home}/Code/*`]: 'ask' } } })
-  assert.equal(prompted.policy.permission.external_directory[`${home}/Code/*`], 'ask')
-  assert.equal(prompted.policy.permission.external_directory['*'], 'deny')
-  assert.throws(() => buildDevelopmentPolicy(defaults, { ...options, scratchRoot: `${home}/private` }), /outside accepted/)
+test('default root policy keeps only narrow secret, destructive, publication and administration blocks', () => {
+  const defaults = JSON.parse(fs.readFileSync(path.join(__dirname, 'pi-permission-system.json'), 'utf8'))
+  const result = buildDevelopmentPolicy(defaults, { home, scratchRoot: `${home}/Code/scratch`, reportRoot: `${home}/.pi/agent/review-results` }).policy.permission
+  for (const root of roots) assert.equal(result.external_directory[`${root}/*`], 'allow')
+  for (const pathRule of ['*.env', '*.env.*', '*.pem', '*.key']) assert.equal(result.path[pathRule], 'deny')
+  for (const command of ['rm*', 'git clean *', 'git reset --hard', 'git push*', 'xcrun git*', 'npm *publish*', 'docker*', 'psql*', 'kubectl*']) assert.equal(result.bash[command], 'deny')
+  assert.equal(result.bash['*'], 'allow')
+  assert.equal(result.bash['*/git*'], undefined, 'test and script paths containing git are not blanket-denied')
+})
+
+test('scratch storage must remain inside an accepted development root', () => {
+  const defaults = JSON.parse(fs.readFileSync(path.join(__dirname, 'pi-permission-system.json'), 'utf8'))
+  assert.throws(() => buildDevelopmentPolicy(defaults, { home, scratchRoot: `${home}/private`, reportRoot: `${home}/.pi/agent/review-results` }), /outside accepted/)
   console.log(`Retained development policy fixture: ${fixture}`)
 })
