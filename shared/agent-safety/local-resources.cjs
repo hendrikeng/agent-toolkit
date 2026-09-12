@@ -139,10 +139,19 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
    record.recipeHash = hash(args); persist()
    record.id = runtime.create([...args, declaration.image, ...resourceCommand(declaration, secret, record.createdAt)]); persist()
   }
-  verifyResource(record, runtime, true, true); persist()
   const details = runtime.inspect(record.id)
-  if (!details.State.Running) { record.ready = false; persist(); runtime.start(record.id) }
-  verifyResource(record, runtime, false, true); persist()
+  const startedNear = requestedAt => details.State.Running && Number.isFinite(Date.parse(details.State.StartedAt)) && Math.abs(Date.parse(details.State.StartedAt) - requestedAt) <= 60_000
+  const legacyPendingStart = record.ready === false && record.configurationReady === undefined && record.port === undefined && startedNear(record.createdAt)
+  const resumedPendingStart = Number.isFinite(record.startPending?.requestedAt) && startedNear(record.startPending.requestedAt)
+  if (!record.configHash && details.State.Running) assert.ok(resumedPendingStart, 'Resource start transition is unverified; preserve it')
+  verifyResource(record, runtime, true, true, legacyPendingStart, details.State.Running)
+  record.configurationReady = true; record.startPending = undefined; persist()
+  if (!details.State.Running) {
+   record.ready = false; record.startPending = { requestedAt: Date.now() }; persist(); runtime.start(record.id)
+   const started = runtime.inspect(record.id), requestedAt = record.startPending.requestedAt, startedAt = Date.parse(started.State.StartedAt)
+   assert.ok(started.State.Running && Number.isFinite(startedAt) && Math.abs(startedAt - requestedAt) <= 60_000, 'Resource start transition is unverified; preserve its prior configuration')
+   verifyResource(record, runtime, false, true); record.configurationReady = true; record.startPending = undefined; persist()
+  } else verifyResource(record, runtime, false, true);
   if (!record.ready && declaration.type === 'postgres') {
    // Only the new isolated server has bootstrap authority. Test clients receive a
    // non-superuser role, never bootstrap credentials or host administration.
@@ -168,7 +177,7 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
  }
  return state
 }
-function verifyResource(record, runtime, enforceLifetime = true, recordEndpoint = false) {
+function verifyResource(record, runtime, enforceLifetime = true, recordEndpoint = false, rebaselineLegacyStart = false, recordConfiguration = true) {
  assert.equal(runtime.engine(), record.engine, 'Resource runtime identity mismatch')
  assert.ok(/^[a-f0-9]{64}$/.test(record.id) && runtime.list().includes(record.id), 'Resource absent or unverified; use recorded reconciliation, not name adoption')
  const item = runtime.inspect(record.id)
@@ -213,8 +222,8 @@ function verifyResource(record, runtime, enforceLifetime = true, recordEndpoint 
  const host = structuredClone(item.HostConfig)
  for (const endpoints of Object.values(host.PortBindings ?? {})) for (const endpoint of endpoints ?? []) endpoint.HostPort = '<allocated>'
  const actual = hash({ config: item.Config, host, mounts: item.Mounts.filter(mount => mount.Type === 'bind').map(({ Type, Source, Destination, RW }) => ({ Type, Source, Destination, RW })) })
- if (record.configHash) assert.equal(actual, record.configHash, 'Resource configuration changed')
- else record.configHash = actual
+ if (record.configHash && !rebaselineLegacyStart) assert.equal(actual, record.configHash, 'Resource configuration changed')
+ else if (recordConfiguration) record.configHash = actual
  if (enforceLifetime) assert.ok(Date.now() < record.createdAt + record.declaration.lifetimeSeconds * 1000, 'Resource lifetime exceeded; only verified shutdown remains authorized')
  if (record.declaration.type === 'scanner') {
   for (const mount of item.Mounts.filter(mount => mount.Type === 'bind')) {

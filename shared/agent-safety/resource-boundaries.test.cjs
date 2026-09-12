@@ -16,10 +16,10 @@ test('scanner scope verifies mounts, memory, expiry and shutdown without exposin
   create(args) {
    const value = key => args[args.indexOf(key) + 1]
    const labels = Object.fromEntries(args.flatMap((word, index) => word === '--label' ? [args[index + 1].split(/=(.*)/s).slice(0, 2)] : []))
-   item = { Id: id, Config: { Labels: labels, Image: declaration.image, Entrypoint: [value('--entrypoint')], Cmd: args.slice(args.indexOf(declaration.image) + 1) }, HostConfig: { Privileged: false, ReadonlyRootfs: true, Memory: 67108864, MemorySwap: 67108864, LogConfig: { Type: 'none' }, PidsLimit: 128, IpcMode: 'private', ShmSize: 16 * 1024 * 1024, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], NetworkMode: 'none', Tmpfs: { '/tmp': 'rw,size=16m', '/var/lib/clamav': 'rw,size=32m' } }, Mounts: [{ Type: 'bind', Source: path.join(workspace, 'signatures'), Destination: '/database', RW: false }, { Type: 'bind', Source: path.join(workspace, 'targets'), Destination: '/scan/0', RW: false }], NetworkSettings: { Ports: {} }, State: { Running: false } }
+   item = { Id: id, Config: { Labels: labels, Image: declaration.image, Entrypoint: [value('--entrypoint')], Cmd: args.slice(args.indexOf(declaration.image) + 1) }, HostConfig: { Privileged: false, ReadonlyRootfs: true, Memory: 67108864, MemorySwap: 67108864, LogConfig: { Type: 'none' }, PidsLimit: 128, IpcMode: 'private', ShmSize: 16 * 1024 * 1024, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], NetworkMode: 'none', Tmpfs: { '/tmp': 'rw,size=16m', '/var/lib/clamav': 'rw,size=32m' } }, Mounts: [{ Type: 'bind', Source: path.join(workspace, 'signatures'), Destination: '/database', RW: false }, { Type: 'bind', Source: path.join(workspace, 'targets'), Destination: '/scan/0', RW: false }], NetworkSettings: { Ports: {} }, State: { Running: false, StartedAt: '0001-01-01T00:00:00Z' } }
    return id
   },
-  start() { calls.push('start'); item.State.Running = true }, stop() { calls.push('stop'); item.State.Running = false }, exec(_id, args) { calls.push(args); return args.includes('--version') ? 'ClamAV 1.4.2' : 'clean' },
+  start() { calls.push('start'); item.State.Running = true; item.State.StartedAt = new Date(Date.now()).toISOString() }, stop() { calls.push('stop'); item.State.Running = false }, exec(_id, args) { calls.push(args); return args.includes('--version') ? 'ClamAV 1.4.2' : 'clean' },
  }
  const prepare = () => prepareResources('scope', [declaration], state, () => {}, workspace, path.join(root, 'evidence'), runtime)
  prepare()

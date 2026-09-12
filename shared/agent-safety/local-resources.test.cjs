@@ -27,11 +27,11 @@ function fixture(declaration = base) {
     const parts = Object.fromEntries(args[index + 1].split(',').map(field => field.split('=')))
     return [{ Type: parts.type, Source: parts.src, Destination: parts.dst, RW: false }]
    })
-   containers.set(id, { Id: id, Config: { Labels: labels, Image: declaration.image, Entrypoint: [value('--entrypoint')], Cmd: args.slice(args.indexOf(declaration.image) + 1) }, HostConfig: { Privileged: false, ReadonlyRootfs: true, Memory: declaration.memoryMiB * 1024 * 1024, MemorySwap: declaration.memoryMiB * 1024 * 1024, LogConfig: { Type: 'none' }, Tmpfs: tmpfs, PidsLimit: 128, IpcMode: 'private', ShmSize: 16 * 1024 * 1024, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], NetworkMode: value('--network') }, Mounts: mounts, NetworkSettings: { Ports: { [declaration.type === 'postgres' ? '5432/tcp' : '6379/tcp']: [{ HostIp: '127.0.0.1', HostPort: '45678' }] } }, State: { Running: false } })
+   containers.set(id, { Id: id, Config: { Labels: labels, Image: declaration.image, Entrypoint: [value('--entrypoint')], Cmd: args.slice(args.indexOf(declaration.image) + 1) }, HostConfig: { Privileged: false, ReadonlyRootfs: true, Memory: declaration.memoryMiB * 1024 * 1024, MemorySwap: declaration.memoryMiB * 1024 * 1024, LogConfig: { Type: 'none' }, Tmpfs: tmpfs, PidsLimit: 128, IpcMode: 'private', ShmSize: 16 * 1024 * 1024, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], NetworkMode: value('--network') }, Mounts: mounts, NetworkSettings: { Ports: { [declaration.type === 'postgres' ? '5432/tcp' : '6379/tcp']: [{ HostIp: '127.0.0.1', HostPort: '45678' }] } }, State: { Running: false, StartedAt: '0001-01-01T00:00:00Z' } })
    if (loseCreate) { loseCreate = false; throw Error('lost response') }
    return id
   },
-  start(id) { calls.push(['start', id]); containers.get(id).State.Running = true },
+  start(id) { calls.push(['start', id]); containers.get(id).State.Running = true; containers.get(id).State.StartedAt = new Date(Date.now()).toISOString(); containers.get(id).Config.RuntimeStarted = true },
   stop(id) { calls.push(['stop', id]); containers.get(id).State.Running = false },
   exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : 'OK' },
  }
@@ -105,7 +105,10 @@ test('PostgreSQL initialization retries the same identity and grants schema owne
   if (args.at(-1)?.includes('server_version_num')) assert.ok(initialized, 'restart must initialize the empty tmpfs before readiness')
   return original(id, args, input)
  }
- const start = f.runtime.start
+ const start = f.runtime.start, configHash = f.state.db.configHash
+ f.runtime.start = () => { throw Error('start failed') }
+ assert.throws(f.prepare, /start failed/)
+ assert.equal(f.state.db.configHash, configHash, 'a failed start preserves the stopped-resource baseline')
  f.runtime.start = id => { start(id); throw Error('lost start response') }
  assert.throws(f.prepare, /lost start response/)
  assert.equal(f.state.db.ready, false)
