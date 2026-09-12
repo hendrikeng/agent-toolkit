@@ -12,9 +12,11 @@ function directory(value) {
  if (fs.realpathSync(absolute) !== absolute || !fs.lstatSync(absolute).isDirectory()) throw Error('Database paths must be physical directories without symlinks.')
  return absolute
 }
-function scratchRoot() {
- const root = directory(path.join(os.userInfo().homedir, 'Code/.agent-toolkit-scratch'))
- if (fs.statSync(root).mode & 0o077) throw Error('Private scratch must already exist with mode 700. Start through pi-yolo.')
+function fixtureRoot() {
+ const root = path.join(fs.realpathSync(os.tmpdir()), 'agent-toolkit-fixtures')
+ fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+ directory(root)
+ fs.chmodSync(root, 0o700)
  return root
 }
 function binaries() {
@@ -53,11 +55,11 @@ function identity(root, state) {
  const pidFile = path.join(data, 'postmaster.pid')
  if (!fs.existsSync(pidFile)) return false
  const lines = fs.readFileSync(file(data, 'postmaster.pid'), 'utf8').split('\n')
- if (!/^\d+$/.test(lines[0]) || lines[1] !== data || !/^\d+$/.test(lines[2]) || lines[3] !== String(state.port)) throw Error('Postmaster identity does not match this scratch cluster.')
+ if (!/^\d+$/.test(lines[0]) || lines[1] !== data || !/^\d+$/.test(lines[2]) || lines[3] !== String(state.port)) throw Error('Postmaster identity does not match this test cluster.')
  const pid = Number(lines[0])
  if (pid <= 1 || state.pid && (state.pid !== pid || state.started !== lines[2])) throw Error('Postmaster identity changed; preserve the cluster for inspection.')
  const command = execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim()
- if (command !== `${state.bin}/postgres -D ${data}`) throw Error('Refusing to control a process outside this scratch cluster.')
+ if (command !== `${state.bin}/postgres -D ${data}`) throw Error('Refusing to control a process outside this test cluster.')
  return { pid, started: lines[2] }
 }
 function freePort() {
@@ -75,9 +77,9 @@ async function main(args) {
  const [action, id] = args
  const starting = action === 'start' || action === 'start-admin'
  if (!['start', 'start-admin', 'status', 'stop'].includes(action) || args.length !== (starting ? 1 : 2) || !starting && !/^pg17-[A-Za-z0-9]{6}$/.test(id)) throw Error('Usage: pg-test start | pg-test start-admin | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
- const scratch = scratchRoot()
+ const fixtures = fixtureRoot()
  if (!starting) {
-  const root = directory(path.join(scratch, id))
+  const root = directory(path.join(fixtures, id))
   const state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
   if (state.version !== 1 || state.bin !== binaries() || !Number.isInteger(state.port) || state.port < 1024 || state.port > 65535) throw Error('Invalid or changed test database record. Preserve it for inspection.')
   const running = identity(root, state)
@@ -88,9 +90,9 @@ async function main(args) {
   return { id, status: action === 'stop' || !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: 'retained' }
  }
  const bin = binaries()
- const root = fs.mkdtempSync(path.join(scratch, 'pg17-'))
+ const root = fs.mkdtempSync(path.join(fixtures, 'pg17-'))
  fs.chmodSync(root, 0o700)
- const data = path.join(root, 'data'), socket = path.join(root, 's')
+ const data = path.join(root, 'data'), socket = path.join(fs.realpathSync('/tmp'), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
  const role = administrative ? 'toolkit_fixture_admin' : 'toolkit_test'
  const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'fixture-admin' : 'restricted' }
@@ -99,7 +101,7 @@ async function main(args) {
  try {
   if (!/^postgres \(PostgreSQL\) 17\./.test(run(bin, 'postgres', ['--version'], root))) throw Error('Expected PostgreSQL major version 17.')
   operation = 'socket path check'
-  if (Buffer.byteLength(path.join(socket, `.s.PGSQL.${state.port}`)) > 103) throw Error('Scratch socket path is too long for this platform.')
+  if (Buffer.byteLength(path.join(socket, `.s.PGSQL.${state.port}`)) > 103) throw Error('Temporary socket path is too long for this platform.')
   fs.mkdirSync(socket, { mode: 0o700 })
   operation = 'initdb'
   run(bin, 'initdb', ['-D', data, '--username=toolkit_admin', '--auth-local=trust', '--auth-host=scram-sha-256', '--encoding=UTF8', '--no-locale'], root)

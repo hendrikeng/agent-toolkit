@@ -5,7 +5,6 @@ cd "$repo_dir"
 case ${1:---source} in
   --source)
     [[ -n ${2:-} ]] || { printf 'Provide a patched scratch package path. No installed package is read implicitly.\n' >&2; exit 2; }
-    [[ -n ${AGENT_TOOLKIT_SCRATCH_ROOT:-} ]] || { printf 'AGENT_TOOLKIT_SCRATCH_ROOT is required. Run this check from pi-yolo, which supplies a private scratch directory under ~/Code.\n' >&2; exit 2; }
     bash -n install.sh
     bash -n shared/agent-safety/agent-yolo
     bash -n shared/agent-safety/git-yolo-guard

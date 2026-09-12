@@ -156,7 +156,7 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
   JSON.parse(text);
   const home = os.homedir();
   const defaults = JSON.parse(fs.readFileSync(pathModule.join(__dirname, 'pi-permission-system.json'), 'utf8'));
-  const settings = buildDevelopmentPolicy(defaults, { home, scratchRoot: pathModule.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: pathModule.join(home, 'Code/.agent-toolkit-reports') }).policy;
+  const settings = buildDevelopmentPolicy(defaults, { home, reportRoot: pathModule.join(home, 'Code/.agent-toolkit-reports') }).policy;
   settings.piInfrastructureReadPaths = [
     pathModule.join(toolkit, "codex/skills"),
     pathModule.join(toolkit, "pi/skills"),

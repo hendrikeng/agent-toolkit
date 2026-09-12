@@ -8,7 +8,7 @@ const test = require('node:test')
 const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
 
 test('allows explicit config reads and GitHub CLI repository resolution without config writes', () => {
-  const cwd = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'git-guard-config-'))
+  const cwd = mkdtempSync(join(tmpdir(), 'git-guard-config-'))
   const guard = join(__dirname, 'git-yolo-guard')
   const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8', env: fixtureEnv })
   try {
@@ -61,7 +61,7 @@ test('allows explicit config reads and GitHub CLI repository resolution without 
 })
 
 test('allows read-only ancestry queries and new-branch switch while preserving local work', () => {
-  const cwd = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT || tmpdir(), 'git-guard-test-'))
+  const cwd = mkdtempSync(join(tmpdir(), 'git-guard-test-'))
   const guard = join(__dirname, 'git-yolo-guard')
   const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...fixtureEnv, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' } }).trim()
   const run = (...args) => spawnSync(guard, args, { cwd, encoding: 'utf8', env: fixtureEnv })

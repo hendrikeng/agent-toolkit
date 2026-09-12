@@ -78,8 +78,6 @@ NODE
     node "$bundle/permission-bundle.cjs" verify "$bundle"
     required_pi=$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).piVersion' "$bundle/manifest.json")
     [[ $(pi --version) == "$required_pi" ]] || { printf 'Installation [development-roots-v1]: Pi version changed; reviewed bundle installation required\n' >&2; exit 1; }
-    mkdir -p "$HOME/Code/.agent-toolkit-scratch"
-    [[ ! -L $HOME/Code/.agent-toolkit-scratch ]] || exit 1
     source_agent_dir=${AGENT_TOOLKIT_PI_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}
     if [[ -n ${AGENT_TOOLKIT_PI_WEB_CONFIG_DIR:-} ]]; then
       source_web_config_dir=$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR
@@ -141,6 +139,8 @@ NODE
       fi
     fi
     unset AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64 AGENT_TOOLKIT_CODEX_ACCOUNT_ID AGENT_TOOLKIT_CODEX_PROFILE_SHA256
+    agent_dir=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-pi-session.XXXXXX")
+    agent_dir=$(cd -P "$agent_dir" && pwd -P)
     if [[ -n $account_profile ]]; then
       profile_dir=$source_agent_dir/auth-profiles/$account_profile
       profile_auth=$profile_dir/auth.json
@@ -211,7 +211,6 @@ if (codex?.tokens && typeof access === "string" && typeof refresh === "string") 
   fs.renameSync(temporary, process.argv[5]);
 }
 NODE
-      agent_dir=$(mktemp -d "$HOME/Code/.agent-toolkit-scratch/pi-session.XXXXXX")
       cp "$profile_auth" "$agent_dir/auth.json"
       chmod 600 "$agent_dir/auth.json"
       for source in "$source_agent_dir"/*; do
@@ -225,7 +224,6 @@ NODE
       done
       mkdir "$agent_dir/extensions/pi-permission-system"
     else
-      agent_dir=$(mktemp -d "$HOME/Code/.agent-toolkit-scratch/pi-session.XXXXXX")
       for source in "$source_agent_dir"/*; do
         [[ ${source##*/} == extensions ]] || ln -s "$source" "$agent_dir/${source##*/}"
       done
@@ -235,7 +233,7 @@ NODE
       done
       mkdir "$agent_dir/extensions/pi-permission-system"
     fi
-    scratch_root=$(node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" <<'NODE'
+    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" <<'NODE'
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -255,12 +253,8 @@ for (const surface of ["write", "edit"]) config.permission[surface] = { ...confi
 config.permission.bash[`*${runtimeAgentDir}*`] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";
-// Keep scratch data across exits/resumes, inside the already trusted Code tree.
-const scratchRoot = path.join(os.homedir(), "Code", ".agent-toolkit-scratch");
-fs.mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
-const scratchStat = fs.lstatSync(scratchRoot);
-if (scratchStat.isSymbolicLink() || !scratchStat.isDirectory()) throw new Error("Scratch directory must be a real directory, not a symlink");
-fs.chmodSync(scratchRoot, 0o700);
+config.permission.external_directory[runtimeAgentDir] = "allow";
+config.permission.external_directory[path.join(runtimeAgentDir, "*")] = "allow";
 const temporaryDir = fs.realpathSync(os.tmpdir());
 const reviewRoot = path.join(os.homedir(), "Code/.agent-toolkit-reports");
 fs.mkdirSync(reviewRoot, { recursive: true, mode: 0o700 });
@@ -332,9 +326,7 @@ const output = process.argv[3];
 const temporary = `${output}.${process.pid}`;
 fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
 fs.renameSync(temporary, output);
-process.stdout.write(fs.realpathSync(scratchRoot));
 NODE
-    )
 
     enable_git_guard
     if [[ -n $account_profile ]]; then
@@ -357,7 +349,6 @@ NODE
       AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir \
       AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir \
       AGENT_TOOLKIT_REVIEW_ROOT="$HOME/Code/.agent-toolkit-reports" \
-      AGENT_TOOLKIT_SCRATCH_ROOT="$scratch_root" \
       AGENT_TOOLKIT_PERMISSION_BUNDLE="$bundle" \
       PI_CODING_AGENT_DIR=$agent_dir \
       pi "${pi_args[@]}"

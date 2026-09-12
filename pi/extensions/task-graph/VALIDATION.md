@@ -16,7 +16,7 @@ Read-only workers use an existing checkout.
 
 ## Source checks
 
-The focused tests use real Git repositories in `AGENT_TOOLKIT_SCRATCH_ROOT`.
+The focused tests use real Git repositories in the system temporary directory.
 The tests simulate Orca RPCs and worker terminals.
 They cover concurrent workers, lane reuse, dependency commits, lost creation receipts, selective cross-repository pins, integration setup, combined validation repair, cleanup, resume, and worktree budgets.
 They also cover source preservation, input capture, hooks, protected paths, and old records.

@@ -1,16 +1,12 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { acquireLease, assertGraphMode, assertGraphShell, assertNoLegacyGraph, digest, LEGACY_GRAPH, literalPath, taskGraphPrompt } from "../task-graph-core.ts"
 
-function scratch() {
- const root = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || join(homedir(), "Code/.agent-toolkit-scratch")
- mkdirSync(root, { recursive: true, mode: 0o700 })
- return mkdtempSync(join(root, "graph-core-"))
-}
+const fixture = () => mkdtempSync(join(tmpdir(), "graph-core-"))
 test("literal ownership and planning boundary", () => {
  for (const path of ["src/file.ts", "docs/future/plan.md", ".env.example"]) assert.doesNotThrow(() => literalPath(path))
  for (const path of [".", "../secret", "/etc/file", "src/../file", "src//file", "src/*.ts", "src/[file]", ".git/config", "docs/.git/config", ".env", ".env.local", "key.pem", "secret.key", ".netrc", "foo\0bar"]) assert.throws(() => literalPath(path), /literal/)
@@ -41,7 +37,7 @@ test("graph declaration shape does not introduce another shell language", () => 
  for (const command of ['', '  ', 'node\0check']) assert.throws(() => assertGraphShell(command))
 })
 test("legacy evidence remains unchanged; unrelated known scope is neither resumed nor presumed settled", () => {
- const root = scratch(), locks = join(root, "task-graph-locks")
+ const root = fixture(), locks = join(root, "task-graph-locks")
  const directory = join(locks, `${digest("legacy")}.lock`)
  mkdirSync(directory, { recursive: true })
  const file = join(directory, "workspaces.json")
@@ -55,7 +51,7 @@ test("legacy evidence remains unchanged; unrelated known scope is neither resume
  assert.equal(readFileSync(file, "utf8"), "{}")
 })
 test("coordinator lease excludes live writers and resumes an exited process without deleting records", () => {
- const root = scratch(), file = join(root, "record.json")
+ const root = fixture(), file = join(root, "record.json")
  writeFileSync(file, "preserved approval")
  const release = acquireLease(file)
  assert.throws(() => acquireLease(file), /live coordinator/)

@@ -217,10 +217,7 @@ repo="$HOME/Code/wewereyoung/agent-toolkit"
 agent="$HOME/.pi/agent"
 policy="$agent/extensions/pi-permission-system/config.json"
 marker="$policy.agent-toolkit.sha256"
-scratch="$HOME/Code/.agent-toolkit-scratch"
-test ! -L "$scratch"
-mkdir -p "$scratch"
-recovery=$(mktemp -d "$scratch/policy-recovery.XXXXXX")
+recovery=$(mktemp -d "${TMPDIR:-/tmp}/agent-toolkit-policy-recovery.XXXXXX")
 printf 'Recovery files: %s\n' "$recovery"
 test -f "$policy" && test ! -L "$policy"
 cp -p "$policy" "$recovery/installed.json"
@@ -246,7 +243,7 @@ If installation fails, retain the recovery files. Do not overwrite newly install
 
 ### Disposable Git-history tests
 
-The managed `git-test` helper provides explicit history operations for repositories that it creates in private scratch.
+The managed `git-test` helper provides explicit history operations for repositories that it creates in the system temporary directory.
 It never accepts an existing repository path. Ordinary Git permissions remain unchanged.
 
 ```sh
@@ -277,7 +274,7 @@ pg-test status <id>
 pg-test stop <id>
 ```
 
-`start` creates a new cluster under `~/Code/.agent-toolkit-scratch` and returns its ID and a connection URL.
+`start` creates a new cluster in the system temporary directory. It returns an ID and a connection URL.
 The server listens on loopback at a temporary port. The test role owns one database and has no superuser privileges.
 The helper disables the bootstrap login before it returns the URL. The lifecycle record contains no plaintext password.
 

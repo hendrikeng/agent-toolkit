@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { StringEnum } from '@earendil-works/pi-ai'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { createBashTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { evaluateDevelopmentPolicy, inspectDevelopmentShell } from '@gotgenes/pi-permission-system'
@@ -42,8 +43,9 @@ export default function developmentAccess(pi: ExtensionAPI) {
   resourceEnv.clear()
  }
  const helper = () => require(join(contract().bundle, 'local-resources.cjs'))
+ const resourceRoot = (id: string) => join(realpathSync(tmpdir()), 'agent-toolkit-resources', id)
  const persistResources = () => {
-  const root = join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT!, 'local-resource-scopes', resourceScope.id)
+  const root = resourceRoot(resourceScope.id)
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const target = join(root, 'resource-scope.json'), temporary = `${target}.${randomUUID()}`
   writeFileSync(temporary, JSON.stringify(resourceScope), { flag: 'wx', mode: 0o600 }); renameSync(temporary, target)
@@ -61,7 +63,7 @@ export default function developmentAccess(pi: ExtensionAPI) {
    if (params.scope_id) {
     if (!/^[a-f0-9-]{36}$/.test(params.scope_id)) throw new Error('Invalid resource scope ID')
     const { physicalPath } = contract()
-    const file = join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT!, 'local-resource-scopes', params.scope_id, 'resource-scope.json')
+    const file = join(resourceRoot(params.scope_id), 'resource-scope.json')
     if (physicalPath(file) !== file) throw new Error('Resource scope identity changed')
     const candidate = JSON.parse(readFileSync(file, 'utf8'))
     if (candidate.id !== params.scope_id || JSON.stringify(candidate.declarations) !== JSON.stringify(params.declarations) || candidate.workspace !== ctx.cwd) throw new Error('Resource scope changed; unchanged resume cannot expand it')
@@ -71,7 +73,7 @@ export default function developmentAccess(pi: ExtensionAPI) {
     resourceScope = { id: randomUUID(), declarations: params.declarations, workspace: ctx.cwd, resources: {} }; persistResources()
    }
    clearResourceEnv()
-   helper().prepareResources(resourceScope.id, resourceScope.declarations, resourceScope.resources, persistResources, resourceScope.workspace, join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT!, 'local-resource-scopes', resourceScope.id), helper().dockerRuntime())
+   helper().prepareResources(resourceScope.id, resourceScope.declarations, resourceScope.resources, persistResources, resourceScope.workspace, resourceRoot(resourceScope.id), helper().dockerRuntime())
    exposeResources()
    return { content: [{ type: 'text', text: JSON.stringify({ scope_id: resourceScope.id, resources: Object.entries(resourceScope.resources).map(([name, item]: any) => ({ name, identity: item.id })), credentials: 'Injected as RESOURCE_<ID>_URL; do not commit them' }) }], details: {} }
   },

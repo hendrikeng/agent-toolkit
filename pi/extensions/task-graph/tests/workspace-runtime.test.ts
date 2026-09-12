@@ -1,14 +1,12 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 
 test("installer linkage loads only the new graph files and preserves old records", () => {
- const root = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || join(homedir(), "Code/.agent-toolkit-scratch")
- mkdirSync(root, { recursive: true, mode: 0o700 })
- const directory = mkdtempSync(join(root, "graph-install-"))
+ const directory = mkdtempSync(join(tmpdir(), "graph-install-"))
  const repo = new URL("../../../../", import.meta.url).pathname
  const installer = readFileSync(join(repo, "install.sh"), "utf8")
  const link = installer.match(/install_link\(\) \{[\s\S]*?\n\}/)![0]

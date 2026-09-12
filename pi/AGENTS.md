@@ -21,11 +21,7 @@ In Orca, launch workers through `terminal create --command 'pi-yolo --model prov
 
 Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at high thinking and retries `gpt-5.6-terra` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
-## Scratch files and permission denials
-
-Use `AGENT_TOOLKIT_SCRATCH_ROOT` for temporary source copies, archive extraction, and local validation outside a checkout. The launcher creates this private directory under `~/Code/.agent-toolkit-scratch`; it persists across exits and resumes. Create one unique subdirectory per task with `mktemp -d "$AGENT_TOOLKIT_SCRATCH_ROOT/task-name.XXXXXX"`. Do not use hardcoded `/tmp` paths or change `TMPDIR` globally. Keep review reports under `AGENT_TOOLKIT_REVIEW_ROOT` instead.
-
-For sessions started before this variable existed, use `~/Code/.agent-toolkit-scratch` directly: check that it is not a symlink, create it with mode `700` if missing, then create a unique task subdirectory. This location is already authorized by the existing launcher; no restart is needed. Keep unfinished validation files for resume. Do not delete them automatically on exit or bypass deletion guards for cleanup.
+## Permission denials
 
 A hard permission denial is not an approval prompt. Chat approval does not update the runtime policy. Do not retry an unchanged denied command, ask for ineffective chat approval, or claim that restarting the same launcher will fix it. For ordinary scratch work, use the authorized scratch directory. If the task requires the denied location itself, report the exact missing permission; do not change policy from inside the session or work around the restriction with another tool.
 

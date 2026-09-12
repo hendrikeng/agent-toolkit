@@ -50,9 +50,8 @@ function assertDevelopmentPath(target, roots) {
   return physicalPath(target)
 }
 
-function buildDevelopmentPolicy(defaults, { home, scratchRoot, reportRoot }) {
+function buildDevelopmentPolicy(defaults, { home, reportRoot }) {
   const roots = developmentRoots(home)
-  assertDevelopmentPath(scratchRoot, roots)
   const reports = physicalPath(reportRoot)
   assert.ok(!/[\x00-\x1f\x7f*?\[\]{}]/.test(reports), 'Report path must be literal')
   const policy = structuredClone(defaults)
@@ -65,7 +64,7 @@ function buildDevelopmentPolicy(defaults, { home, scratchRoot, reportRoot }) {
     policy.permission.external_directory[path.join(root, '*')] = 'allow'
   }
   for (const pattern of ['*.env', '*.env.*', '*.pem', '*.key']) policy.permission.path[pattern] = 'deny'
-  return { version: POLICY_VERSION, roots, scratchRoot: physicalPath(scratchRoot), reportRoot: reports, policy }
+  return { version: POLICY_VERSION, roots, reportRoot: reports, policy }
 }
 
 module.exports = { POLICY_VERSION, physicalPath, developmentRoots, within, assertDevelopmentPath, buildDevelopmentPolicy }

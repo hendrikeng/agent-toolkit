@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const os = require('node:os')
 const { randomUUID, randomBytes, createHash } = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { physicalPath, within, developmentRoots, assertDevelopmentPath } = require('./development-policy.cjs')
@@ -53,7 +54,7 @@ function privateTmpfs(declaration) {
 }
 function dockerRuntime(binary = ['/usr/local/bin/docker', '/opt/homebrew/bin/docker', '/usr/bin/docker'].find(file => fs.existsSync(file))) {
  assert.ok(['/usr/local/bin/docker', '/opt/homebrew/bin/docker', '/usr/bin/docker'].includes(binary), 'Unsupported local runtime')
- const config = path.join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT, `docker-config-${process.pid}`)
+ const config = path.join(fs.realpathSync(os.tmpdir()), `agent-toolkit-docker-${process.pid}`)
  fs.mkdirSync(config, { recursive: true, mode: 0o700 })
  assert.equal(physicalPath(config), config, 'Docker configuration directory identity changed')
  const file = path.join(config, 'config.json')
@@ -77,7 +78,6 @@ function dockerRuntime(binary = ['/usr/local/bin/docker', '/opt/homebrew/bin/doc
 }
 function prepareResources(scope, declarations, state, persist, workspace, root, runtime) {
  validateResources(declarations)
- assertDevelopmentPath(root, developmentRoots(process.env.HOME))
  assertDevelopmentPath(workspace, developmentRoots(process.env.HOME))
  assert.equal(physicalPath(root), root, 'Resource evidence directory must be physical')
  assert.equal(physicalPath(workspace), workspace, 'Resource workspace must be physical')
@@ -269,5 +269,5 @@ function resourceEnvironment(state, runtime) {
  }
  return env
 }
-const RESOURCE_RUNTIME = { engine: 'Local Docker Unix socket; no remote contexts or host installation', configuration: 'Private credential-free Docker configuration under scratch', storage: 'Bounded tmpfs only; no persistent or shared volumes; evidence under scratch', privileges: 'No host privilege escalation; all container capabilities dropped; non-root database and storage processes', pidsPerResource: 128, network: 'Loopback published data ports; scanner networking disabled', lifetime: 'Fixed absolute deadline across restarts and replacements; timeout uses SIGKILL; containers and evidence remain retained', downloads: 'Only explicitly declared immutable images', deletion: 'Not authorized' }
+const RESOURCE_RUNTIME = { engine: 'Local Docker Unix socket; no remote contexts or host installation', configuration: 'Private credential-free Docker configuration in the system temporary directory', storage: 'Bounded tmpfs only; no persistent or shared volumes; temporary evidence only', privileges: 'No host privilege escalation; all container capabilities dropped; non-root database and storage processes', pidsPerResource: 128, network: 'Loopback published data ports; scanner networking disabled', lifetime: 'Fixed absolute deadline across restarts and replacements; timeout uses SIGKILL; containers and evidence remain retained', downloads: 'Only explicitly declared immutable images', deletion: 'Not authorized' }
 module.exports = { RESOURCE_RUNTIME, validateResources, dockerRuntime, prepareResources, verifyResource, operateResource, resourceEnvironment }

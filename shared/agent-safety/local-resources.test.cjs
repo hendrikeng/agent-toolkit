@@ -3,10 +3,14 @@ const { spawnSync } = require('node:child_process')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const { tmpdir } = require('node:os')
 const { prepareResources, verifyResource, operateResource, validateResources, resourceEnvironment } = require('./local-resources.cjs')
 const base = { id: 'cache', type: 'storage', image: `redis:7@sha256:${'a'.repeat(64)}`, purpose: 'synthetic fixtures', memoryMiB: 64, storageMiB: 64, lifetimeSeconds: 600, reset: 'database:0' }
 function fixture(declaration = base) {
- const root = fs.mkdtempSync(path.join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT, 'resource-contract-'))
+ const root = fs.mkdtempSync(path.join(fs.realpathSync(tmpdir()), 'resource-contract-'))
+ const home = path.join(root, 'home'), workspace = path.join(home, 'Code/project')
+ for (const directory of [workspace, path.join(home, 'orca/workspaces')]) fs.mkdirSync(directory, { recursive: true })
+ process.env.HOME = home
  const containers = new Map(), calls = [], saves = []
  let sequence = 0, loseCreate = false, unavailable = false
  const runtime = {
@@ -32,7 +36,7 @@ function fixture(declaration = base) {
   exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : 'OK' },
  }
  const state = {}
- const prepare = () => prepareResources('scope', [declaration], state, () => saves.push(JSON.stringify(state)), root, path.join(root, 'evidence'), runtime)
+ const prepare = () => prepareResources('scope', [declaration], state, () => saves.push(JSON.stringify(state)), workspace, path.join(root, 'evidence'), runtime)
  return { root, containers, state, saves, calls, runtime, prepare, lose() { loseCreate = true }, unavailable(value) { unavailable = value } }
 }
 test('one resource scope covers creation, interrupted response, resets and verified shutdown', () => {

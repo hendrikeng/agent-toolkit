@@ -6,16 +6,15 @@ const vm = require('node:vm')
 const test = require('node:test')
 
 function fixture() {
- const base = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || path.join(os.homedir(), 'Code/.agent-toolkit-scratch')
- const home = fs.mkdtempSync(path.join(base, 'pg-test-fixture-'))
- const scratch = path.join(home, 'Code/.agent-toolkit-scratch')
- fs.mkdirSync(scratch, { recursive: true, mode: 0o700 })
- const bin = '/opt/homebrew/Cellar/postgresql@17/17.6/bin'
+ const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pg-test-fixture-')))
+ const scratch = path.join(home, 'agent-toolkit-fixtures')
+ const bin = '/opt/homebrew/Cellar/postgresql@17/17.6/bin', shortTmp = path.join(home, 'short-tmp')
+ fs.mkdirSync(shortTmp)
  const calls = [], processes = new Map()
  let nextPid = 43210, failure = '', foreign = false, longSocket = false
  const mockFs = { ...fs,
   existsSync: value => value === '/opt/homebrew/opt/postgresql@17/bin' ? true : value === '/usr/local/opt/postgresql@17/bin' ? false : fs.existsSync(value),
-  realpathSync: value => value === '/opt/homebrew/opt/postgresql@17/bin' ? bin : value.startsWith(bin + '/') ? value : fs.realpathSync(value),
+  realpathSync: value => value === '/opt/homebrew/opt/postgresql@17/bin' ? bin : value === '/tmp' ? shortTmp : value.startsWith(bin + '/') ? value : fs.realpathSync(value),
   statSync: value => value.startsWith(bin + '/') ? { isFile: () => true } : fs.statSync(value),
  }
  const execFileSync = (file, args, options) => {
@@ -47,14 +46,14 @@ function fixture() {
   return ''
  }
  const module = { exports: {} }
- const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, userInfo: () => ({ ...os.userInfo(), homedir: home }), homedir: () => { throw Error('Do not trust a HOME environment override') } } : name === 'node:child_process' ? { execFileSync } : require(name)
- // The fixture HOME is nested in scratch; model the normal installed HOME length for socket checks.
- const mockBuffer = { byteLength: value => longSocket ? 104 : Buffer.byteLength(value.replace(home, '/Users/test')) }
+ const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, tmpdir: () => home } : name === 'node:child_process' ? { execFileSync } : require(name)
+ // Model the normal temporary-directory length for socket checks.
+ const mockBuffer = { byteLength: value => longSocket ? 104 : Buffer.byteLength(value.replace(shortTmp, '/private/tmp').replace(home, '/Users/test')) }
  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'pg-test.cjs'), 'utf8'), { require: customRequire, module, Buffer: mockBuffer, console })
- return { main: module.exports.main, calls, scratch, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value } }
+ return { main: module.exports.main, calls, scratch, shortTmp, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value } }
 }
 
-test('fixed scratch lifecycle isolates bootstrap credentials, retains files, and refuses arbitrary commands or foreign processes', async () => {
+test('fixed fixture lifecycle isolates bootstrap credentials, retains files, and refuses arbitrary commands or foreign processes', async () => {
  const f = fixture()
  for (const args of [[], ['start', '-D', '/elsewhere'], ['psql', '-c', 'select 1'], ['stop', '../existing'], ['status', '/absolute']]) await assert.rejects(f.main(args), /Usage/)
  assert.equal(f.calls.length, 0)
@@ -62,6 +61,8 @@ test('fixed scratch lifecycle isolates bootstrap credentials, retains files, and
  assert.equal(started.status, 'running')
  assert.match(started.database_url, /^postgresql:\/\/toolkit_test:[a-f0-9]{48}@127\.0\.0\.1:\d+\/toolkit_test$/)
  assert.equal(fs.statSync(started.path).mode & 0o777, 0o700)
+ const config = fs.readFileSync(path.join(started.path, 'data/postgresql.conf'), 'utf8')
+ assert.match(config, new RegExp(`unix_socket_directories = '${f.shortTmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/agent-pg-[A-Za-z0-9]{6}'`))
  const record = fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8')
  assert.ok(!record.includes(new URL(started.database_url).password))
  const queries = f.calls.filter(call => path.basename(call.file) === 'psql')
@@ -74,7 +75,7 @@ test('fixed scratch lifecycle isolates bootstrap credentials, retains files, and
  assert.equal((await f.main(['status', started.id])).status, 'running')
  f.foreign = true
  const stops = () => f.calls.filter(call => call.args.at(-1) === 'stop').length
- await assert.rejects(f.main(['stop', started.id]), /outside this scratch cluster/)
+ await assert.rejects(f.main(['stop', started.id]), /outside this test cluster/)
  assert.equal(stops(), 0)
  f.foreign = false
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')

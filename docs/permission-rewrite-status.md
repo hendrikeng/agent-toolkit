@@ -40,37 +40,27 @@ The extension checks use the real patched parser and matcher with a simulated Pi
 The focused verifier requires an explicit patched package path. It never selects an installed package implicitly.
 
 ```sh
-./verify.sh --source /Users/hendrik/Code/.agent-toolkit-scratch/permission-source-final.lydoqw/node_modules/@gotgenes/pi-permission-system
+./verify.sh --source <patched-package-path>
 node --test shared/agent-safety/git-graph-boundaries.test.cjs
 git diff --check
 ```
 
 The source graph fixtures require the installed `git-test` capability.
-All scratch fixtures remain available. The final full verifier retained these evidence directories:
-
-- Package report from the full verifier: `/Users/hendrik/Code/.agent-toolkit-scratch/permission-api-reference-Yw121u/result.json`
-- Final extension rerun: `/Users/hendrik/Code/.agent-toolkit-scratch/permission-api-reference-LgeneK/result.json`
-- Graph lifecycle: `/Users/hendrik/Code/.agent-toolkit-scratch/graph-v3-DERQL1`
-- Resource contract: `/Users/hendrik/Code/.agent-toolkit-scratch/resource-contract-rxaPXb`
-- Scanner boundaries: `/Users/hendrik/Code/.agent-toolkit-scratch/scanner-boundaries-u1IokT`
-- Shared launchers: `/Users/hendrik/Code/.agent-toolkit-scratch/shared-launchers-NUkv30`
+Temporary fixtures are not retained as durable evidence.
 
 ## Commit-boundary checks
 
 The first security review found three defects. The source fixes preserve selected-project asks, record declared inspection checks, and repeat PostgreSQL initialization after restart.
 The affected resource tests, all ten graph tests, and the package integration check passed after those fixes.
-The package rerun retained `/Users/hendrik/Code/.agent-toolkit-scratch/permission-api-reference-CDn7jN/result.json`.
 A later review found that container restarts could extend the approved lifetime.
 The fixed wrapper uses the original absolute deadline across restarts and replacements.
 A shell regression check covers shortened timeouts and refusal after expiry without starting a service.
 The installer now uses the default policy with `./install.sh`.
-The affected checks passed. The final package rerun retained `/Users/hendrik/Code/.agent-toolkit-scratch/permission-api-reference-OhSqa9/result.json`.
+The affected checks passed.
 The user then reported an installed startup failure on Pi 0.85.1: the session extension could not resolve its permission package.
 The launcher now links session dependencies to the retained bundle.
-The real Pi 0.85.1 loader successfully loaded all three extensions through the corrected layout in a scratch fixture.
-The final loader check retained `/Users/hendrik/Code/.agent-toolkit-scratch/extension-loader-7c67Cl`.
-The final full verifier retained `/Users/hendrik/Code/.agent-toolkit-scratch/permission-api-reference-JGDlbz/result.json`.
-The source verifier now includes this loader check and reports a missing scratch-root prerequisite before any tests.
+The real Pi 0.85.1 loader successfully loaded all three extensions through the corrected layout in a temporary fixture.
+The source verifier now includes this loader check.
 A further lifecycle fix clears stopped resource credentials without blocking unrelated shell work.
 These results remain source evidence, not installed acceptance.
 

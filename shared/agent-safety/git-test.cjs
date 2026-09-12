@@ -12,10 +12,11 @@ function directory(value) {
  assert.ok(stat.isDirectory() && stat.uid === os.userInfo().uid)
  return { dev: stat.dev, ino: stat.ino }
 }
-function scratch() {
- const root = path.join(os.userInfo().homedir, 'Code/.agent-toolkit-scratch')
+function fixtureRoot() {
+ const root = path.join(fs.realpathSync(os.tmpdir()), 'agent-toolkit-fixtures')
+ fs.mkdirSync(root, { recursive: true, mode: 0o700 })
  directory(root)
- assert.equal(fs.statSync(root).mode & 0o077, 0, 'Private scratch must already exist')
+ fs.chmodSync(root, 0o700)
  return root
 }
 function git(root, args) {
@@ -63,7 +64,7 @@ function argumentsFor(args) {
 }
 function main(args) {
  if (args[0] === 'create' && args.length === 1) {
-  const container = fs.mkdtempSync(path.join(scratch(), 'git-test-'))
+  const container = fs.mkdtempSync(path.join(fixtureRoot(), 'git-test-'))
   fs.chmodSync(container, 0o700)
   const root = path.join(container, 'repository')
   fs.mkdirSync(root, { mode: 0o700 })
@@ -75,7 +76,7 @@ function main(args) {
  }
  assert.ok(args[0] === 'run' && /^git-test-[A-Za-z0-9]{6}$/.test(args[1] ?? '') && args.length >= 4, 'Usage: git-test create | git-test run <id> <operation> <arguments>')
  const operation = argumentsFor(args.slice(2))
- const container = path.join(scratch(), args[1]), root = path.join(container, 'repository')
+ const container = path.join(fixtureRoot(), args[1]), root = path.join(container, 'repository')
  directory(container); directory(root)
  const record = path.join(container, 'fixture.json'), stat = fs.lstatSync(record)
  assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && stat.uid === os.userInfo().uid && !(stat.mode & 0o077), 'Invalid fixture record')

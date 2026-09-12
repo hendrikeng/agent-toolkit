@@ -1,11 +1,12 @@
-// Real Pi loader, scratch dependencies and synthetic session paths. No live session.
+// Real Pi loader, temporary dependencies and synthetic session paths. No live session.
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const { tmpdir } = require('node:os')
 const { pathToFileURL } = require('node:url')
 async function check(packageRoot) {
  const modules = path.resolve(packageRoot, '../..')
- const root = fs.mkdtempSync(path.join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT, 'extension-loader-'))
+ const root = fs.mkdtempSync(path.join(tmpdir(), 'extension-loader-'))
  const bundle = path.join(root, 'bundle'), session = path.join(root, 'session'), home = path.join(root, 'home')
  for (const dir of [bundle, home, path.join(session, 'extensions')]) fs.mkdirSync(dir, { recursive: true })
  process.env.HOME = home
@@ -13,7 +14,7 @@ async function check(packageRoot) {
  process.env.AGENT_TOOLKIT_PI_AGENT_DIR = session
  process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE = bundle
  process.env.JITI_FS_CACHE = 'false'
- // Reuse the scratch dependency graph. This check does not claim manifest acceptance.
+ // Reuse the temporary dependency graph. This check does not claim manifest acceptance.
  fs.symlinkSync(modules, path.join(bundle, 'node_modules'))
  fs.symlinkSync(path.join(bundle, 'node_modules'), path.join(session, 'node_modules'))
  const paths = [path.join(packageRoot, 'src/index.ts')]

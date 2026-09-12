@@ -60,7 +60,7 @@ function stage(source, parent, home) {
  const packageRoot = path.join(root, 'node_modules/@gotgenes/pi-permission-system')
  require('./patch-permission-tool-visibility.cjs').install(packageRoot)
  const defaults = JSON.parse(fs.readFileSync(path.join(safety, 'pi-permission-system.json'), 'utf8'))
- const config = buildDevelopmentPolicy(defaults, { home, scratchRoot: path.join(home, 'Code/.agent-toolkit-scratch'), reportRoot: path.join(home, 'Code/.agent-toolkit-reports') })
+ const config = buildDevelopmentPolicy(defaults, { home, reportRoot: path.join(home, 'Code/.agent-toolkit-reports') })
  fs.writeFileSync(path.join(root, 'policy.json'), JSON.stringify(config.policy, null, 2) + '\n')
  const manifest = { version: POLICY_VERSION, roots, acceptedAt: new Date().toISOString(), permissionPackage: '20.7.3', graphVersion: 4, piVersion, files: inventory(root) }
  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2), { flag: 'wx', mode: 0o600 })

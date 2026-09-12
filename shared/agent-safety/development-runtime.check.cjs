@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const { tmpdir } = require('node:os')
 const { registerHooks, createRequire } = require('node:module')
 const { spawnSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
@@ -22,12 +23,12 @@ exports.check = async function ({ root: packageRoot, fixture, service, defaults 
  fs.writeFileSync(path.join(bundle, 'git.agent-toolkit.sha256'), createHash('sha256').update(fs.readFileSync(path.join(bundle, 'git'))).digest('hex'))
  for (const name of ['development-access', 'task-graph']) fs.cpSync(path.join(__dirname, '../../pi/extensions', name), path.join(bundle, 'extensions', name), { recursive: true })
  fs.cpSync(packageRoot, path.join(bundle, 'node_modules/@gotgenes/pi-permission-system'), { recursive: true })
- const config = buildDevelopmentPolicy(defaults, { home, scratchRoot: path.join(home, 'Code/scratch'), reportRoot: reports })
+ const config = buildDevelopmentPolicy(defaults, { home, reportRoot: reports })
  fs.writeFileSync(path.join(bundle, 'policy.json'), JSON.stringify(config.policy))
  fs.writeFileSync(path.join(runtime, 'extensions/pi-permission-system/config.json'), JSON.stringify(config.policy))
  const manifest = { version: config.version, roots: config.roots, permissionPackage: '20.7.3', graphVersion: 4, piVersion: '0.79.1', files: inventory(bundle) }
  fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify(manifest))
- Object.assign(process.env, { HOME: home, AGENT_TOOLKIT_PERMISSION_BUNDLE: bundle, PI_CODING_AGENT_DIR: runtime, AGENT_TOOLKIT_REVIEW_ROOT: reports, AGENT_TOOLKIT_SCRATCH_ROOT: path.join(home, 'Code/scratch') })
+ Object.assign(process.env, { HOME: home, AGENT_TOOLKIT_PERMISSION_BUNDLE: bundle, PI_CODING_AGENT_DIR: runtime, AGENT_TOOLKIT_REVIEW_ROOT: reports })
  let executed, confirmations = 0, allowConfirmation = false, nativeDecision = 'allow', nativeOrigin
  const native = { checkPermission: () => ({ state: nativeDecision, origin: nativeOrigin }) }
  service.publishPermissionsService(native)
@@ -87,7 +88,7 @@ exports.check = async function ({ root: packageRoot, fixture, service, defaults 
  assert.equal(captured.config.permission.bash[`*${captured.runtime}*`], 'deny')
   assert.equal(captured.config.permission.path[`${captured.runtime}/auth.json`], 'deny')
   assert.ok(fs.existsSync(captured.runtime), 'session artifacts are retained')
-  assert.ok(captured.runtime.startsWith(`${home}/Code/.agent-toolkit-scratch/`))
+  assert.ok(captured.runtime.startsWith(`${fs.realpathSync(tmpdir())}/agent-toolkit-pi-session.`))
   const { default: extension } = await import(extensionUrl)
   const events = new Map(), tools = new Map()
   extension({ registerTool: tool => tools.set(tool.name, tool), on: (name, handler) => events.set(name, handler) })

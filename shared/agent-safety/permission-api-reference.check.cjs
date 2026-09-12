@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const { homedir } = require('node:os')
+const { tmpdir } = require('node:os')
 const { createHash } = require('node:crypto')
 const { registerHooks, stripTypeScriptTypes } = require('node:module')
 const { pathToFileURL, fileURLToPath } = require('node:url')
@@ -42,9 +42,7 @@ async function main() {
     return next(url, context)
   } })
   const load = file => { const url = new URL(file, source).href; read(url); return import(url) }
-  const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || path.join(homedir(), 'Code/.agent-toolkit-scratch')
-  assert.equal(fs.lstatSync(scratch).isSymbolicLink(), false)
-  const fixture = fs.mkdtempSync(path.join(scratch, 'permission-api-reference-'))
+  const fixture = fs.mkdtempSync(path.join(fs.realpathSync(tmpdir()), 'permission-api-reference-'))
   try {
     const { canonicalNormalizePathForComparison } = await load('access-intent/path-normalization.ts')
     const { posixPathFlavor } = await load('path/path-flavor.ts')
@@ -94,7 +92,7 @@ async function main() {
       fs.writeFileSync(globalPolicy, JSON.stringify(defaults)); fs.writeFileSync(projectPolicy, JSON.stringify({ permission: { bash: { 'node*': 'deny' } } }))
       const manager = new PermissionManager({ agentDir: policyAgent, flavor: posixPathFlavor }); manager.configureForCwd(cwd)
       assert.equal(manager.check({ kind: 'tool', surface: 'bash', input: { command: 'node --version' } }).state, 'allow', 'checkout-local policy does not add a second trust or command gate')
-      const options = { home: fixture, scratchRoot: path.join(fixture, 'Code/scratch'), reportRoot: path.join(fixture, 'Code/reports') }
+      const options = { home: fixture, reportRoot: path.join(fixture, 'Code/reports') }
       const rules = normalizeFlatConfig(buildDevelopmentPolicy(defaults, options).policy.permission).map(rule => ({ ...rule, origin: 'global' }))
       const normalizer = new PathNormalizer(posixPathFlavor, cwd)
       const check = async (command, selectedRules = rules) => {

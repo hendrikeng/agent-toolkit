@@ -2,6 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { readFileSync, mkdirSync, mkdtempSync, writeFileSync } = require('node:fs')
 const { spawnSync } = require('node:child_process')
+const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const launcher = readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
 const guardPath = join(__dirname, 'git-yolo-guard')
@@ -14,10 +15,10 @@ function checkHeredocs(source) {
 }
 test('launcher avoids macOS Bash 3.2 unmatched-heredoc-apostrophe regression', () => {
  checkHeredocs(launcher)
- assert.throws(() => checkHeredocs(launcher.replace('const scratchRoot =', "// Orca's workspace\nconst scratchRoot =")), /Unbalanced apostrophe/)
+ assert.throws(() => checkHeredocs(launcher.replace('const runtimeAgentDir =', "// Orca's workspace\nconst runtimeAgentDir =")), /Unbalanced apostrophe/)
 })
 test('installer defaults to one no-argument installation', () => {
- const root = mkdtempSync(join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT, 'install-choice-'))
+ const root = mkdtempSync(join(tmpdir(), 'install-choice-'))
  mkdirSync(join(root, 'shared/agent-safety'), { recursive: true })
  for (const name of ['agent-yolo', 'git-yolo-guard']) writeFileSync(join(root, 'shared/agent-safety', name), readFileSync(join(__dirname, name)))
  // Exercise the argument parser only; never run installation side effects.
@@ -55,11 +56,6 @@ test('permission manager patch remains repeatable after removing project policy 
  assert.equal(patchFile('permission-manager.ts', patched), patched)
 })
 
-test('source verifier reports a missing scratch prerequisite before running checks', () => {
- const result = spawnSync('/bin/bash', [join(__dirname, '../../verify.sh'), '--source', 'unused-package'], { env: { ...process.env, AGENT_TOOLKIT_SCRATCH_ROOT: '' }, encoding: 'utf8' })
- assert.equal(result.status, 2)
- assert.match(result.stderr, /AGENT_TOOLKIT_SCRATCH_ROOT is required/)
-})
 
 test('Git allows native local commands while blocking aliases, extensions, credentials, and destructive forms', () => {
  const env = { ...process.env }

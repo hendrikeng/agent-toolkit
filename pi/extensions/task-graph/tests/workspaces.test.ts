@@ -1,16 +1,15 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphFile, graphGit, importGraphInputs, integrateGraphWorker, prepareGraphLane, readGraphAdmission, readGraphRecord, saveGraphRecord, verifyGraphWorkspace, verifyPlanTaskCloseout } from "../workspaces.ts"
 import { digest, repositoryIdentity, validateTaskGraph, type TaskGraphPlan } from "../task-graph-core.ts"
 
 function fixture() {
- const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || join(homedir(), "Code/.agent-toolkit-scratch")
- mkdirSync(scratch, { recursive: true, mode: 0o700 })
- const directory = realpathSync(mkdtempSync(join(scratch, "graph-lanes-"))), source = join(directory, "source")
+ const directory = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "graph-lanes-"))), home = join(directory, "home"), source = join(home, "Code/source")
+ mkdirSync(join(home, "orca/workspaces"), { recursive: true }); process.env.HOME = home
  const env = { ...process.env, GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" }
  Object.assign(process.env, env)
  execFileSync("git", ["init", "--quiet", "--initial-branch=dev", source], { env })
@@ -31,7 +30,7 @@ function fixture() {
   if (args[0] === "worktree" && args[1] === "list") return { result: { worktrees: items } }
   if (args[0] === "worktree" && args[1] === "set") { const item = items.find(item => item.id === value("--worktree").slice(3)); item.displayName = value("--display-name"); return { result: { worktree: item } } }
   assert.deepEqual(args.slice(0, 2), ["worktree", "create"])
-  const path = join(directory, value("--name"))
+  const path = join(home, "orca/workspaces", value("--name"))
   graphGit(source, "worktree", "add", "--quiet", "-b", value("--name"), path, value("--base-branch"))
   const item = { id: `repo::${path}`, path, displayName: value("--name"), branch: `refs/heads/${value("--name")}` }
   items.push(item); return { result: { worktree: item } }
