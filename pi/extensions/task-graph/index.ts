@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from "node:fs"
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { getAgentDir, truncateHead, withFileMutationQueue, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { inspectShell, runBash } from "../development-access/index.ts"
@@ -172,21 +173,21 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   }
   return removed
  }
- const workerContext = () => {
+ const workerContext = (allowStaleReadOnly = false) => {
   if (!workerFile || !workerTask) throw new Error("This tool requires a graph worker.")
   const state = readGraphRecord(workerFile), task = state.plan.tasks.find(task => task.id === workerTask), worker = state.workers[workerTask]
   if (!task || !worker || realpathSync(process.cwd()) !== worker.workspace) throw new Error("Worker workspace binding changed.")
   const repo = state.repositories.find(repo => repo.source === worker.source)!, lane = worker.lane && state.lanes.find(lane => lane.id === worker.lane)
   if (task.owns.length && (!lane || lane.task !== task.id)) throw new Error("Writing lane ownership changed.")
   if (lane) verifyGraphWorkspace(repo, lane.workspace)
-  else {
+  else if (!allowStaleReadOnly) {
    if (graphGit(worker.workspace, "rev-parse", "HEAD") !== worker.base) throw new Error("Read-only checkout advanced; restart this worker against the new head.")
    if (repo.workspace && (graphMergeHead(worker.workspace) || graphDirtyPaths(worker.workspace).length)) throw new Error("Read-only checkout has an unsettled integration; retry after resolution.")
   }
   exposeGraphEnvironment(state, Object.fromEntries(state.repositories.filter(item => taskSources(state, task).has(item.source)).map(item => [item.source, { path: item.source === worker.source ? worker.workspace : item.workspace?.path ?? item.source, head: item.source === worker.source ? lane ? verifyGraphWorkspace(repo, lane.workspace) : worker.base : worker.prerequisites[item.source], branch: item.source === worker.source ? lane?.workspace.branch ?? repo.workspace?.branch : item.workspace?.branch ?? graphGit(item.source, "rev-parse", "--abbrev-ref", "HEAD") }])))
   return { state, task, worker, repo, lane }
  }
- const pendingShell = new Map<string, { task: string; command: string }>()
+ const pendingShell = new Map<string, { task: string; command: string; repository: string }>()
 
  pi.registerCommand("graph", { description: "Approve and run a bounded multi-worker graph. /graph [plan|execute] <objective>", handler: async (args, ctx) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
@@ -237,7 +238,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   closeCompletedTerminals(state); prepareLedger(state, orcaJson, persist)
   for (const repo of state.repositories) if (repo.workspace) { createGraphWorkspace(repo, repo.workspace, orcaJson, persist); importGraphInputs(repo, persist) }
   for (const lane of state.lanes.filter(lane => !lane.cleanup)) createGraphWorkspace(state.repositories.find(repo => repo.source === lane.source)!, lane.workspace, orcaJson, persist)
-  if (state.plan.resources?.length) { const helper = resourceHelper(), workspace = state.repositories.find(repo => repo.workspace?.role === "integration")?.workspace?.path; if (!workspace) throw new Error("Resources require a writing workspace."); state.resources ??= {}; helper.prepareResources(state.key, state.plan.resources, state.resources, persist, workspace, join(process.env.AGENT_TOOLKIT_SCRATCH_ROOT!, "graph-resources", state.key), helper.dockerRuntime()) }
+  if (state.plan.resources?.length) { const helper = resourceHelper(), workspace = state.repositories.find(repo => repo.workspace?.role === "integration")?.workspace?.path; if (!workspace) throw new Error("Resources require a writing workspace."); state.resources ??= {}; helper.prepareResources(state.key, state.plan.resources, state.resources, persist, workspace, join(realpathSync(tmpdir()), "agent-toolkit-resources", state.key), helper.dockerRuntime()) }
   verify(new Set(state.repositories.map(repo => repo.source))); return text({ run_id: state.runId, repositories: currentRepositoryMap(state), worktree_budget: state.plan.worktree_budget, worktrees_used: state.repositories.filter(repo => repo.workspace).length + state.lanes.filter(lane => !lane.cleanup).length, completed: state.completed, workers: state.workers })
  } })
  pi.registerTool({ name: "start_task_graph_task", label: "Start Graph Worker", description: "Launch or resume one dependency-ready task on an exclusive reusable lane; read-only tasks create no worktree.", parameters: taskSchema, executionMode: "sequential", async execute(_id, params) {
@@ -394,7 +395,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  pi.on("tool_call", async (event, ctx) => {
   try {
    if (workerFile || workerTask) {
-    const { state, task, worker } = workerContext(), input = event.input as any
+    const input = event.input as any, { state, task, worker } = workerContext(event.toolName === "bash")
     if (["read", "fffind", "ffgrep", "grep", "find", "ls", "ask_user_question"].includes(event.toolName)) return
     if (["write", "edit"].includes(event.toolName)) { graphWritePath(state, task.id, resolve(ctx.cwd, String(input.path).replace(/^@/, ""))); writeReceipt(workerFile!, task.id, { ...readReceipt(workerFile!, task.id), validated: undefined }); return }
     if (event.toolName === "bash") {
@@ -410,14 +411,15 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
       if (head !== worker.prerequisites[item.repo.source]) throw new Error("A used cross-repository prerequisite changed after worker launch.")
      }
      const reporting = !facts.effects && facts.commands.every(args => basename(args[0]) === "orca" && args[1] === "orchestration" && ["send", "ask", "check"].includes(args[2]))
+     if (!reporting) workerContext()
      if (usedForeign.length && !facts.inspection && !reporting) throw new Error("Cross-repository prerequisites are read-only.")
      if (facts.gitMutation || facts.integration) throw new Error("Graph workers commit through checkpoint_task_graph; shell Git mutations are not allowed.")
      if (selectedForeign && !facts.inspection && !reporting) throw new Error("Commands selected into another graph repository must be read-only.")
      if (!task.owns.length && !reporting && !facts.inspection) throw new Error("Read-only workers use inspection commands, read/search tools, and Orca reporting only.")
      const receipt = readReceipt(workerFile!, task.id)
-     if (task.setup && !receipt.setup && input.command !== task.setup) throw new Error("Run the declared setup command first.")
+     if (!reporting && task.setup && !receipt.setup && input.command !== task.setup) throw new Error("Run the declared setup command first.")
      if (!reporting && !facts.inspection) writeReceipt(workerFile!, task.id, { ...receipt, validated: undefined })
-     if (!reporting) pendingShell.set(event.toolCallId, { task: task.id, command: input.command })
+     if (!reporting) pendingShell.set(event.toolCallId, { task: task.id, command: input.command, repository: selected })
      return
     }
     if (["checkpoint_task_graph", "move_task_graph_plan"].includes(event.toolName)) return
@@ -450,7 +452,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   if (!pending || event.isError || !workerFile) return
   try {
    const { task, worker, repo, lane } = workerContext(), receipt = readReceipt(workerFile, task.id)
-   if (pending.task !== task.id) return
+   if (pending.task !== task.id || pending.repository !== worker.workspace) return
    if (pending.command === task.setup) receipt.setup = true
    if (pending.command === task.validation && receipt.setup !== false && lane && !graphDirtyPaths(worker.workspace).length) { receipt.validated = verifyGraphWorkspace(repo, lane.workspace); receipt.validation = task.validation }
    writeReceipt(workerFile, task.id, receipt)

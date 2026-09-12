@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { registerHooks } from "node:module"
@@ -24,9 +24,8 @@ const { default: extension } = await import("../index.ts")
 test.after(() => hooks.deregister())
 
 function fixture() {
- const scratch = process.env.AGENT_TOOLKIT_SCRATCH_ROOT || join(homedir(), "Code/.agent-toolkit-scratch")
- mkdirSync(scratch, { recursive: true, mode: 0o700 })
- const root = realpathSync(mkdtempSync(join(scratch, "graph-runtime-"))), source = join(root, "source"), dependency = join(root, "dependency")
+ const root = realpathSync(mkdtempSync(join(tmpdir(), "graph-runtime-"))), home = join(root, "home"), source = join(home, "Code/source"), dependency = join(home, "Code/dependency")
+ mkdirSync(join(home, "orca/workspaces"), { recursive: true }); process.env.HOME = home
  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" }
  Object.assign(process.env, gitEnv)
  execFileSync("git", ["init", "--quiet", "--initial-branch=dev", source], { env: gitEnv })
@@ -44,7 +43,7 @@ function fixture() {
   else if (op === "repo show") result = { repo: { id: "repo", defaultTerminals: [], setup: [] } }
   else if (op === "worktree list") result = { worktrees }
   else if (op === "worktree create") {
-   const name = value("--name"), repoId = value("--repo").slice(3), owner = repoId === "repo" ? source : dependency, path = join(root, `${repoId}-${name}`); graphGit(owner, "worktree", "add", "--quiet", "-b", name, path, value("--base-branch"))
+   const name = value("--name"), repoId = value("--repo").slice(3), owner = repoId === "repo" ? source : dependency, path = join(home, "orca/workspaces", `${repoId}-${name}`); graphGit(owner, "worktree", "add", "--quiet", "-b", name, path, value("--base-branch"))
    const worktree = { id: `${repoId}::${path}`, path, displayName: name, branch: `refs/heads/${name}`, owner }; worktrees.push(worktree)
    if (loseWorktreeReceipt) { loseWorktreeReceipt = false; throw new Error("lost worktree receipt") }
    result = { worktree }
@@ -267,6 +266,34 @@ test("workers can inspect and reference pinned repositories in the approved grap
  } finally { coordinator.stop() }
 })
 
+test("validation only credits the worker checkout", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.foundations.push({ repository: f.dependency, commit: f.dependencyBase }); f.plan.tasks = [
+  { id: "dependency", goal: "inspect dependency", repository: f.dependency, depends_on: [], owns: [], done_when: ["inspected"], validation: "manual: inspected" },
+  { ...f.plan.tasks[0], depends_on: ["dependency"], validation: "git diff --check" },
+ ]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const dependency = (await coordinator.call("start_task_graph_task", { task_id: "dependency" })).details.worker
+  f.dispatches.find(item => item.id === dependency.dispatch).status = "completed"; f.tasks.find(task => task.id === dependency.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "dependency", evidence: "inspected" })
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
+   await child.call("bash", { repository: f.dependency, command: "git diff --check" })
+   f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+   await assert.rejects(coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated elsewhere" }), /clean final checkpoint/)
+   await child.call("bash", { repository: worker.workspace, command: "git diff --check" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated in worker checkout" })
+ } finally { coordinator.stop() }
+})
+
 test("integration setup precedes validation and closeout removes only clean integrated lanes", async () => {
  const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [{ ...f.plan.tasks[0], setup: "node setup.cjs" }]
  const coordinator = f.runtime(f.source)
@@ -279,6 +306,7 @@ test("integration setup precedes validation and closeout removes only clean inte
   const previous = process.cwd(); process.chdir(worker.workspace)
   try {
    const child = f.runtime(worker.workspace)
+   await child.call("bash", { repository: worker.workspace, command: "orca orchestration send --message 'starting setup'" })
    await child.call("bash", { repository: worker.workspace, command: "node setup.cjs" })
    await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
    await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
@@ -322,6 +350,12 @@ test("an unrelated read-only worker does not block integration", async () => {
   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
   f.dispatches.find(item => item.id === writer.dispatch).status = "completed"; f.tasks.find(task => task.id === writer.ledgerTask).status = "completed"
   await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated" })
+  process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "read"; process.chdir(reader.workspace)
+  try {
+   const child = f.runtime(reader.workspace)
+   await assert.rejects(child.call("bash", { repository: reader.workspace, command: "git status --short" }), /checkout advanced/)
+   await child.call("bash", { repository: reader.workspace, command: "orca orchestration send --message 'restart needed'" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
   f.dispatches.find(item => item.id === reader.dispatch).status = "completed"
   const restartedReader = (await coordinator.call("start_task_graph_task", { task_id: "read" })).details.worker
   f.dispatches.find(item => item.id === restartedReader.dispatch).status = "completed"; f.tasks.find(task => task.id === restartedReader.ledgerTask).status = "completed"
