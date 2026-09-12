@@ -117,6 +117,18 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  const persist = () => { if (!file || !record) throw new Error("No approved graph record."); saveGraphRecord(file, record) }
  const bound = () => { if (!record || !release || record.completion) throw new Error("Approve or resume an unfinished graph first."); return record }
  const stop = () => { release?.(); release = undefined; record = undefined; file = undefined; request = undefined }
+ const cleanupGeneratedLinks = (workspace: string, owners: string[]) => {
+  const workspaceRoot = realpathSync(workspace)
+  for (const local of graphDirtyPaths(workspace).filter(local => !owners.some(owner => local === owner || local.startsWith(`${owner}/`)))) {
+   if (graphGit(workspace, "ls-files", "--", local)) continue
+   const path = join(workspace, local)
+   try {
+    const target = lstatSync(path).isSymbolicLink() && realpathSync(path)
+    if (target && (target === workspaceRoot || target.startsWith(`${workspaceRoot}${sep}`))) unlinkSync(path)
+   }
+   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
+  }
+ }
  const verify = (sources?: Set<string>) => {
   const state = bound(), selected = sources ?? new Set(state.plan.tasks.filter(task => task.owns.length).map(task => realpathSync(resolve(state.root, task.repository))))
   for (const repo of state.repositories.filter(repo => selected.has(repo.source))) {
@@ -127,7 +139,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   for (const lane of state.lanes.filter(lane => selected.has(lane.source))) {
    if (lane.cleanup) continue
    const repo = state.repositories.find(repo => repo.source === lane.source)!, worker = lane.task && state.workers[lane.task], task = lane.task && state.plan.tasks.find(task => task.id === lane.task)
-   if (worker && task) verifyGraphChanges(repo, lane.workspace, task.owns, state.plan.mode, worker.base)
+   if (worker && task) { cleanupGeneratedLinks(worker.workspace, task.owns); verifyGraphChanges(repo, lane.workspace, task.owns, state.plan.mode, worker.base) }
    else { verifyGraphWorkspace(repo, lane.workspace); if (!lane.blocked && graphDirtyPaths(lane.workspace.path!).length) throw new Error("A reusable lane became dirty. Preserve it.") }
   }
  }
@@ -355,16 +367,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  pi.registerTool({ name: "checkpoint_task_graph", label: "Checkpoint Graph", description: "Commit explicit worker paths, or an owned integration conflict resolution, with hooks enabled.", parameters: object({ repository: string(), paths: Type.Array(string(), { minItems: 1, maxItems: 100 }), message: string() }), executionMode: "sequential", async execute(_id, params) {
   if (workerFile) {
    const { state, task, worker, repo, lane } = workerContext(); if (!lane || params.repository !== worker.workspace) throw new Error("Only writing workers checkpoint their assigned lane.")
-   const workspaceRoot = realpathSync(worker.workspace)
-   for (const local of graphDirtyPaths(worker.workspace).filter(local => !task.owns.some(owner => local === owner || local.startsWith(`${owner}/`)))) {
-    if (graphGit(worker.workspace, "ls-files", "--", local)) continue
-    const path = join(worker.workspace, local)
-    try {
-     const target = lstatSync(path).isSymbolicLink() && realpathSync(path)
-     if (target && (target === workspaceRoot || target.startsWith(`${workspaceRoot}${sep}`))) unlinkSync(path)
-    }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
-   }
+   cleanupGeneratedLinks(worker.workspace, task.owns)
    writeReceipt(workerFile, task.id, { ...readReceipt(workerFile, task.id), validated: undefined })
    const commit = () => checkpointGraphChanges(repo, lane.workspace, task.owns, state.plan.mode, worker.base, params.paths, `[${task.id}] ${params.message}`)
    const queued = [...params.paths].sort().reduceRight<() => Promise<string>>((next, path) => () => withFileMutationQueue(join(worker.workspace, path), next), async () => commit())
