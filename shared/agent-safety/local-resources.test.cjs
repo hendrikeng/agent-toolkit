@@ -120,6 +120,14 @@ test('PostgreSQL initialization retries the same identity and grants schema owne
  assert.equal(f.calls.filter(call => call[0] === 'create').length, 1)
 })
 
+test('PostgreSQL database-creator profile remains non-superuser and bounded to the isolated server', () => {
+ const declaration = { ...base, id: 'db', type: 'postgres', image: `postgres:17@sha256:${'a'.repeat(64)}`, memoryMiB: 256, storageMiB: 128, reset: undefined, database: 'postgres' }
+ const f = fixture(declaration); f.prepare()
+ const sql = f.calls.find(call => typeof call[3] === 'string')[3]
+ assert.ok(sql.includes('LOGIN NOSUPERUSER CREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'))
+ assert.ok(!sql.includes('NOSUPERUSER NOCREATEDB'))
+})
+
 test('storage clients cannot administer the service or reset other databases', () => {
  const f = fixture(); f.prepare()
  const args = f.containers.get(f.state.cache.id).Config.Cmd
@@ -166,6 +174,7 @@ test('restart and replacement preserve the absolute deadline and expired wrapper
 })
 
 test('declarations reject mutable images, broad resets, scan escapes, downloads and oversized scope', () => {
- for (const change of [{ image: 'redis:latest' }, { reset: 'database:all' }, { storageMiB: 100000 }, { downloads: ['https://example.com'] }, { type: 'scanner', image: `clamav/clamav:1.4@sha256:${'a'.repeat(64)}`, targets: ['../source'] }]) assert.throws(() => validateResources([{ ...base, ...change }]))
+ for (const change of [{ image: 'redis:latest' }, { reset: 'database:all' }, { database: 'postgres' }, { storageMiB: 100000 }, { downloads: ['https://example.com'] }, { type: 'scanner', image: `clamav/clamav:1.4@sha256:${'a'.repeat(64)}`, targets: ['../source'] }]) assert.throws(() => validateResources([{ ...base, ...change }]))
+ assert.throws(() => validateResources([{ ...base, id: 'db', type: 'postgres', image: `postgres:17@sha256:${'a'.repeat(64)}`, memoryMiB: 256, storageMiB: 128, database: 'shared' }]))
  assert.throws(() => validateResources([base, base]), /unique/)
 })

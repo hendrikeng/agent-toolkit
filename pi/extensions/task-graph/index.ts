@@ -15,7 +15,7 @@ const string = () => Type.String({ minLength: 1 })
 const object = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: false })
 const resourceFields = { id: Type.String({ pattern: "^[a-z][a-z0-9-]{0,30}$" }), purpose: string(), lifetimeSeconds: Type.Integer({ minimum: 64, maximum: 86400 }), downloads: Type.Optional(Type.Array(string(), { description: "Omit unless the exact declared image must be downloaded; every entry must equal image." })) }
 const resourceSchema = Type.Union([
- object({ ...resourceFields, type: Type.Literal("postgres"), image: Type.String({ pattern: "^postgres:17(?:\\.[0-9]+)?@sha256:[a-f0-9]{64}$", description: "Official PostgreSQL 17 image with an immutable digest; alpine tags are unsupported." }), memoryMiB: Type.Integer({ minimum: 256, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 128, maximum: 1024 }), reset: Type.Optional(Type.Literal("schema:public")) }),
+ object({ ...resourceFields, type: Type.Literal("postgres"), image: Type.String({ pattern: "^postgres:17(?:\\.[0-9]+)?@sha256:[a-f0-9]{64}$", description: "Official PostgreSQL 17 image with an immutable digest; alpine tags are unsupported." }), memoryMiB: Type.Integer({ minimum: 256, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 128, maximum: 1024 }), reset: Type.Optional(Type.Literal("schema:public")), database: Type.Optional(Type.Literal("postgres", { description: "Grant the non-superuser test role CREATEDB inside this isolated resource for tests that create disposable databases." })) }),
  object({ ...resourceFields, type: Type.Literal("storage"), image: Type.String({ pattern: "^redis:7(?:\\.[0-9]+)*@sha256:[a-f0-9]{64}$", description: "Official Redis 7 image with an immutable digest." }), memoryMiB: Type.Integer({ minimum: 64, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 64, maximum: 1024 }), reset: Type.Optional(Type.Literal("database:0")) }),
  object({ ...resourceFields, type: Type.Literal("scanner"), image: Type.String({ pattern: "^clamav/clamav:1\\.[0-9]+(?:\\.[0-9]+)?@sha256:[a-f0-9]{64}$", description: "Official ClamAV 1.x image with an immutable digest." }), memoryMiB: Type.Integer({ minimum: 64, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 64, maximum: 1024 }), targets: Type.Array(string(), { minItems: 1, maxItems: 16 }), database: string() }),
 ])
@@ -192,8 +192,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    if (lane.cleanup === "pending" && !matches.length && !existsSync(workspace.path)) { lane.cleanup = "removed"; persist(); removed.push(workspace.path); continue }
    if (matches.length !== 1) throw new Error("Lane cleanup found a missing or duplicate Orca receipt.")
    const tip = verifyGraphWorkspace(repo, workspace)
-   if (graphDirtyPaths(workspace.path).length || terminalInventory(orcaJson).some(terminal => terminalPath(terminal) === workspace.path)) throw new Error("Lane cleanup requires a clean integrated lane with no terminal.")
+   if (graphDirtyPaths(workspace.path).length) throw new Error("Lane cleanup requires a clean integrated lane.")
    graphGit(repo.workspace.path!, "merge-base", "--is-ancestor", tip, "HEAD")
+   for (const terminal of terminalInventory(orcaJson).filter(terminal => terminalPath(terminal) === workspace.path)) orcaJson(["terminal", "close", "--terminal", terminal.handle, "--json"])
+   if (terminalInventory(orcaJson).some(terminal => terminalPath(terminal) === workspace.path)) throw new Error("Lane cleanup could not close an attached terminal.")
    lane.cleanup = "pending"; persist()
    orcaJson(["worktree", "rm", "--worktree", `id:${workspace.id}`, "--json"])
    matches = listed()

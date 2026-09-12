@@ -401,8 +401,10 @@ test("integration setup precedes validation and closeout removes only clean inte
   await coordinator.call("prepare_task_graph_workspace")
   assert.deepEqual(f.integrationValidations.map(item => item.command), ["node setup.cjs", "node check.cjs"])
   for (const item of f.integrationValidations) assert.equal(JSON.parse(item.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES)[f.source].path, prepared.repositories[f.source].path)
+  f.terminals.push({ handle: "stale_completed_worker", worktreePath: worker.workspace })
   const result = (await coordinator.call("finish_task_graph", { run_id: prepared.run_id, evidence: "done" })).details
   assert.equal(f.worktrees.length, 1); assert.equal(f.worktrees[0].path, prepared.repositories[f.source].path)
+  assert.ok(f.calls.some(call => call.slice(0, 2).join(" ") === "terminal close" && call.includes("stale_completed_worker")))
   assert.deepEqual(result.removed_lanes, [worker.workspace]); assert.equal(graphGit(f.source, "show", "HEAD:a.txt"), "base")
  } finally { coordinator.stop() }
 })

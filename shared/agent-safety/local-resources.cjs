@@ -24,14 +24,20 @@ function validateResources(declarations = []) {
   assert.ok(type && type.image.test(item.image), 'Use a supported version and immutable image digest')
   assert.ok(typeof item.purpose === 'string' && item.purpose.trim(), 'Resource purpose is required')
   for (const [key, max] of [['memoryMiB', 2048], ['storageMiB', 1024], ['lifetimeSeconds', 86400]]) assert.ok(Number.isInteger(item[key]) && item[key] >= 64 && item[key] <= max, `Invalid resource limit: ${key}`)
-  if (item.type === 'postgres') assert.ok(item.memoryMiB >= 256 && item.storageMiB >= 128, 'PostgreSQL setup requires at least 256 MiB memory and 128 MiB storage')
+  if (item.type === 'postgres') {
+   assert.ok(item.memoryMiB >= 256 && item.storageMiB >= 128, 'PostgreSQL setup requires at least 256 MiB memory and 128 MiB storage')
+   assert.ok(item.database === undefined || item.database === 'postgres', 'PostgreSQL database creation requires the isolated postgres profile')
+  }
   assert.ok(item.reset === undefined || item.reset === type.reset, 'Fixture resets cannot delete enclosing resources')
   assert.ok(Array.isArray(item.downloads ?? []) && (item.downloads ?? []).every(image => image === item.image), 'Only the declared immutable image download is supported')
   if (item.type === 'scanner') {
    assert.ok(Array.isArray(item.targets) && item.targets.length > 0 && item.targets.length <= 16, 'Scanner targets are required')
    assert.ok(typeof item.database === 'string' && item.database.length > 0, 'Declare a workspace-relative scanner signature database')
    for (const target of [...item.targets, item.database]) assert.ok(typeof target === 'string' && !path.isAbsolute(target) && target.split('/').every(part => part && part !== '..' && part !== '.' && !part.startsWith('.') && !/[\x00-\x1f,:]/.test(part) && !/(?:\.(?:pem|key)$|credentials|^auth\.json$)/i.test(part)), 'Use literal workspace-relative scanner targets without protected credentials')
-  } else assert.ok(!item.targets?.length, 'Only scanners accept scan targets')
+  } else {
+   assert.ok(!item.targets?.length, 'Only scanners accept scan targets')
+   if (item.type !== 'postgres') assert.equal(item.database, undefined, 'Only PostgreSQL and scanners accept database scope')
+  }
  }
 }
 function credential(file) {
@@ -160,7 +166,10 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
    runtime.exec(record.id, ['pg_isready', '-h', '127.0.0.1', '-p', '5432'])
    let bootstrapped = false
    try { bootstrapped = runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT 'ready' FROM pg_roles WHERE rolname='bootstrap' AND NOT rolcanlogin"]) === 'ready' } catch {}
-   if (!bootstrapped) runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER bootstrap' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
+   if (!bootstrapped) {
+    const databaseCreation = declaration.database === 'postgres' ? 'CREATEDB' : 'NOCREATEDB'
+    runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER ${databaseCreation} NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER bootstrap' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
+   }
   }
   if (declaration.type === 'postgres') assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT current_setting('server_version_num')::integer / 10000"]), '17', 'PostgreSQL version differs from the declared class')
   if (declaration.type === 'storage') {
