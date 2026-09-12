@@ -16,7 +16,7 @@ const hooks = registerHooks({ resolve(specifier, context, next) {
   "@earendil-works/pi-ai": "export const StringEnum=()=>({});",
   typebox: "export const Type=new Proxy({}, {get:()=>()=>({})});",
   "node:child_process": "export const execFileSync=(_binary,args)=>JSON.stringify(globalThis.orcaRpc(args));",
-  "../development-access/index.ts": "export const inspectShell=async(command,cwd)=>({command,cwd,inspection:command.startsWith('git ')||command.startsWith('cross-check '),effects:command.includes('>')||command.startsWith('PATH='),gitMutation:/^git (?:add|commit|merge)/.test(command),commands:[command.startsWith('orca ')?['orca','orchestration','send']:command.startsWith('./orca ')?['./orca','orchestration','send']:command.startsWith('PATH=')?['orca','orchestration','send']:['node','check.cjs']],paths:command.startsWith('cross-')?[command.slice(command.indexOf(' ')+1)]:[],candidates:[],directories:[]}); export const runBash=async(_id,params,_signal,_update,cwd,env)=>{globalThis.graphBashRuns.push({command:params.command,cwd,env}); if(globalThis.graphBashFailure) throw new Error(globalThis.graphBashFailure); return {content:[]}};",
+  "../development-access/index.ts": "export const inspectShell=async(command,cwd)=>({command,cwd,inspection:command.startsWith('git ')||command.startsWith('cross-check '),effects:command.includes('>')||command.startsWith('PATH='),gitMutation:/(?:^|\\/)git (?:add|commit|merge)/.test(command)||command.includes('git hash-object'),commands:command.includes('git hash-object')?(command.startsWith('git hash-object')?[command.split(' ')]:[['git','show'],['git','hash-object','--stdin']]):[command.startsWith('/usr/bin/git ')?command.split(' '):command.startsWith('orca ')?['orca','orchestration','send']:command.startsWith('./orca ')?['./orca','orchestration','send']:command.startsWith('PATH=')?['orca','orchestration','send']:['node','check.cjs']],paths:command.startsWith('cross-')?[command.slice(command.indexOf(' ')+1)]:[],candidates:[],directories:[]}); export const runBash=async(_id,params,_signal,_update,cwd,env)=>{globalThis.graphBashRuns.push({command:params.command,cwd,env}); if(globalThis.graphBashFailure) throw new Error(globalThis.graphBashFailure); return {content:[]}};"
  }
  return modules[specifier] ? { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true } : next(specifier, context)
 } })
@@ -345,6 +345,37 @@ test("workers can inspect and reference pinned repositories in the approved grap
    await assert.rejects(child.call("bash", { repository: worker.workspace, command: `cross-check ${f.dependency}` }), /used cross-repository prerequisite changed/)
   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
  } finally { coordinator.stop() }
+})
+
+test("exact validation permits only read-only Git clauses", async () => {
+ const f = fixture(); f.plan.tasks = [{ ...f.plan.tasks[0], validation: "git show HEAD:a.txt >/dev/null && git hash-object a.txt" }]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
+   await child.call("bash", { repository: worker.workspace, command: f.plan.tasks[0].validation })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+ } finally { coordinator.stop() }
+ for (const validation of ["git hash-object -w a.txt", "git hash-object -wt blob a.txt", "/usr/bin/git commit --allow-empty -m bad"]) {
+  const rejected = fixture(); rejected.plan.tasks = [{ ...rejected.plan.tasks[0], validation }]
+  const guard = rejected.runtime(rejected.source)
+  try {
+   await guard.command(`execute ${rejected.plan.objective}`)
+   const approval = (await guard.call("propose_task_graph", rejected.plan)).details
+   await guard.call("prepare_task_graph_workspace")
+   const worker = (await guard.call("start_task_graph_task", { task_id: "a" })).details.worker
+   const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(worker.workspace)
+   try { await assert.rejects(rejected.runtime(worker.workspace).call("bash", { repository: worker.workspace, command: validation }), /shell Git mutations/) }
+   finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  } finally { guard.stop() }
+ }
 })
 
 test("validation only credits the worker checkout", async () => {

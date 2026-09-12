@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync } from "node:fs"
-import { delimiter, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, delimiter, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { getAgentDir, truncateHead, withFileMutationQueue, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -476,7 +476,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
      const reporting = !facts.effects && facts.commands.every(args => args[1] === "orchestration" && ["send", "ask", "check"].includes(args[2]) && trustedOrcaReportExecutables().has(executablePath(args[0], selected)))
      if (!reporting) workerContext()
      if (usedForeign.length && !facts.inspection && !reporting) throw new Error("Cross-repository prerequisites are read-only.")
-     if (facts.gitMutation || facts.integration) throw new Error("Graph workers commit through checkpoint_task_graph; shell Git mutations are not allowed.")
+     const gitCommands = facts.commands.filter(args => basename(args[0]) === "git")
+     const validationGit = input.command === task.validation && gitCommands.length > 0 && gitCommands.every(args => ["diff", "hash-object", "rev-parse", "show", "status"].includes(args[1]) && (args[1] !== "hash-object" || !args.slice(2).some(arg => /^-[^-]*w/.test(arg))))
+     if (facts.gitMutation && !validationGit || facts.integration) throw new Error("Graph workers commit through checkpoint_task_graph; shell Git mutations are not allowed.")
      if (selectedForeign && !facts.inspection && !reporting) throw new Error("Commands selected into another graph repository must be read-only.")
      if (!task.owns.length && !reporting && !facts.inspection) throw new Error("Read-only workers use inspection commands, read/search tools, and Orca reporting only.")
      const receipt = readReceipt(workerFile!, task.id)
