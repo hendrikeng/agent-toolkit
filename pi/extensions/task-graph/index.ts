@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from "node:fs"
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync } from "node:fs"
 import { delimiter, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
@@ -355,6 +355,16 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  pi.registerTool({ name: "checkpoint_task_graph", label: "Checkpoint Graph", description: "Commit explicit worker paths, or an owned integration conflict resolution, with hooks enabled.", parameters: object({ repository: string(), paths: Type.Array(string(), { minItems: 1, maxItems: 100 }), message: string() }), executionMode: "sequential", async execute(_id, params) {
   if (workerFile) {
    const { state, task, worker, repo, lane } = workerContext(); if (!lane || params.repository !== worker.workspace) throw new Error("Only writing workers checkpoint their assigned lane.")
+   const workspaceRoot = realpathSync(worker.workspace)
+   for (const local of graphDirtyPaths(worker.workspace).filter(local => !task.owns.some(owner => local === owner || local.startsWith(`${owner}/`)))) {
+    if (graphGit(worker.workspace, "ls-files", "--", local)) continue
+    const path = join(worker.workspace, local)
+    try {
+     const target = lstatSync(path).isSymbolicLink() && realpathSync(path)
+     if (target && (target === workspaceRoot || target.startsWith(`${workspaceRoot}${sep}`))) unlinkSync(path)
+    }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
+   }
    writeReceipt(workerFile, task.id, { ...readReceipt(workerFile, task.id), validated: undefined })
    const commit = () => checkpointGraphChanges(repo, lane.workspace, task.owns, state.plan.mode, worker.base, params.paths, `[${task.id}] ${params.message}`)
    const queued = [...params.paths].sort().reduceRight<() => Promise<string>>((next, path) => () => withFileMutationQueue(join(worker.workspace, path), next), async () => commit())

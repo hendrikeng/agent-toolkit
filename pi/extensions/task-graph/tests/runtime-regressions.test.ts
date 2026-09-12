@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -418,7 +418,9 @@ test("integration setup precedes validation and closeout removes only clean inte
    await child.call("bash", { repository: worker.workspace, command: "orca orchestration send --message 'starting setup'" })
    await child.call("bash", { repository: worker.workspace, command: "node setup.cjs" })
    await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
+   symlinkSync(join(worker.workspace, "a.txt"), join(worker.workspace, "dist"))
    await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
+   assert.equal(existsSync(join(worker.workspace, "dist")), false)
    await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
   f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
