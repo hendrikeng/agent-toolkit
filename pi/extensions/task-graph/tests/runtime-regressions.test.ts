@@ -20,7 +20,10 @@ const hooks = registerHooks({ resolve(specifier, context, next) {
  }
  return modules[specifier] ? { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true } : next(specifier, context)
 } })
-const { default: extension } = await import("../index.ts")
+const originalPath = process.env.PATH
+let extension: (api: never) => void
+try { process.env.PATH = ""; ({ default: extension } = await import("../index.ts")) }
+finally { process.env.PATH = originalPath }
 test.after(() => hooks.deregister())
 
 function fixture() {
