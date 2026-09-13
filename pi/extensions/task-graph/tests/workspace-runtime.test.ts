@@ -24,6 +24,8 @@ test("installer linkage loads only the new graph files and preserves old records
  for (const name of ["bind_task_graph_run", "recover_plan_lifecycle", "integrate_task_graph_worker", "cleanup_completed_task_graph"]) assert.ok(!index.includes(`name: "${name}"`))
  assert.match(index, /pi-yolo --model/)
  assert.match(index, /\["terminal", "create"/)
+ assert.match(index, /postgres:17\.6@sha256:feff5b24fedd610975a1f5e743c51a4b360437f4dc3a11acf740dcd708f413f6/)
+ assert.match(index, /Type\.Literal\("maintenance-owner"/)
  assert.doesNotMatch(index, /worker-start|cleanup_completed_task_graph/)
  assert.doesNotMatch(installer, /core\.hooksPath=\/dev\/null/)
 })

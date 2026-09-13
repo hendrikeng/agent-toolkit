@@ -70,7 +70,9 @@ Only authoritative absence permits replacement. The replacement retains its earl
 Uncertain state does not permit recreation.
 
 Only declared fixture resets are available. The helper does not accept arbitrary SQL or deletion commands.
-The PostgreSQL test role owns the public schema, not the database. The bootstrap role cannot log in after initialization.
+The default PostgreSQL test role owns the public schema, not the database. The bootstrap role cannot log in after initialization.
+The graph-only `maintenance-owner` profile makes the test role own the new database. This role has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`.
+The profile sets `DATABASE_URL` and `TEST_DATABASE_URL` in addition to `RESOURCE_<ID>_URL`. Use it only for fresh maintenance validation.
 Redis uses one database and disables service administration commands.
 A fixed shell wrapper computes the remaining time from the original deadline. A timeout process uses `SIGKILL` at that limit.
 Restarts and replacements retain the same deadline. Expired resources cannot restart under the same declaration.

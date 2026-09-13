@@ -17,7 +17,7 @@ function validateResources(declarations = []) {
  const ids = new Set()
  for (const item of declarations) {
   assert.ok(item && typeof item === 'object' && !Array.isArray(item), 'Resource declarations must be objects')
-  assert.ok(Object.keys(item).every(key => ['id', 'type', 'image', 'purpose', 'memoryMiB', 'storageMiB', 'lifetimeSeconds', 'reset', 'targets', 'database', 'downloads'].includes(key)), 'Unknown resource scope field')
+  assert.ok(Object.keys(item).every(key => ['id', 'type', 'image', 'purpose', 'memoryMiB', 'storageMiB', 'lifetimeSeconds', 'reset', 'targets', 'database', 'profile', 'downloads'].includes(key)), 'Unknown resource scope field')
   assert.ok(/^[a-z][a-z0-9-]{0,30}$/.test(item.id) && !ids.has(item.id), 'Resource IDs must be unique')
   ids.add(item.id)
   const type = types[item.type]
@@ -27,6 +27,8 @@ function validateResources(declarations = []) {
   if (item.type === 'postgres') {
    assert.ok(item.memoryMiB >= 256 && item.storageMiB >= 128, 'PostgreSQL setup requires at least 256 MiB memory and 128 MiB storage')
    assert.ok(item.database === undefined || item.database === 'postgres', 'PostgreSQL database creation requires the isolated postgres profile')
+   assert.ok(item.profile === undefined || item.profile === 'maintenance-owner', 'Unsupported PostgreSQL identity profile')
+   assert.ok(!(item.database && item.profile), 'PostgreSQL identity profiles cannot be combined')
   }
   assert.ok(item.reset === undefined || item.reset === type.reset, 'Fixture resets cannot delete enclosing resources')
   assert.ok(Array.isArray(item.downloads ?? []) && (item.downloads ?? []).every(image => image === item.image), 'Only the declared immutable image download is supported')
@@ -36,7 +38,10 @@ function validateResources(declarations = []) {
    for (const target of [...item.targets, item.database]) assert.ok(typeof target === 'string' && !path.isAbsolute(target) && target.split('/').every(part => part && part !== '..' && part !== '.' && !part.startsWith('.') && !/[\x00-\x1f,:]/.test(part) && !/(?:\.(?:pem|key)$|credentials|^auth\.json$)/i.test(part)), 'Use literal workspace-relative scanner targets without protected credentials')
   } else {
    assert.ok(!item.targets?.length, 'Only scanners accept scan targets')
-   if (item.type !== 'postgres') assert.equal(item.database, undefined, 'Only PostgreSQL and scanners accept database scope')
+   if (item.type !== 'postgres') {
+    assert.equal(item.database, undefined, 'Only PostgreSQL and scanners accept database scope')
+    assert.equal(item.profile, undefined, 'Only PostgreSQL accepts an identity profile')
+   }
   }
  }
 }
@@ -176,14 +181,17 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
    let bootstrapped = false
    try { bootstrapped = runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT 'ready' FROM pg_roles WHERE rolname='bootstrap' AND NOT rolcanlogin"]) === 'ready' } catch {}
    if (!bootstrapped) {
-    const databaseCreation = declaration.database === 'postgres' ? 'CREATEDB CREATEROLE' : 'NOCREATEDB NOCREATEROLE'
-    runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER ${databaseCreation} NOREPLICATION NOBYPASSRLS PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER bootstrap' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
+    const maintenanceOwner = declaration.profile === 'maintenance-owner'
+    const roleAttributes = maintenanceOwner ? 'NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS' : declaration.database === 'postgres' ? 'CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS' : 'NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
+    const databaseOwner = maintenanceOwner ? 'toolkit_test' : 'bootstrap'
+    runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER ${roleAttributes} PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER ${databaseOwner}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
    }
   }
   if (declaration.type === 'postgres') {
    assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT current_setting('server_version_num')::integer / 10000"]), '17', 'PostgreSQL version differs from the declared class')
-   const expected = declaration.database === 'postgres' ? 'true|true' : 'false|false'
-   assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT rolcreatedb::text || '|' || rolcreaterole::text FROM pg_roles WHERE rolname = current_user"]), expected, 'PostgreSQL test-role profile differs from its declaration; stop and restart this disposable resource')
+   const expected = declaration.profile === 'maintenance-owner' ? 'true|false|false|true|false|true|true|true|true' : declaration.database === 'postgres' ? 'true|false|true|true|false|false|false|true|true' : 'true|false|false|false|false|false|false|true|true'
+   const attestation = "SELECT r.rolcanlogin::text || '|' || r.rolsuper::text || '|' || r.rolcreatedb::text || '|' || r.rolcreaterole::text || '|' || r.rolreplication::text || '|' || r.rolbypassrls::text || '|' || (d.datdba = r.oid)::text || '|' || (NOT b.rolcanlogin)::text || '|' || (NOT EXISTS (SELECT FROM pg_auth_members m WHERE r.oid IN (m.roleid, m.member)))::text FROM pg_roles r JOIN pg_database d ON d.datname = current_database() JOIN pg_roles b ON b.rolname = 'bootstrap' WHERE r.rolname = current_user AND current_user = session_user"
+   assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', attestation]), expected, 'PostgreSQL test-role identity differs from its declaration; stop and restart this disposable resource')
   }
   if (declaration.type === 'storage') {
    const client = ['redis-cli', '-h', '127.0.0.1', '-p', '6379', '--no-auth-warning', '-a', secret]
@@ -279,6 +287,7 @@ function operateResource(record, operation, runtime) {
 }
 function resourceEnvironment(state, runtime) {
  const env = {}
+ const maintenanceOwners = Object.values(state).filter(record => record.declaration.type === 'postgres' && record.declaration.profile === 'maintenance-owner' && !record.stopped && Date.now() < record.createdAt + record.declaration.lifetimeSeconds * 1000)
  for (const record of Object.values(state)) {
   if (record.stopped || Date.now() >= record.createdAt + record.declaration.lifetimeSeconds * 1000) continue
   const details = verifyResource(record, runtime)
@@ -292,7 +301,9 @@ function resourceEnvironment(state, runtime) {
    const file = record.credentials
    assert.ok(fs.lstatSync(file).isFile() && !fs.lstatSync(file).isSymbolicLink() && !(fs.statSync(file).mode & 0o077))
    const secret = credential(file)
-   env[`RESOURCE_${record.declaration.id.replaceAll('-', '_').toUpperCase()}_URL`] = `postgresql://toolkit_test:${secret}@${target}/toolkit_test`
+   const url = `postgresql://toolkit_test:${secret}@${target}/toolkit_test`
+   env[`RESOURCE_${record.declaration.id.replaceAll('-', '_').toUpperCase()}_URL`] = url
+   if (record.declaration.profile === 'maintenance-owner' && maintenanceOwners.length === 1) env.DATABASE_URL = env.TEST_DATABASE_URL = url
   } else {
    const secret = credential(record.credentials)
    env[`RESOURCE_${record.declaration.id.replaceAll('-', '_').toUpperCase()}_URL`] = `redis://:${secret}@${target}/0`

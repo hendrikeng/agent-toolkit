@@ -21,7 +21,7 @@ export interface TaskGraphPlan {
  tasks: TaskGraphTask[]
  foundations: Array<{ repository: string; commit: string }>
  inputs?: Array<{ repository: string; paths: string[] }>
- resources?: Array<{ id: string; type: "postgres" | "storage" | "scanner"; image: string; purpose: string; memoryMiB: number; storageMiB: number; lifetimeSeconds: number; reset?: string; targets?: string[]; database?: string; downloads?: string[] }>
+ resources?: Array<{ id: string; type: "postgres" | "storage" | "scanner"; image: string; purpose: string; memoryMiB: number; storageMiB: number; lifetimeSeconds: number; reset?: string; targets?: string[]; database?: string; profile?: "maintenance-owner"; downloads?: string[] }>
  worktree_budget: number
 }
 export type Orca = (args: string[]) => any

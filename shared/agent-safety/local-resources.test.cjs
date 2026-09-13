@@ -33,7 +33,7 @@ function fixture(declaration = base) {
   },
   start(id) { calls.push(['start', id]); containers.get(id).State.Running = true; containers.get(id).State.StartedAt = new Date(Date.now()).toISOString(); containers.get(id).Config.RuntimeStarted = true },
   stop(id) { calls.push(['stop', id]); containers.get(id).State.Running = false },
-  exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : args.at(-1)?.includes('rolcreatedb') ? declaration.database === 'postgres' ? 'true|true' : 'false|false' : 'OK' },
+  exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : args.at(-1)?.includes('rolcanlogin') ? declaration.profile === 'maintenance-owner' ? 'true|false|false|true|false|true|true|true|true' : declaration.database === 'postgres' ? 'true|false|true|true|false|false|false|true|true' : 'true|false|false|false|false|false|false|true|true' : 'OK' },
  }
  const state = {}
  const prepare = () => prepareResources('scope', [declaration], state, () => saves.push(JSON.stringify(state)), workspace, path.join(root, 'evidence'), runtime)
@@ -126,8 +126,24 @@ test('PostgreSQL database-creator profile remains non-superuser and bounded to t
  assert.ok(sql.includes('LOGIN NOSUPERUSER CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS'))
  assert.ok(!sql.includes('NOSUPERUSER NOCREATEDB'))
  const exec = f.runtime.exec
- f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcreatedb') ? 'true|false' : exec(id, args, input)
- assert.throws(f.prepare, /profile differs/)
+ f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcanlogin') ? 'true|false|true|false|false|false|false|true|true' : exec(id, args, input)
+ assert.throws(f.prepare, /identity differs/)
+})
+
+test('PostgreSQL maintenance-owner profile exposes only the exact fresh-install identity', () => {
+ const declaration = { ...base, id: 'db', type: 'postgres', image: `postgres:17@sha256:${'a'.repeat(64)}`, memoryMiB: 256, storageMiB: 128, reset: undefined, profile: 'maintenance-owner' }
+ const f = fixture(declaration); f.prepare()
+ const sql = f.calls.find(call => typeof call[3] === 'string')[3]
+ assert.ok(sql.includes('LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS'))
+ assert.ok(sql.includes('CREATE DATABASE toolkit_test OWNER toolkit_test'))
+ assert.ok(sql.includes('ALTER ROLE bootstrap NOLOGIN'))
+ const env = resourceEnvironment(f.state, f.runtime)
+ assert.equal(env.DATABASE_URL, env.RESOURCE_DB_URL)
+ assert.equal(env.TEST_DATABASE_URL, env.RESOURCE_DB_URL)
+ assert.throws(() => validateResources([{ ...declaration, database: 'postgres' }]), /cannot be combined/)
+ const exec = f.runtime.exec
+ f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcanlogin') ? 'true|false|false|true|false|false|true|true|true' : exec(id, args, input)
+ assert.throws(f.prepare, /identity differs/)
 })
 
 test('storage clients cannot administer the service or reset other databases', () => {
@@ -182,5 +198,6 @@ test('restart and replacement preserve the absolute deadline and expired wrapper
 test('declarations reject mutable images, broad resets, scan escapes, downloads and oversized scope', () => {
  for (const change of [{ image: 'redis:latest' }, { reset: 'database:all' }, { database: 'postgres' }, { storageMiB: 100000 }, { downloads: ['https://example.com'] }, { type: 'scanner', image: `clamav/clamav:1.4@sha256:${'a'.repeat(64)}`, targets: ['../source'] }]) assert.throws(() => validateResources([{ ...base, ...change }]))
  assert.throws(() => validateResources([{ ...base, id: 'db', type: 'postgres', image: `postgres:17@sha256:${'a'.repeat(64)}`, memoryMiB: 256, storageMiB: 128, database: 'shared' }]))
+ assert.throws(() => validateResources([{ ...base, profile: 'maintenance-owner' }]))
  assert.throws(() => validateResources([base, base]), /unique/)
 })

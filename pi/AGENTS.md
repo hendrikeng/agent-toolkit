@@ -3,6 +3,7 @@
 ## Browser control
 
 When Pi runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
+Use the GitHub CLI inspection commands and the bounded pull-request tools for GitHub pull requests and Actions. Do not open a browser for these tasks unless the user explicitly asks for it.
 Pass static browser values as direct quoted arguments. Never hide them behind shell variables, command substitution, or `printf` escapes; the permission parser correctly treats those wrappers as opaque. For example, use `orca fill ... --value '/runtime'` directly.
 
 ## Task graphs
@@ -47,6 +48,9 @@ pg-test stop <id>
 ```
 
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
+For a graph that validates a fresh TRACN API install, declare one PostgreSQL resource with `profile: "maintenance-owner"`.
+That graph profile creates a new `_test` database owner with exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`.
+It provides the same private URL through `DATABASE_URL`, `TEST_DATABASE_URL`, and `RESOURCE_<ID>_URL`. It grants no runtime identity this authority.
 The default helper uses private scratch and an unprivileged database role. `start-admin` creates a separate new cluster with a non-superuser role that can create test databases and roles. It cannot upgrade or target an existing database. Neither profile grants superuser, replication, RLS bypass, or server-file/program privileges.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
 Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
