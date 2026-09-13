@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve, sep } from "node:path"
-import { assertGraphMode, digest, graphGit, literalPath, owns, repositoryIdentity, repositoryRoot, saveRecord, validateTaskGraph, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
+import { acquireLease, assertGraphMode, digest, graphGit, literalPath, owns, repositoryIdentity, repositoryRoot, saveRecord, validateTaskGraph, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
 export { graphGit } from "./task-graph-core.ts"
 
 export interface GraphInput { path: string; hash: string | null; executable: boolean; bytes: string | null }
@@ -101,10 +101,95 @@ export function readGraphRecord(file: string): GraphRecord {
  if (record.lanes.some((lane: GraphLane) => !record.repositories.some((repo: GraphRepository) => repo.source === lane.source) || lane.workspace.role !== "lane") || Object.entries(record.workers as Record<string, GraphWorker>).some(([id, worker]) => worker.task !== id || !record.plan.tasks.some((task: any) => task.id === id))) throw new Error("Invalid lane or worker record.")
  return record
 }
+export function findUnstartedGraphRetirement(activeDirectory: string, retiredDirectory: string, runId: string): string {
+ const candidates = new Set((existsSync(activeDirectory) ? readdirSync(activeDirectory) : []).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)).filter(path => JSON.parse(readFileSync(path, "utf8")).runId === runId))
+ for (const name of existsSync(retiredDirectory) ? readdirSync(retiredDirectory) : []) {
+  const receipt = join(retiredDirectory, name, "retirement.json")
+  if (!existsSync(receipt)) continue
+  let saved: any
+  try { saved = JSON.parse(readFileSync(receipt, "utf8")) } catch { continue }
+  if (saved.runId !== runId) continue
+  const source = join(activeDirectory, `${name}.json`)
+  if (saved.version !== 1 || !["authorized-pending", "retired"].includes(saved.status) || saved.source !== source) throw new Error("Retirement evidence does not match its active graph path; preserve it for inspection.")
+  candidates.add(source)
+ }
+ if (candidates.size !== 1) throw new Error(candidates.size ? "Multiple graph records use that Run ID; preserve them for inspection." : "No active or pending graph retirement has that Run ID.")
+ return [...candidates][0]
+}
+export function retireUnstartedGraph(file: string, retiredDirectory: string, runtime: any): { runId: string; record: string } {
+ const directory = join(retiredDirectory, basename(file, ".json")), target = join(directory, "record.json"), receipt = join(directory, "retirement.json")
+ const inspect = () => {
+  const source = existsSync(file) ? file : target
+  const state = readGraphRecord(source)
+  if (state.completion || state.lanes.length || Object.keys(state.workers).length || Object.keys(state.completed).length) throw new Error("Retire only an incomplete graph that never launched a task.")
+  for (const repo of state.repositories.filter(repo => repo.workspace)) {
+   if (verifyGraphWorkspace(repo) !== repo.workspace!.captureCommit || graphMergeHead(repo.workspace!.path) || graphDirtyPaths(repo.workspace!.path).length) throw new Error("Retirement requires every retained integration workspace to be clean and unchanged.")
+  }
+  const containers = runtime.list().map((id: string) => runtime.inspect(id))
+  for (const resource of Object.values(state.resources ?? {}) as any[]) {
+   if (resource.id || resource.ready || resource.stopped || containers.some((container: any) => container.Config?.Labels?.["agent-toolkit.scope"] === state.key && container.Config?.Labels?.["agent-toolkit.token"] === resource.token)) throw new Error("A declared resource exists or has uncertain lifecycle state; preserve the graph.")
+  }
+  return state
+ }
+ inspect()
+ const release = acquireLease(file)
+ try {
+  const state = inspect()
+  let pending: any
+  if (existsSync(receipt)) {
+   pending = JSON.parse(readFileSync(receipt, "utf8"))
+   if (pending.version !== 1 || !["authorized-pending", "retired"].includes(pending.status) || pending.runId !== state.runId || pending.source !== file) throw new Error("Retirement evidence changed; preserve it for inspection.")
+   if (pending.status === "retired") {
+    if (existsSync(file) || !existsSync(target) || pending.record !== target) throw new Error("Completed retirement evidence does not match the preserved record.")
+    return { runId: state.runId!, record: target }
+   }
+  } else {
+   if (existsSync(directory)) {
+    if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink() || readdirSync(directory).length) throw new Error("Retirement evidence directory exists without a receipt; preserve it for inspection.")
+   } else mkdirSync(directory, { recursive: true, mode: 0o700 })
+   pending = { version: 1, status: "authorized-pending", runId: state.runId, source: file, retiredAt: new Date().toISOString(), reason: "Human-approved retirement after resource startup failed before any task launch." }
+   saveGraphRecord(receipt, pending)
+  }
+  if (existsSync(file) && !existsSync(target)) renameSync(file, target)
+  else if (existsSync(file) || !existsSync(target)) throw new Error("Pending retirement record state is uncertain; preserve it for inspection.")
+  saveGraphRecord(receipt, { ...pending, status: "retired", record: target })
+  return { runId: state.runId!, record: target }
+ } finally { release() }
+}
+
 export function verifyGraphWorkspace(repo: GraphRepository, workspace = repo.workspace!): string {
  if (!workspace?.path || !workspace.branch || !workspace.id || realpathSync(workspace.path) !== workspace.path || repositoryRoot(workspace.path) !== workspace.path || repositoryIdentity(workspace.path) !== repo.identity || graphGit(workspace.path, "rev-parse", "--abbrev-ref", "HEAD") !== workspace.branch || workspace.path === repo.source) throw new Error("Prepared workspace identity changed or preparation is incomplete. Do not recreate it.")
  graphGit(workspace.path, "merge-base", "--is-ancestor", workspace.base, "HEAD")
  return graphGit(workspace.path, "rev-parse", "HEAD")
+}
+export function removeGraphWorkspace(repo: GraphRepository, workspace: GraphWorkspace, reachableFrom: string, orca: Orca, pending: boolean, markPending: () => void, closeTerminals = true): string {
+ if (!workspace.id || !workspace.path) throw new Error("Workspace cleanup requires a complete Orca receipt.")
+ const selector = `id:${workspace.id.split("::")[0]}`
+ const listed = () => {
+  const result = orca(["worktree", "list", "--repo", selector, "--json"])?.result
+  if (!Array.isArray(result?.worktrees) || result.truncated || result.hostScope?.omittedHostIds?.length) throw new Error("Incomplete Orca worktree inventory.")
+  return result.worktrees.filter((item: any) => item.id === workspace.id || item.path === workspace.path)
+ }
+ let matches = listed()
+ if (pending && !matches.length && !existsSync(workspace.path)) return workspace.path
+ if (matches.length !== 1 || matches[0].id !== workspace.id || matches[0].path !== workspace.path) throw new Error("Workspace cleanup found a missing, duplicate, or changed Orca receipt.")
+ const tip = verifyGraphWorkspace(repo, workspace)
+ if (graphMergeHead(workspace.path) || graphDirtyPaths(workspace.path).length) throw new Error("Workspace cleanup requires a clean settled worktree.")
+ graphGit(repo.source, "merge-base", "--is-ancestor", tip, reachableFrom)
+ const terminals = () => {
+  const result = orca(["terminal", "list", "--limit", "1000", "--json"])?.result
+  if (!Array.isArray(result?.terminals) || result.truncated || result.hostScope?.omittedHostIds?.length) throw new Error("Incomplete Orca terminal inventory.")
+  return result.terminals.filter((item: any) => (item.worktreePath || item.worktreeId?.split("::").at(-1)) === workspace.path)
+ }
+ const attached = terminals()
+ if (attached.length && !closeTerminals) throw new Error("Workspace cleanup preserves a worktree with an attached terminal.")
+ for (const terminal of attached) orca(["terminal", "close", "--terminal", terminal.handle, "--json"])
+ if (terminals().length) throw new Error("Workspace cleanup could not close an attached terminal.")
+ markPending()
+ orca(["worktree", "rm", "--worktree", `id:${workspace.id}`, "--json"])
+ matches = listed()
+ if (matches.length || existsSync(workspace.path)) throw new Error("Orca did not remove the worktree; resume cleanup without recreating it.")
+ return workspace.path
 }
 export function createGraphWorkspace(repo: GraphRepository, workspace: GraphWorkspace, orca: Orca, persist: () => void): void {
  if (workspace.path) { verifyGraphWorkspace(repo, workspace); return }

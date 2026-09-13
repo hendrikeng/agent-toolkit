@@ -1,10 +1,11 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { acquireLease, assertGraphMode, assertGraphShell, assertNoLegacyGraph, digest, LEGACY_GRAPH, literalPath, taskGraphPrompt } from "../task-graph-core.ts"
+import { captureGraphWorkspaces, findUnstartedGraphRetirement, retireUnstartedGraph } from "../workspaces.ts"
 
 const fixture = () => mkdtempSync(join(tmpdir(), "graph-core-"))
 test("literal ownership and planning boundary", () => {
@@ -13,6 +14,36 @@ test("literal ownership and planning boundary", () => {
  assert.doesNotThrow(() => assertGraphMode("plan-only", "docs/future/plan.md"))
  for (const path of ["src/code.ts", "docs/code.ts", "docs/exec-plans/active/plan.md", "docs/EXEC-PLANS/active/plan.md", "docs/exec-plans/completed/plan.md"]) assert.throws(() => assertGraphMode("plan-only", path), error => String(error).includes(`Planning-only ownership "${path}"`) && String(error).includes("not task owns"))
 })
+test("an authorized unstarted graph retirement preserves its record", () => {
+ const root = process.cwd(), directory = fixture(), records = join(directory, "records"), retired = join(directory, "retired")
+ const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+ const plan = { objective: "Retirement fixture", mode: "execute" as const, worktree_budget: 1, foundations: [{ repository: ".", commit: base }], tasks: [{ id: "read", goal: "Inspect one file", repository: ".", depends_on: [], owns: [], done_when: ["The file was inspected."], validation: "manual: confirm the file contents are understood" }] }
+ const record = captureGraphWorkspaces(root, plan), file = join(records, "fixture.json")
+ record.runId = "run_fixture"
+ mkdirSync(records)
+ const bytes = JSON.stringify(record)
+ writeFileSync(file, bytes)
+ mkdirSync(join(retired, "fixture"), { recursive: true })
+ const result = retireUnstartedGraph(file, retired, { list: () => [], inspect: () => { throw new Error("unexpected inspect") } })
+ assert.equal(result.runId, "run_fixture")
+ assert.equal(existsSync(file), false)
+ assert.equal(readFileSync(result.record, "utf8"), bytes)
+ assert.equal(JSON.parse(readFileSync(join(retired, "fixture", "retirement.json"), "utf8")).status, "retired")
+})
+test("an interrupted unstarted graph retirement resumes from its receipt", () => {
+ const root = process.cwd(), directory = fixture(), records = join(directory, "records"), retired = join(directory, "retired")
+ const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+ const plan = { objective: "Retirement resume fixture", mode: "execute" as const, worktree_budget: 1, foundations: [{ repository: ".", commit: base }], tasks: [{ id: "read", goal: "Inspect one file", repository: ".", depends_on: [], owns: [], done_when: ["The file was inspected."], validation: "manual: confirm the file contents are understood" }] }
+ const record = captureGraphWorkspaces(root, plan), file = join(records, "fixture.json"), pending = join(retired, "fixture"), target = join(pending, "record.json")
+ record.runId = "run_resume"
+ mkdirSync(records); mkdirSync(pending, { recursive: true })
+ writeFileSync(file, JSON.stringify(record)); writeFileSync(join(pending, "retirement.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: record.runId, source: file, retiredAt: new Date().toISOString() }))
+ renameSync(file, target)
+ assert.equal(findUnstartedGraphRetirement(records, retired, record.runId), file)
+ assert.equal(retireUnstartedGraph(file, retired, { list: () => [], inspect: () => { throw new Error("unexpected inspect") } }).record, target)
+ assert.equal(JSON.parse(readFileSync(join(pending, "retirement.json"), "utf8")).status, "retired")
+})
+
 test("graph declaration shape does not introduce another shell language", () => {
  for (const command of [
   "node check.cjs", "node 'check file.cjs'", "npm run verify:full", "cargo test", "make check",

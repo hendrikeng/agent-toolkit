@@ -8,14 +8,16 @@ import { inspectShell, runBash } from "../development-access/index.ts"
 import { StringEnum } from "@earendil-works/pi-ai"
 import { Type, type TProperties } from "typebox"
 import { acquireLease, assertNoLegacyGraph, digest, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
-import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphWritePath, importGraphInputs, integrateGraphWorker, prepareGraphLane, readGraphAdmission, readGraphRecord, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
+import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
+import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphWritePath, importGraphInputs, integrateGraphWorker, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
 
 const text = (details: any) => { const output = truncateHead(JSON.stringify(details, null, 2)); return { content: [{ type: "text" as const, text: output.content + (output.truncated ? "\nTruncated; inspect the retained graph record." : "") }], details } }
 const string = () => Type.String({ minLength: 1 })
 const object = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: false })
 const resourceFields = { id: Type.String({ pattern: "^[a-z][a-z0-9-]{0,30}$" }), purpose: string(), lifetimeSeconds: Type.Integer({ minimum: 64, maximum: 86400 }), downloads: Type.Optional(Type.Array(string(), { description: "Omit unless the exact declared image must be downloaded; every entry must equal image." })) }
+const POSTGRES_GRAPH_IMAGE = "postgres:17.6@sha256:feff5b24fedd610975a1f5e743c51a4b360437f4dc3a11acf740dcd708f413f6"
 const resourceSchema = Type.Union([
- object({ ...resourceFields, type: Type.Literal("postgres"), image: Type.String({ pattern: "^postgres:17(?:\\.[0-9]+)?@sha256:[a-f0-9]{64}$", description: "Official PostgreSQL 17 image with an immutable digest; alpine tags are unsupported." }), memoryMiB: Type.Integer({ minimum: 256, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 128, maximum: 1024 }), reset: Type.Optional(Type.Literal("schema:public")), database: Type.Optional(Type.Literal("postgres", { description: "Grant the non-superuser test role CREATEDB and CREATEROLE inside this isolated resource for tests that create disposable databases and schema roles." })) }),
+ object({ ...resourceFields, type: Type.Literal("postgres"), image: Type.Literal(POSTGRES_GRAPH_IMAGE, { description: "Supported immutable PostgreSQL 17 image. Copy this exact value; do not invent a digest." }), memoryMiB: Type.Integer({ minimum: 256, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 128, maximum: 1024 }), reset: Type.Optional(Type.Literal("schema:public")), database: Type.Optional(Type.Literal("postgres", { description: "Grant the non-superuser test role CREATEDB and CREATEROLE inside this isolated resource for tests that create disposable databases and schema roles." })) }),
  object({ ...resourceFields, type: Type.Literal("storage"), image: Type.String({ pattern: "^redis:7(?:\\.[0-9]+)*@sha256:[a-f0-9]{64}$", description: "Official Redis 7 image with an immutable digest." }), memoryMiB: Type.Integer({ minimum: 64, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 64, maximum: 1024 }), reset: Type.Optional(Type.Literal("database:0")) }),
  object({ ...resourceFields, type: Type.Literal("scanner"), image: Type.String({ pattern: "^clamav/clamav:1\\.[0-9]+(?:\\.[0-9]+)?@sha256:[a-f0-9]{64}$", description: "Official ClamAV 1.x image with an immutable digest." }), memoryMiB: Type.Integer({ minimum: 64, maximum: 2048 }), storageMiB: Type.Integer({ minimum: 64, maximum: 1024 }), targets: Type.Array(string(), { minItems: 1, maxItems: 16 }), database: string() }),
 ])
@@ -199,21 +201,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   for (const lane of state.lanes.filter(lane => lane.cleanup !== "removed")) {
    if (lane.task || lane.blocked) continue
    const repo = state.repositories.find(repo => repo.source === lane.source)!, workspace = lane.workspace
-   if (!workspace.id || !workspace.path || !repo.workspace) throw new Error("Lane cleanup requires a complete workspace receipt.")
-   const selector = `id:${workspace.id.split("::")[0]}`, listed = () => inventory(orcaJson, ["worktree", "list", "--repo", selector], "worktrees").filter(item => item.id === workspace.id || item.path === workspace.path)
-   let matches = listed()
-   if (lane.cleanup === "pending" && !matches.length && !existsSync(workspace.path)) { lane.cleanup = "removed"; persist(); removed.push(workspace.path); continue }
-   if (matches.length !== 1) throw new Error("Lane cleanup found a missing or duplicate Orca receipt.")
-   const tip = verifyGraphWorkspace(repo, workspace)
-   if (graphDirtyPaths(workspace.path).length) throw new Error("Lane cleanup requires a clean integrated lane.")
-   graphGit(repo.workspace.path!, "merge-base", "--is-ancestor", tip, "HEAD")
-   for (const terminal of terminalInventory(orcaJson).filter(terminal => terminalPath(terminal) === workspace.path)) orcaJson(["terminal", "close", "--terminal", terminal.handle, "--json"])
-   if (terminalInventory(orcaJson).some(terminal => terminalPath(terminal) === workspace.path)) throw new Error("Lane cleanup could not close an attached terminal.")
-   lane.cleanup = "pending"; persist()
-   orcaJson(["worktree", "rm", "--worktree", `id:${workspace.id}`, "--json"])
-   matches = listed()
-   if (matches.length || existsSync(workspace.path)) throw new Error("Orca did not remove the lane; resume cleanup without recreating it.")
-   lane.cleanup = "removed"; persist(); removed.push(workspace.path)
+   if (!repo.workspace) throw new Error("Lane cleanup requires an integration workspace.")
+   const path = removeGraphWorkspace(repo, workspace, verifyGraphWorkspace(repo), orcaJson, lane.cleanup === "pending", () => { lane.cleanup = "pending"; persist() })
+   lane.cleanup = "removed"; persist(); removed.push(path)
   }
   return removed
  }
@@ -233,7 +223,51 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  }
  const pendingShell = new Map<string, { task: string; command: string; repository: string }>()
 
- pi.registerCommand("graph", { description: "Approve and run a bounded multi-worker graph. /graph [plan|execute] <objective>", handler: async (args, ctx) => {
+ const deliverCompletedGraph = async (runId: string, ctx: any) => {
+  if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
+  runId = runId.trim()
+  if (!/^run_[a-zA-Z0-9_-]+$/.test(runId)) { ctx.ui.notify("Usage: /graph deliver <run-id>", "warning"); return }
+  const records = join(agentDir(), "task-graphs"), receipts = join(agentDir(), "task-graph-deliveries", "v1"), receiptFile = join(receipts, `${runId}.json`)
+  try {
+   mkdirSync(receipts, { recursive: true, mode: 0o700 })
+   const unlock = acquireLease(receiptFile)
+   try {
+    const resuming = existsSync(receiptFile)
+    let approved
+    if (resuming) approved = readGraphDeliveryReceipt(receiptFile, runId)
+    else {
+     const matches: string[] = []
+     for (const name of existsSync(records) ? readdirSync(records).filter(name => name.endsWith(".json")) : []) {
+      const path = join(records, name), saved = JSON.parse(readFileSync(path, "utf8"))
+      if (saved.runId === runId) matches.push(path)
+     }
+     if (matches.length !== 1) throw new Error(matches.length ? "Multiple graph records use that Run ID; preserve them for inspection." : "No completed graph has that Run ID.")
+     approved = prepareGraphDelivery(matches[0], records)
+    }
+    if (!ctx.hasUI || !await ctx.ui.confirm(resuming ? "Resume graph delivery?" : "Deliver completed graph?", `${JSON.stringify(approved, null, 2)}\nFast-forward only the listed local target branches. Do not push. After each commit is reachable from its target, remove only the listed clean settled integration worktrees through Orca. Preserve every record, commit, and retained worktree.`)) return
+    const result = deliverGraph(receiptFile, approved, orcaJson)
+    ctx.ui.notify(`Delivered ${result.runId}; receipt: ${receiptFile}; removed integration worktrees: ${result.cleanup.filter(item => item.status === "removed").length}; retained: ${result.retained.length}`, "info")
+   } finally { unlock() }
+  } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+ }
+ const retireGraph = async (runId: string, ctx: any) => {
+  if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
+  runId = runId.trim()
+  if (!/^run_[a-f0-9]+$/.test(runId)) { ctx.ui.notify("Usage: /graph retire <run-id>", "warning"); return }
+  const directory = join(agentDir(), "task-graphs"), retired = join(agentDir(), "task-graphs-retired", "v4")
+  try {
+   const path = findUnstartedGraphRetirement(directory, retired, runId)
+   if (!ctx.hasUI || !await ctx.ui.confirm("Retire failed graph?", `Retire Run ${runId} only if it never launched a task, every integration workspace is clean and unchanged, and no declared resource exists. Preserve its record and release only its repository ownership. Do not delete worktrees, resources, commits, or evidence.`)) return
+   const result = retireUnstartedGraph(path, retired, resourceHelper().dockerRuntime())
+   ctx.ui.notify(`Retired ${result.runId}; preserved record at ${result.record}`, "info")
+  } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+ }
+ pi.registerCommand("graph-retire", { description: "Retire an unstarted failed graph while preserving its record. /graph-retire <run-id>", handler: retireGraph })
+ pi.registerCommand("graph", { description: "Approve, run, deliver, or retire a bounded multi-worker graph. /graph [plan|execute|deliver|retire] <objective-or-run-id>", handler: async (args, ctx) => {
+  const delivery = /^deliver\s+(.+)$/s.exec(args.trim())
+  if (delivery) { await deliverCompletedGraph(delivery[1], ctx); return }
+  const retirement = /^retire\s+(.+)$/s.exec(args.trim())
+  if (retirement) { await retireGraph(retirement[1], ctx); return }
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   const parsed = /^(?:(plan|execute)\s+)?(.+)$/s.exec(args.trim())
   if (!parsed || !ctx.model) { ctx.ui.notify(parsed ? "No model selected." : "Usage: /graph [plan|execute] <objective>", "warning"); return }

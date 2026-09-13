@@ -14,6 +14,15 @@ A dirty or interrupted lane stays intact.
 Closeout removes only clean integrated lanes and keeps the integration worktree.
 Read-only workers use an existing checkout.
 
+`/graph deliver <run-id>` requires interactive approval for a completed Run without pending delivery work.
+It fast-forwards each clean local target branch to its exact integration commit.
+It does not push.
+After delivery, it removes eligible integration worktrees through Orca.
+It also removes eligible integration worktrees from predecessor Runs.
+The command preserves dirty, unsettled, unrelated, unmerged, live, or uncertain worktrees.
+A durable receipt records each fast-forward and cleanup step.
+Repeat the command to resume an interrupted delivery.
+
 ## Source checks
 
 The focused tests use real Git repositories in the system temporary directory.
@@ -22,7 +31,7 @@ They cover concurrent workers, lane reuse, dependency commits, lost creation rec
 They also cover source preservation, input capture, hooks, protected paths, and old records.
 
 ```sh
-node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts
+node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts pi/extensions/task-graph/tests/delivery.test.ts
 node --test shared/agent-safety/git-operation-policy.test.cjs
 ```
 
