@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createRequire } from 'node:module'
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 
 export const LEGACY_GRAPH = "Unsupported legacy graph state. Preserve this record and its Run. Inspect its repositories, workers and retained commits read-only; retirement requires separate, verified authorization. Do not resume, migrate, complete, delete or restart this Run."
@@ -131,6 +131,16 @@ function liveLease(owner: any): boolean {
  if (!owner.pid) return false
  try { process.kill(owner.pid, 0) } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return false; throw error }
  return !owner.start || owner.start === processStart(owner.pid)
+}
+export function graphLeaseState(file: string): "available" | "live" | "uncertain" {
+ try { lstatSync(`${file}.lease.recovery`); return "uncertain" }
+ catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "uncertain" }
+ const lock = `${file}.lease`
+ try {
+  const stat = lstatSync(lock)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return "uncertain"
+  return liveLease(JSON.parse(readFileSync(lock, "utf8"))) ? "live" : "available"
+ } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? "available" : "uncertain" }
 }
 // ponytail: host-local PID lease; cross-host coordinators require an Orca lease service.
 export function acquireLease(file: string): () => void {

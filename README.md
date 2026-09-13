@@ -557,8 +557,16 @@ Leases are host-local. Invalid records or interrupted lease-recovery reservation
 
 Legacy records under `task-graph-locks/` remain evidence. They cannot resume execution, migrate into the new workflow, or complete automatically.
 A related legacy record, or one with unknown scope, produces a diagnostic before new graph mutations.
-Known unrelated records remain untouched; the runtime does not assume that their workers stopped.
-Retirement requires a separately scoped, verified, authorized operation.
+Known unrelated records remain untouched. The runtime does not assume that their workers stopped.
+
+`/graph gc` inspects graph records without changing them. It reports eligible Runs and exact blockers for active, completed, retired, and legacy state.
+It also reports running workers, live resources, and uncertain evidence. The report does not include credentials or private resource values.
+
+`/graph retire <run-id>` is the only retirement mutation. It requires interactive approval and accepts eligible incomplete current-v4 graphs only.
+Every worker must have a terminal dispatch and a verified exited terminal. Every resource must have an exact stopped identity.
+Retirement releases repository ownership. It preserves records, orchestration evidence, commits, worktrees, lanes, branches, resources, and resource identities.
+A missing recorded worktree requires complete Orca inventory and filesystem evidence. Retirement records an authoritative absence and never recreates the worktree.
+Repeat the command to resume an interrupted retirement. Legacy graph records remain unchanged and ineligible.
 
 #### Activation and validation
 

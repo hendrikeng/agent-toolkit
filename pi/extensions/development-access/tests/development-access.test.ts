@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { registerHooks } from "node:module"
@@ -32,6 +32,28 @@ test("accepted development roots need no checkout registration or startup probe"
   await tools.get("bash").execute("id", { command: "node --version", repository: created }, undefined, undefined, { cwd: root })
   assert.equal(globals.selectedCwd, created)
   await assert.rejects(tools.get("bash").execute("escape", { command: "outside", repository: created }, undefined, undefined, { cwd: root }), /outside accepted development roots/)
+ } finally {
+  if (before === undefined) delete process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE; else process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE = before
+  if (beforeHome === undefined) delete process.env.HOME; else process.env.HOME = beforeHome
+ }
+})
+
+test("prepare_local_resources creates its scope record before resource preparation", async () => {
+ const fixture = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "development-resources-"))), home = join(fixture, "home"), workspace = join(home, "Code/project"), bundle = join(fixture, "bundle")
+ mkdirSync(workspace, { recursive: true }); mkdirSync(bundle)
+ writeFileSync(join(bundle, "development-policy.cjs"), "module.exports = {}\n")
+ writeFileSync(join(bundle, "local-resources.cjs"), `module.exports = {
+  RESOURCE_RUNTIME: {}, validateResources() {}, dockerRuntime() { return {} },
+  prepareResources(_scope, _declarations, state, persist) { state.cache = { id: 'resource-id' }; persist() },
+  resourceEnvironment() { return {} },
+}\n`)
+ const before = process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE, beforeHome = process.env.HOME; process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE = bundle; process.env.HOME = home
+ try {
+  const tools = new Map<string, any>()
+  extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: () => {} } as never)
+  const result = await tools.get("prepare_local_resources").execute("id", { declarations: [] }, undefined, undefined, { cwd: workspace, hasUI: true, ui: { confirm: async () => true } })
+  const scope = JSON.parse(result.content[0].text).scope_id
+  assert.equal(existsSync(join(realpathSync(tmpdir()), "agent-toolkit-resources", scope, "resource-scope.json")), true)
  } finally {
   if (before === undefined) delete process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE; else process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE = before
   if (beforeHome === undefined) delete process.env.HOME; else process.env.HOME = beforeHome

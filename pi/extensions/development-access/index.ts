@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync, renameSync } from 'node:fs'
 import { StringEnum } from '@earendil-works/pi-ai'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'

@@ -64,23 +64,30 @@ function resourceCommand(declaration, secret, createdAt) {
 function privateTmpfs(declaration) {
  return { '/tmp': 'rw,size=16m', ...(declaration.type === 'postgres' ? { '/var/lib/postgresql/data': `rw,size=${declaration.storageMiB - 48}m,uid=999,gid=999`, '/var/run/postgresql': 'rw,size=16m,uid=999,gid=999' } : declaration.type === 'storage' ? { '/data': `rw,size=${declaration.storageMiB - 32}m,uid=999,gid=999` } : { '/var/lib/clamav': `rw,size=${declaration.storageMiB - 32}m` }) }
 }
-function dockerRuntime(binary = ['/usr/local/bin/docker', '/opt/homebrew/bin/docker', '/usr/bin/docker'].find(file => fs.existsSync(file))) {
+function dockerRuntime(binary = ['/usr/local/bin/docker', '/opt/homebrew/bin/docker', '/usr/bin/docker'].find(file => fs.existsSync(file)), inspectionOnly = false) {
  assert.ok(['/usr/local/bin/docker', '/opt/homebrew/bin/docker', '/usr/bin/docker'].includes(binary), 'Unsupported local runtime')
- const config = path.join(fs.realpathSync(os.tmpdir()), `agent-toolkit-docker-${process.pid}`)
- fs.mkdirSync(config, { recursive: true, mode: 0o700 })
- assert.equal(physicalPath(config), config, 'Docker configuration directory identity changed')
- const file = path.join(config, 'config.json')
- try { fs.writeFileSync(file, '{}\n', { flag: 'wx', mode: 0o600 }) } catch (error) { if (error.code !== 'EEXIST') throw error }
- assert.ok(fs.lstatSync(file).isFile() && !fs.lstatSync(file).isSymbolicLink())
- assert.equal(fs.readFileSync(file, 'utf8'), '{}\n', 'Only credential-free local runtime configuration is supported')
+ const config = inspectionOnly ? fs.realpathSync(__dirname) : path.join(fs.realpathSync(os.tmpdir()), `agent-toolkit-docker-${process.pid}`)
+ if (inspectionOnly) assert.ok(!fs.existsSync(path.join(config, 'config.json')), 'Inspection requires a credential-free runtime directory')
+ else {
+  fs.mkdirSync(config, { recursive: true, mode: 0o700 })
+  assert.equal(physicalPath(config), config, 'Docker configuration directory identity changed')
+  const file = path.join(config, 'config.json')
+  try { fs.writeFileSync(file, '{}\n', { flag: 'wx', mode: 0o600 }) } catch (error) { if (error.code !== 'EEXIST') throw error }
+  assert.ok(fs.lstatSync(file).isFile() && !fs.lstatSync(file).isSymbolicLink())
+  assert.equal(fs.readFileSync(file, 'utf8'), '{}\n', 'Only credential-free local runtime configuration is supported')
+ }
  const run = (args, input) => {
   try { return execFileSync(binary, ['--host', 'unix:///var/run/docker.sock', ...args], { input, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8', timeout: 60000, maxBuffer: 8 * 1024 * 1024, env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME, DOCKER_CONFIG: config } }).trim() }
   catch { throw new Error('Local resource runtime failed; ownership/loss is uncertain. Preserve records and inspect the local Docker runtime.') }
  }
- return {
+ const inspection = {
   engine: () => run(['info', '--format', '{{.ID}}']),
   list: () => run(['container', 'ls', '--all', '--no-trunc', '--format', '{{.ID}}']).split('\n').filter(Boolean),
   inspect: id => JSON.parse(run(['container', 'inspect', id]))[0],
+ }
+ if (inspectionOnly) return inspection
+ return {
+  ...inspection,
   create: args => run(['container', 'create', ...args]),
   pull: image => run(['image', 'pull', image]),
   start: id => run(['container', 'start', id]),
@@ -314,4 +321,5 @@ function resourceEnvironment(state, runtime) {
  return env
 }
 const RESOURCE_RUNTIME = { engine: 'Local Docker Unix socket; no remote contexts or host installation', configuration: 'Private credential-free Docker configuration in the system temporary directory', storage: 'Bounded tmpfs only; no persistent or shared volumes; temporary evidence only', privileges: 'No host privilege escalation; all container capabilities dropped; non-root database and storage processes', pidsPerResource: 128, network: 'Loopback published data ports; scanner networking disabled', lifetime: 'Fixed absolute deadline across restarts and replacements; timeout uses SIGKILL; containers and evidence remain retained', downloads: 'Only explicitly declared immutable images', deletion: 'Not authorized' }
-module.exports = { RESOURCE_RUNTIME, validateResources, dockerRuntime, prepareResources, verifyResource, operateResource, resourceEnvironment }
+const dockerInspectionRuntime = binary => dockerRuntime(binary, true)
+module.exports = { RESOURCE_RUNTIME, validateResources, dockerRuntime, dockerInspectionRuntime, prepareResources, verifyResource, operateResource, resourceEnvironment }

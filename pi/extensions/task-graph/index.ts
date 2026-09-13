@@ -9,7 +9,7 @@ import { StringEnum } from "@earendil-works/pi-ai"
 import { Type, type TProperties } from "typebox"
 import { acquireLease, assertNoLegacyGraph, digest, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
-import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphWritePath, importGraphInputs, integrateGraphWorker, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
+import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
 
 const text = (details: any) => { const output = truncateHead(JSON.stringify(details, null, 2)); return { content: [{ type: "text" as const, text: output.content + (output.truncated ? "\nTruncated; inspect the retained graph record." : "") }], details } }
 const string = () => Type.String({ minLength: 1 })
@@ -63,14 +63,6 @@ function inventory(orca: Orca, args: string[], field: string): any[] {
  if (!Array.isArray(result?.[field]) || result.truncated || result.hostScope?.omittedHostIds?.length) throw new Error(`Incomplete Orca ${field} inventory.`)
  return result[field]
 }
-function marker(record: GraphRecord, id: string): string { return `[graph-v4:${record.key}:${id}]` }
-function taskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number], legacy = false): string {
- const finish = legacy ? "Use checkpoint_task_graph for commits." : "Checkpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count."
- return `${marker(record, task.id)}\n${task.goal}\nOwn only: ${task.owns.join(", ") || "read-only"}.\nDone when:\n${task.done_when.map(item => `- ${item}`).join("\n")}\n${task.setup ? `Setup: ${task.setup}\n` : ""}Validation: ${task.validation}\n${finish} Do not publish, delete worktrees, or modify unrelated paths.`
-}
-function matchesTaskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number], spec: string): boolean {
- return spec === taskSpec(record, task) || spec === taskSpec(record, task, true)
-}
 export function prepareLedger(record: GraphRecord, orca: Orca, persist: () => void): void {
  const objective = `Pi graph v4: ${record.key}: ${record.plan.objective}`
  if (!record.runId) {
@@ -92,15 +84,15 @@ export function prepareLedger(record: GraphRecord, orca: Orca, persist: () => vo
  if (run?.id !== record.runId || run.objective !== objective) throw new Error("Run identity changed.")
  for (const declaration of record.plan.tasks) {
   const tasks = inventory(orca, ["orchestration", "task-list", "--run", record.runId!], "tasks")
-  if (tasks.some(entry => entry.parent_id != null || !record.plan.tasks.some(task => matchesTaskSpec(record, task, entry.spec)) || entry.run_id !== record.runId)) throw new Error("Run contains foreign or changed tasks.")
-  const matches = tasks.filter(entry => matchesTaskSpec(record, declaration, entry.spec))
+  if (tasks.some(entry => entry.parent_id != null || !record.plan.tasks.some(task => matchesGraphTaskSpec(record, task, entry.spec)) || entry.run_id !== record.runId)) throw new Error("Run contains foreign or changed tasks.")
+  const matches = tasks.filter(entry => matchesGraphTaskSpec(record, declaration, entry.spec))
   if (matches.length > 1) throw new Error("Duplicate task receipts.")
-  const dependencies = declaration.depends_on.map(id => { const dependency = record.plan.tasks.find(task => task.id === id)!; return tasks.find(entry => matchesTaskSpec(record, dependency, entry.spec))?.id })
+  const dependencies = declaration.depends_on.map(id => { const dependency = record.plan.tasks.find(task => task.id === id)!; return tasks.find(entry => matchesGraphTaskSpec(record, dependency, entry.spec))?.id })
   if (dependencies.some(id => !id)) throw new Error("Missing prerequisite ledger task.")
-  if (!matches.length) { persist(); orca(["orchestration", "task-create", "--run", record.runId!, "--spec", taskSpec(record, declaration), "--deps", JSON.stringify(dependencies), "--json"]) }
+  if (!matches.length) { persist(); orca(["orchestration", "task-create", "--run", record.runId!, "--spec", graphTaskSpec(record, declaration), "--deps", JSON.stringify(dependencies), "--json"]) }
  }
  for (const [id, evidence] of Object.entries(record.completed)) {
-  const declaration = record.plan.tasks.find(task => task.id === id)!, task = inventory(orca, ["orchestration", "task-list", "--run", record.runId!], "tasks").find(entry => matchesTaskSpec(record, declaration, entry.spec))
+  const declaration = record.plan.tasks.find(task => task.id === id)!, task = inventory(orca, ["orchestration", "task-list", "--run", record.runId!], "tasks").find(entry => matchesGraphTaskSpec(record, declaration, entry.spec))
   if (task?.status !== "completed") orca(["orchestration", "task-update", "--id", task.id, "--status", "completed", "--run", record.runId!, "--result", JSON.stringify({ evidence: evidence.evidence, head: evidence.head }), "--json"])
  }
 }
@@ -253,17 +245,25 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  const retireGraph = async (runId: string, ctx: any) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   runId = runId.trim()
-  if (!/^run_[a-f0-9]+$/.test(runId)) { ctx.ui.notify("Usage: /graph retire <run-id>", "warning"); return }
+  if (!/^run_[a-zA-Z0-9_-]+$/.test(runId)) { ctx.ui.notify("Usage: /graph retire <run-id>", "warning"); return }
   const directory = join(agentDir(), "task-graphs"), retired = join(agentDir(), "task-graphs-retired", "v4")
   try {
    const path = findUnstartedGraphRetirement(directory, retired, runId)
-   if (!ctx.hasUI || !await ctx.ui.confirm("Retire failed graph?", `Retire Run ${runId} only if it never launched a task, every integration workspace is clean and unchanged, and no declared resource exists. Preserve its record and release only its repository ownership. Do not delete worktrees, resources, commits, or evidence.`)) return
-   const result = retireUnstartedGraph(path, retired, resourceHelper().dockerRuntime())
+   if (!ctx.hasUI || !await ctx.ui.confirm("Retire settled graph?", `Retire Run ${runId} only if all recorded work is settled. Preserve all worktrees, lanes, resources, commits, receipts, and orchestration evidence. Release only repository ownership.`)) return
+   const helper = resourceHelper(), result = retireUnstartedGraph(path, retired, helper.dockerRuntime(), orcaJson, helper.verifyResource)
    ctx.ui.notify(`Retired ${result.runId}; preserved record at ${result.record}`, "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
- pi.registerCommand("graph-retire", { description: "Retire an unstarted failed graph while preserving its record. /graph-retire <run-id>", handler: retireGraph })
- pi.registerCommand("graph", { description: "Approve, run, deliver, or retire a bounded multi-worker graph. /graph [plan|execute|deliver|retire] <objective-or-run-id>", handler: async (args, ctx) => {
+ const inspectGarbage = async (args: string, ctx: any) => {
+  if (!ctx.isIdle() || args.trim()) { ctx.ui.notify("Usage: /graph gc from an idle session.", "warning"); return }
+  try {
+   const report = inspectGraphGarbage(agentDir(), orcaJson, () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } })
+   ctx.ui.notify(JSON.stringify(report, null, 2), "info")
+  } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+ }
+ pi.registerCommand("graph-retire", { description: "Retire one eligible current-v4 graph and preserve all retained state. /graph-retire <run-id>", handler: retireGraph })
+ pi.registerCommand("graph", { description: "Plan, execute, inspect, deliver, or retire a bounded graph. /graph [plan|execute|gc|deliver|retire] <objective-or-run-id>", handler: async (args, ctx) => {
+  if (/^gc(?:\s|$)/.test(args.trim())) { await inspectGarbage(args.trim().slice(2), ctx); return }
   const delivery = /^deliver\s+(.+)$/s.exec(args.trim())
   if (delivery) { await deliverCompletedGraph(delivery[1], ctx); return }
   const retirement = /^retire\s+(.+)$/s.exec(args.trim())
@@ -325,7 +325,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   const state = bound(), task = state.plan.tasks.find(task => task.id === params.task_id)
   if (!task || state.completed[task.id] || task.depends_on.some(id => !state.completed[id])) throw new Error("Start an unfinished task only after all dependencies are integrated.")
   verify(taskSources(state, task)); if (!state.runId || !state.workerModel) throw new Error("Prepare the graph first.")
-  const tasks = inventory(orcaJson, ["orchestration", "task-list", "--run", state.runId], "tasks"), ledger = tasks.find(entry => matchesTaskSpec(state, task, entry.spec))
+  const tasks = inventory(orcaJson, ["orchestration", "task-list", "--run", state.runId], "tasks"), ledger = tasks.find(entry => matchesGraphTaskSpec(state, task, entry.spec))
   if (!ledger) throw new Error("Approved ledger task is missing.")
   let worker = state.workers[task.id]
   if (worker?.launch && !worker.terminal) {

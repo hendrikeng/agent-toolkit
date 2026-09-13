@@ -83,11 +83,11 @@ function fixture() {
  }
  globals.agentDir = join(root, "agent"); mkdirSync(globals.agentDir); process.env.AGENT_TOOLKIT_PI_AGENT_DIR = globals.agentDir
  function runtime(cwd: string) {
-  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>()
+  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>(), notifications: any[] = []
   extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: (name: string, handler: any) => events.set(name, handler), registerCommand: (name: string, command: any) => commands.set(name, command), sendUserMessage: () => {} } as never)
-  const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => true, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string) => { throw new Error(message) } } }
+  const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => true, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string, level: string) => { notifications.push({ message, level }); if (level === "error") throw new Error(message) } } }
   let serial = 0
-  return { command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
+  return { notifications, command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
    const id = String(++serial), event = { toolName: name, input, toolCallId: id }, blocked = await events.get("tool_call")?.(event, ctx)
    if (blocked?.block) throw new Error(blocked.reason)
    let output: any, error: any
@@ -115,6 +115,21 @@ test("graph commands preserve multiline objectives without a model round trip", 
   await coordinator.command(`execute ${objective}`)
   const result = (await coordinator.call("propose_task_graph", { ...f.plan, objective: "first line second line" })).details
   assert.equal(result.plan.objective, objective)
+ } finally { coordinator.stop() }
+})
+
+test("graph gc reports eligibility without mutating the active graph", async () => {
+ const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [f.plan.tasks[0]]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  await coordinator.call("prepare_task_graph_workspace")
+  const before = readFileSync(approval.record, "utf8"), calls = f.calls.length
+  await coordinator.command("gc")
+  const report = JSON.parse(coordinator.notifications.at(-1).message)
+  assert.equal(report.inspectionOnly, true); assert.equal(report.records.find((item: any) => item.runId === "run_fixture").state, "active")
+  assert.equal(readFileSync(approval.record, "utf8"), before); assert.equal(f.calls.length, calls)
  } finally { coordinator.stop() }
 })
 
