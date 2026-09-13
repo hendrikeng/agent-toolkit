@@ -233,7 +233,8 @@ NODE
       done
       mkdir "$agent_dir/extensions/pi-permission-system"
     fi
-    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" <<'NODE'
+    scratch_root=$HOME/Code/.agent-toolkit-scratch
+    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" "$scratch_root" <<'NODE'
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -247,7 +248,11 @@ for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
 const managedAgentDir = fs.realpathSync(process.argv[5]);
 const bundle = process.argv[4];
 const access = require(path.join(bundle, "development-policy.cjs"));
-access.assertDevelopmentPath(process.cwd(), access.developmentRoots(os.homedir()));
+const roots = access.developmentRoots(os.homedir());
+access.assertDevelopmentPath(process.cwd(), roots);
+const scratchRoot = process.argv[6];
+fs.mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
+access.assertDevelopmentPath(scratchRoot, roots);
 const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
 for (const surface of ["write", "edit"]) config.permission[surface] = { ...config.permission.path, [runtimeAgentDir]: "deny", [path.join(runtimeAgentDir, "*")]: "deny" };
 config.permission.bash[`*${runtimeAgentDir}*`] = "deny";
@@ -350,6 +355,7 @@ NODE
       AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir \
       AGENT_TOOLKIT_REVIEW_ROOT="$HOME/Code/.agent-toolkit-reports" \
       AGENT_TOOLKIT_PERMISSION_BUNDLE="$bundle" \
+      TMPDIR="$scratch_root" \
       PI_CODING_AGENT_DIR=$agent_dir \
       pi "${pi_args[@]}"
     ;;

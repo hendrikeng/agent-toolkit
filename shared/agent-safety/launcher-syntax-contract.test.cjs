@@ -50,6 +50,12 @@ test('pi-yolo exposes installed skill roots without exposing whole agent directo
  assert.doesNotMatch(launcher, /piInfrastructureReadPaths[^]*path\.join\(os\.homedir\(\), "\.agents"\)/)
 })
 
+test('pi-yolo keeps subprocess temporary files inside the development root', () => {
+ assert.match(launcher, /scratch_root=\$HOME\/Code\/\.agent-toolkit-scratch/)
+ assert.match(launcher, /access\.assertDevelopmentPath\(scratchRoot, roots\)/)
+ assert.match(launcher, /TMPDIR="\$scratch_root"/)
+})
+
 test('permission manager patch remains repeatable after removing project policy imports', () => {
  const source = PATCHES['permission-manager.ts'].map(([before]) => before).join('\n')
  const patched = patchFile('permission-manager.ts', source)
