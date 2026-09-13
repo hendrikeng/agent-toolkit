@@ -82,6 +82,7 @@ Autoreview stops before the model call if TruffleHog is missing or scanning fail
 | `/fast` | Control the OpenAI Codex Fast service tier. |
 | `/side` | Run an isolated side conversation. |
 | `/push` | Perform one reviewed, non-force Git push. |
+| `/pr` | Fill a repository template and create a GitHub pull request. |
 | `/reviews` | Control automatic risk-gated AI reviews. |
 | `/skills-update` | Update this toolkit and reinstall its resources. |
 | Web access | Load web tools only when external information is necessary. |
@@ -110,7 +111,10 @@ claude-yolo
 
 `codex-yolo` keeps the Codex workspace sandbox. `claude-yolo` keeps its network restrictions and full-escape block.
 
-In Pi, `/push` is the only unattended push path. It refuses dirty, detached, behind, or untracked repositories.
+Pi can push and create pull requests after an explicit user request and interactive confirmation. `/push` and `/pr` provide shortcuts for these actions.
+Pi uses the GitHub CLI to inspect pull requests, CI checks, and failed Actions logs. It can publish a pull request comment after confirmation.
+A push refuses dirty, detached, or behind repositories. It can configure the first upstream for the current branch.
+Direct `git push` and mutating `gh` shell commands remain blocked.
 
 Keep irreplaceable data in versioned backups. These controls reduce accidents but do not replace backups.
 

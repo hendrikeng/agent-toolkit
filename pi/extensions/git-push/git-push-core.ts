@@ -51,3 +51,31 @@ export function configuredPushTarget(
 	const branch = mergeRef.slice("refs/heads/".length)
 	return branch ? { remote, branch } : undefined
 }
+
+export function defaultPushTarget(
+	branch: string,
+	remotes: readonly string[],
+): { remote: string; branch: string } | undefined {
+	const remote = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined
+	return branch && remote ? { remote, branch } : undefined
+}
+
+export function githubRepository(value: string): string | undefined {
+	let host: string
+	let path: string
+	if (/^ssh:\/\//i.test(value)) {
+		try {
+			const url = new URL(value)
+			host = url.hostname
+			path = url.pathname.slice(1)
+		} catch {
+			return undefined
+		}
+	} else {
+		const match = value.match(/^(?:[^\s/@:]+@)?([^\s/:]+):(.+)$/)
+		if (!match) return undefined
+		;[, host, path] = match
+	}
+	path = path.replace(/\.git$/, "")
+	return host.toLowerCase() === "github.com" && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(path) ? `github.com/${path}` : undefined
+}

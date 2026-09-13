@@ -2,7 +2,9 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
 	configuredPushTarget,
+	defaultPushTarget,
 	escapeControlCharacters,
+	githubRepository,
 	isSupportedSshPushUrl,
 	stripFinalLineEnding,
 	unsafeGitEnvironmentVariable,
@@ -19,6 +21,19 @@ test("accepts only a configured remote branch target", () => {
 	})
 	assert.equal(configuredPushTarget("missing", "refs/heads/main", ["origin"]), undefined)
 	assert.equal(configuredPushTarget("origin", "refs/tags/v1", ["origin"]), undefined)
+})
+
+test("uses origin or the only remote for a branch without an upstream", () => {
+	assert.deepEqual(defaultPushTarget("release/1", ["upstream", "origin"]), { remote: "origin", branch: "release/1" })
+	assert.deepEqual(defaultPushTarget("fix/1", ["team"]), { remote: "team", branch: "fix/1" })
+	assert.equal(defaultPushTarget("fix/1", ["team", "fork"]), undefined)
+})
+
+test("extracts only github.com repositories from SSH URLs", () => {
+	assert.equal(githubRepository("git@github.com:owner/repo.git"), "github.com/owner/repo")
+	assert.equal(githubRepository("ssh://git@github.com/owner/repo.git"), "github.com/owner/repo")
+	assert.equal(githubRepository("git@example.com:owner/repo.git"), undefined)
+	assert.equal(githubRepository("https://github.com/owner/repo.git"), undefined)
 })
 
 test("removes only Git's final record newline", () => {
