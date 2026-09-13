@@ -44,6 +44,7 @@ function validateResources(declarations = []) {
    }
   }
  }
+ assert.ok(declarations.filter(item => item.type === 'postgres' && item.profile === 'maintenance-owner').length <= 1, 'Only one PostgreSQL maintenance-owner profile can provide database aliases')
 }
 function credential(file) {
  const stat = fs.lstatSync(file)
@@ -185,12 +186,13 @@ function prepareResources(scope, declarations, state, persist, workspace, root, 
     const roleAttributes = maintenanceOwner ? 'NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS' : declaration.database === 'postgres' ? 'CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS' : 'NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
     const databaseOwner = maintenanceOwner ? 'toolkit_test' : 'bootstrap'
     runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='toolkit_test') THEN CREATE ROLE toolkit_test LOGIN NOSUPERUSER ${roleAttributes} PASSWORD '${secret}'; END IF; END $$;\nSELECT 'CREATE DATABASE toolkit_test OWNER ${databaseOwner}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='toolkit_test')\\gexec\nREVOKE ALL ON DATABASE toolkit_test FROM PUBLIC; GRANT CONNECT, CREATE, TEMPORARY ON DATABASE toolkit_test TO toolkit_test;\n\\connect toolkit_test\nALTER SCHEMA public OWNER TO toolkit_test;\nALTER ROLE bootstrap NOLOGIN;\n`)
+    assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT (NOT EXISTS (SELECT FROM pg_auth_members m JOIN pg_roles r ON r.oid IN (m.roleid, m.member) WHERE r.rolname = current_user))::text"]), 'true', 'PostgreSQL bootstrap widened test-role membership')
    }
   }
   if (declaration.type === 'postgres') {
    assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', "SELECT current_setting('server_version_num')::integer / 10000"]), '17', 'PostgreSQL version differs from the declared class')
-   const expected = declaration.profile === 'maintenance-owner' ? 'true|false|false|true|false|true|true|true|true' : declaration.database === 'postgres' ? 'true|false|true|true|false|false|false|true|true' : 'true|false|false|false|false|false|false|true|true'
-   const attestation = "SELECT r.rolcanlogin::text || '|' || r.rolsuper::text || '|' || r.rolcreatedb::text || '|' || r.rolcreaterole::text || '|' || r.rolreplication::text || '|' || r.rolbypassrls::text || '|' || (d.datdba = r.oid)::text || '|' || (NOT b.rolcanlogin)::text || '|' || (NOT EXISTS (SELECT FROM pg_auth_members m WHERE r.oid IN (m.roleid, m.member)))::text FROM pg_roles r JOIN pg_database d ON d.datname = current_database() JOIN pg_roles b ON b.rolname = 'bootstrap' WHERE r.rolname = current_user AND current_user = session_user"
+   const expected = declaration.profile === 'maintenance-owner' ? 'true|false|false|true|false|true|true|true' : declaration.database === 'postgres' ? 'true|false|true|true|false|false|false|true' : 'true|false|false|false|false|false|false|true'
+   const attestation = "SELECT r.rolcanlogin::text || '|' || r.rolsuper::text || '|' || r.rolcreatedb::text || '|' || r.rolcreaterole::text || '|' || r.rolreplication::text || '|' || r.rolbypassrls::text || '|' || (d.datdba = r.oid)::text || '|' || (NOT b.rolcanlogin)::text FROM pg_roles r JOIN pg_database d ON d.datname = current_database() JOIN pg_roles b ON b.rolname = 'bootstrap' WHERE r.rolname = current_user AND current_user = session_user"
    assert.equal(runtime.exec(record.id, ['psql', '-h', '/var/run/postgresql', '-p', '5432', '-U', 'toolkit_test', '-d', 'toolkit_test', '-Atc', attestation]), expected, 'PostgreSQL test-role identity differs from its declaration; stop and restart this disposable resource')
   }
   if (declaration.type === 'storage') {

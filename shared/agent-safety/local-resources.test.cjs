@@ -33,7 +33,7 @@ function fixture(declaration = base) {
   },
   start(id) { calls.push(['start', id]); containers.get(id).State.Running = true; containers.get(id).State.StartedAt = new Date(Date.now()).toISOString(); containers.get(id).Config.RuntimeStarted = true },
   stop(id) { calls.push(['stop', id]); containers.get(id).State.Running = false },
-  exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : args.at(-1)?.includes('rolcanlogin') ? declaration.profile === 'maintenance-owner' ? 'true|false|false|true|false|true|true|true|true' : declaration.database === 'postgres' ? 'true|false|true|true|false|false|false|true|true' : 'true|false|false|false|false|false|false|true|true' : 'OK' },
+  exec(id, args, input) { calls.push(['exec', id, args, input]); return args.at(-1) === 'PING' ? 'PONG' : args.at(-2) === 'INFO' ? 'redis_version:7.4.0\n' : args.at(-1)?.includes('server_version_num') ? '17' : args.at(-1)?.includes('rolcanlogin') ? declaration.profile === 'maintenance-owner' ? 'true|false|false|true|false|true|true|true' : declaration.database === 'postgres' ? 'true|false|true|true|false|false|false|true' : 'true|false|false|false|false|false|false|true' : args.at(-1)?.includes('pg_auth_members') ? 'true' : 'OK' },
  }
  const state = {}
  const prepare = () => prepareResources('scope', [declaration], state, () => saves.push(JSON.stringify(state)), workspace, path.join(root, 'evidence'), runtime)
@@ -126,7 +126,7 @@ test('PostgreSQL database-creator profile remains non-superuser and bounded to t
  assert.ok(sql.includes('LOGIN NOSUPERUSER CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS'))
  assert.ok(!sql.includes('NOSUPERUSER NOCREATEDB'))
  const exec = f.runtime.exec
- f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcanlogin') ? 'true|false|true|false|false|false|false|true|true' : exec(id, args, input)
+ f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcanlogin') ? 'true|false|true|false|false|false|false|true' : exec(id, args, input)
  assert.throws(f.prepare, /identity differs/)
 })
 
@@ -141,8 +141,9 @@ test('PostgreSQL maintenance-owner profile exposes only the exact fresh-install 
  assert.equal(env.DATABASE_URL, env.RESOURCE_DB_URL)
  assert.equal(env.TEST_DATABASE_URL, env.RESOURCE_DB_URL)
  assert.throws(() => validateResources([{ ...declaration, database: 'postgres' }]), /cannot be combined/)
+ assert.throws(() => validateResources([declaration, { ...declaration, id: 'other' }]), /Only one/)
  const exec = f.runtime.exec
- f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcanlogin') ? 'true|false|false|true|false|false|true|true|true' : exec(id, args, input)
+ f.runtime.exec = (id, args, input) => args.at(-1)?.includes('rolcanlogin') ? 'true|false|false|true|false|false|true|true' : exec(id, args, input)
  assert.throws(f.prepare, /identity differs/)
 })
 
