@@ -50,6 +50,20 @@ test('pi-yolo exposes installed skill roots without exposing whole agent directo
  assert.doesNotMatch(launcher, /piInfrastructureReadPaths[^]*path\.join\(os\.homedir\(\), "\.agents"\)/)
 })
 
+test('pi-yolo permits only native reads of graph evidence', () => {
+ const { runInNewContext } = require('node:vm')
+ const start = launcher.indexOf('const managedAgentDir =')
+ const block = launcher.slice(start, launcher.indexOf('const bundle =', start))
+ const context = {
+  fs: { realpathSync: value => value }, path: require('node:path'),
+  process: { argv: [null, null, null, null, null, '/managed-agent'] }, graphEvidenceDirs: null,
+ }
+ runInNewContext(`${block}\nthis.graphEvidenceDirs = graphEvidenceDirs`, context)
+ assert.deepEqual([...context.graphEvidenceDirs], ['task-graphs', 'task-graphs-retired', 'task-graph-locks', 'task-graph-deliveries'].map(name => `/managed-agent/${name}`))
+ assert.match(launcher, /piInfrastructureReadPaths = \[\.\.\.new Set\(\[[^]*\.\.\.graphEvidenceDirs,/)
+ assert.doesNotMatch(block, /permission\.(?:external_directory|write|edit|bash)/)
+})
+
 test('pi-yolo keeps subprocess temporary files inside the development root', () => {
  assert.match(launcher, /scratch_root=\$HOME\/Code\/\.agent-toolkit-scratch/)
  assert.match(launcher, /access\.assertDevelopmentPath\(scratchRoot, roots\)/)

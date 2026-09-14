@@ -87,7 +87,7 @@ function fixture() {
   extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: (name: string, handler: any) => events.set(name, handler), registerCommand: (name: string, command: any) => commands.set(name, command), sendUserMessage: () => {} } as never)
   const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => true, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string, level: string) => { notifications.push({ message, level }); if (level === "error") throw new Error(message) } } }
   let serial = 0
-  return { notifications, command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
+  return { notifications, commandNames: () => [...commands.keys()], command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
    const id = String(++serial), event = { toolName: name, input, toolCallId: id }, blocked = await events.get("tool_call")?.(event, ctx)
    if (blocked?.block) throw new Error(blocked.reason)
    let output: any, error: any
@@ -112,6 +112,7 @@ function fixture() {
 test("graph commands preserve multiline objectives without a model round trip", async () => {
  const f = fixture(), coordinator = f.runtime(f.source), objective = "first line\nsecond line"
  try {
+  assert.deepEqual(coordinator.commandNames(), ["graph"])
   await coordinator.command(`execute ${objective}`)
   const result = (await coordinator.call("propose_task_graph", { ...f.plan, objective: "first line second line" })).details
   assert.equal(result.plan.objective, objective)

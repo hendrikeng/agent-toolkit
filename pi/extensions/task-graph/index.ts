@@ -261,13 +261,11 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    ctx.ui.notify(JSON.stringify(report, null, 2), "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
- pi.registerCommand("graph-retire", { description: "Retire one eligible current-v4 graph and preserve all retained state. /graph-retire <run-id>", handler: retireGraph })
  pi.registerCommand("graph", { description: "Plan, execute, inspect, deliver, or retire a bounded graph. /graph [plan|execute|gc|deliver|retire] <objective-or-run-id>", handler: async (args, ctx) => {
   if (/^gc(?:\s|$)/.test(args.trim())) { await inspectGarbage(args.trim().slice(2), ctx); return }
   const delivery = /^deliver\s+(.+)$/s.exec(args.trim())
   if (delivery) { await deliverCompletedGraph(delivery[1], ctx); return }
-  const retirement = /^retire\s+(.+)$/s.exec(args.trim())
-  if (retirement) { await retireGraph(retirement[1], ctx); return }
+  if (/^retire(?:\s|$)/.test(args.trim())) { await retireGraph(args.trim().slice(6), ctx); return }
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   const parsed = /^(?:(plan|execute)\s+)?(.+)$/s.exec(args.trim())
   if (!parsed || !ctx.model) { ctx.ui.notify(parsed ? "No model selected." : "Usage: /graph [plan|execute] <objective>", "warning"); return }

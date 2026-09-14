@@ -194,8 +194,14 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
  if (shown?.id !== state.runId || shown.objective !== objective) retirementBlock("uncertain", "The graph Run receipt is missing, foreign, or changed.")
  let tasks: any[]
  try { tasks = completeInventory(orca(["orchestration", "task-list", "--run", state.runId!, "--json"]), "tasks", "task") } catch (error) { if (error instanceof RetirementBlocker) throw error; retirementBlock("uncertain", "Orca task inventory is unavailable.") }
- if (tasks.length !== state.plan.tasks.length || tasks.some(task => task?.run_id !== state.runId || task.parent_id != null || (completedGraph ? task.status !== "completed" : task.status === "completed") || !state.plan.tasks.some(declaration => matchesGraphTaskSpec(state, declaration, task.spec)))) retirementBlock("uncertain", "The graph ledger contains a completed, missing, duplicated, foreign, or changed task receipt.")
- for (const declaration of state.plan.tasks) if (tasks.filter(task => matchesGraphTaskSpec(state, declaration, task.spec)).length !== 1) retirementBlock("uncertain", "The graph ledger contains a missing or duplicated task receipt.")
+ if (tasks.length !== state.plan.tasks.length) retirementBlock("uncertain", `The graph ledger has ${tasks.length} tasks; the graph record declares ${state.plan.tasks.length}.`)
+ for (const task of tasks) {
+  if (task?.run_id !== state.runId) retirementBlock("uncertain", `Ledger task ${String(task?.id)} belongs to another Run.`)
+  if (task.parent_id != null) retirementBlock("uncertain", `Ledger task ${String(task.id)} is not a top-level graph task.`)
+  if (completedGraph ? task.status !== "completed" : task.status === "completed") retirementBlock("uncertain", `Ledger task ${String(task.id)} has incompatible status ${String(task.status)}.`)
+  if (!state.plan.tasks.some(declaration => matchesGraphTaskSpec(state, declaration, task.spec))) retirementBlock("uncertain", `Ledger task ${String(task.id)} does not match a declared graph task.`)
+ }
+ for (const declaration of state.plan.tasks) if (tasks.filter(task => matchesGraphTaskSpec(state, declaration, task.spec)).length !== 1) retirementBlock("uncertain", `Declared task ${declaration.id} has a missing or duplicated ledger receipt.`)
  const workers = Object.values(state.workers)
  if (new Set(workers.map(worker => worker.ledgerTask)).size !== workers.length || new Set(workers.map(worker => worker.dispatch)).size !== workers.length) retirementBlock("uncertain", "The graph record contains duplicated worker task or dispatch receipts.")
  for (const declaration of state.plan.tasks) {
@@ -206,7 +212,11 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
   const declaration = state.plan.tasks.find(task => task.id === worker.task), ledger = declaration && tasks.find(task => task.id === worker.ledgerTask && matchesGraphTaskSpec(state, declaration, task.spec))
   const repo = declaration && state.repositories.find(repo => repo.source === realpathSync(resolve(state.root, declaration.repository)))
   const lane = worker.lane && state.lanes.find(item => item.id === worker.lane)
-  if (!declaration || !ledger || !repo || worker.source !== repo.source || worker.integration || !completedGraph && worker.integrated) retirementBlock("uncertain", "A worker identity changed or has an integration mutation in progress.")
+  if (!declaration) retirementBlock("uncertain", `Worker ${worker.task} has no declared graph task.`)
+  if (!ledger) retirementBlock("uncertain", `Worker ${worker.task} has no exact ledger task receipt.`)
+  if (!repo || worker.source !== repo.source) retirementBlock("uncertain", `Worker ${worker.task} repository identity changed.`)
+  if (worker.integration) retirementBlock("uncertain", `Worker ${worker.task} has an integration mutation in progress.`)
+  if (!completedGraph && worker.integrated) retirementBlock("uncertain", `Worker ${worker.task} already has an integrated commit.`)
   if (!completedGraph && (declaration.owns.length ? !lane || lane.task !== worker.task || lane.source !== worker.source || lane.workspace.path !== worker.workspace || lane.cleanup : Boolean(worker.lane))) retirementBlock("uncertain", "A worker lane assignment changed.")
   if (!worker.dispatch || !completedGraph && !worker.terminal) retirementBlock("uncertain", "A recorded worker has no complete dispatch receipt.")
   let dispatch: any
@@ -246,7 +256,9 @@ function assessGraphRetirement(file: string, runtime: any, orca?: Orca, verifyRe
  const state = readGraphRecord(file), workers = Object.values(state.workers)
  if (!state.runId || state.completion) retirementBlock("uncertain", "Retire only an incomplete current-v4 graph with a recorded Run.")
  if (Object.keys(state.completed).length) retirementBlock("uncertain", "A graph with a completed task cannot retire.")
- if (workers.some(worker => worker.integration || worker.integrated)) retirementBlock("uncertain", "A worker is integrated or has an integration mutation in progress.")
+ const mutating = workers.find(worker => worker.integration), integrated = workers.find(worker => worker.integrated)
+ if (mutating) retirementBlock("uncertain", `Worker ${mutating.task} has an integration mutation in progress.`)
+ if (integrated) retirementBlock("uncertain", `Worker ${integrated.task} already has an integrated commit.`)
  const resourceStarted = Object.values(state.resources ?? {}).some((resource: any) => resource?.id || resource?.ready || resource?.stopped)
  const unstarted = !state.lanes.length && !workers.length && !resourceStarted
  if (!orca) retirementBlock("uncertain", "Graph retirement requires complete Run and ledger evidence.")
