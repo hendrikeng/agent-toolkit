@@ -118,6 +118,24 @@ export function validateGraphRecord(record: any, file = "graph record"): GraphRe
  return record
 }
 export function readGraphRecord(file: string): GraphRecord { return validateGraphRecord(JSON.parse(readFileSync(file, "utf8")), file) }
+export function validateRetainedGraphRecord(record: any, file = "graph record"): GraphRecord {
+ const missing = typeof record?.root === "string" && !existsSync(record.root) || Array.isArray(record?.repositories) && record.repositories.some((repo: any) => typeof repo?.source === "string" && !existsSync(repo.source))
+ if (!missing) { validateGraphRecord(structuredClone(record), file); return record }
+ const recovered = structuredClone(record), replacements = new Map<string, string>()
+ for (const repo of recovered?.repositories ?? []) if (typeof repo?.source === "string" && !existsSync(repo.source)) {
+  const replacement = typeof repo.identity === "string" ? dirname(repo.identity) : ""
+  if (!replacement || repositoryRoot(replacement) !== replacement || repositoryIdentity(replacement) !== repo.identity) throw new Error("A retained graph source has no verified canonical repository.")
+  const missingSource = repo.source; replacements.set(missingSource, replacement); repo.source = replacement
+  for (const item of [...(recovered.plan?.tasks ?? []), ...(recovered.plan?.foundations ?? []), ...(recovered.plan?.inputs ?? [])]) if (item.repository === missingSource) item.repository = replacement
+  for (const worker of Object.values(recovered.workers ?? {}) as any[]) if (worker.source === missingSource) worker.source = replacement
+ }
+ if (typeof recovered.root === "string" && !existsSync(recovered.root)) {
+  const declarations = [...(recovered.plan?.tasks ?? []), ...(recovered.plan?.foundations ?? []), ...(recovered.plan?.inputs ?? [])]
+  recovered.root = replacements.get(recovered.root) ?? (declarations.every((item: any) => isAbsolute(item.repository)) ? recovered.repositories?.[0]?.source : undefined)
+  if (!recovered.root) throw new Error("A retained graph root cannot be rebound unambiguously.")
+ }
+ validateGraphRecord(recovered, file); return record
+}
 export function validGraphDeliveryReceipt(receipt: any): boolean {
  const target = (item: any) => item && [item.source, item.identity, item.branch, item.from, item.head, item.workspace?.id, item.workspace?.path, item.workspace?.branch].every(value => typeof value === "string") && ["pending", "delivered"].includes(item.status)
  const cleanup = (item: any) => item && /^run_[a-zA-Z0-9_-]+$/.test(item.runId ?? "") && [item.record, item.source, item.identity, item.head, item.workspace?.id, item.workspace?.path, item.workspace?.branch].every(value => typeof value === "string") && ["pending", "removing", "removed"].includes(item.status)
@@ -276,7 +294,7 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
  }
  if (!completedGraph && state.lanes.some(lane => lane.previousTasks.length || !lane.task || !state.workers[lane.task] || lane.cleanup)) retirementBlock("uncertain", "A recorded lane does not match an unsettled worker.")
 }
-function inspectStartedResources(state: GraphRecord, runtime: any, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any): void {
+function inspectStartedResources(state: GraphRecord, runtime: any, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any, allowStaleStopped = false): void {
  const declarations = state.plan.resources ?? [], resources = state.resources ?? {}, keys = Object.keys(resources)
  if (keys.length !== declarations.length || declarations.some(declaration => !Object.hasOwn(resources, declaration.id) || JSON.stringify(resources[declaration.id]?.declaration) !== JSON.stringify(declaration))) retirementBlock("uncertain", "Each declared resource must have one exact recorded identity.")
  if (declarations.length && !verifyResource) retirementBlock("uncertain", "Resource identity verification is unavailable.")
@@ -294,7 +312,7 @@ function inspectStartedResources(state: GraphRecord, runtime: any, verifyResourc
   let details: any
   try { details = verifyResource(resource, runtime, false, false, false, false) } catch { retirementBlock("uncertain", `Resource ${declaration.id} identity verification failed.`) }
   if (details?.State?.Running) retirementBlock("live-resource", `Resource ${declaration.id} is live.`)
-  if (resource.stopped !== true || resource.ready !== false || details?.State?.Running !== false) retirementBlock("uncertain", `Resource ${declaration.id} is not recorded as stopped.`)
+  if (details?.State?.Running !== false || !allowStaleStopped && (resource.stopped !== true || resource.ready !== false)) retirementBlock("uncertain", `Resource ${declaration.id} is not recorded as stopped.`)
  }
 }
 function assessGraphRetirement(file: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any) {
@@ -397,7 +415,7 @@ export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resource
   if (header.completion) {
    const access = inspectResources()
    if (!access) return { runId, record: file, location: "active", state: "uncertain", eligible: false, blocker: "The local resource inventory is unavailable." }
-   try { const state = readGraphRecord(file); if (state.plan.tasks.some(task => !state.completed[task.id])) retirementBlock("uncertain", "The completed graph is missing a completed task receipt."); inspectOrchestration(state, orca, true); inspectStartedResources(state, access.runtime, access.verifyResource); return { runId: state.runId, record: file, location: "active", state: "completed", eligible: false, blocker: "The current-v4 graph is completed." } }
+   try { const state = validateRetainedGraphRecord(JSON.parse(readFileSync(file, "utf8")), file); if (state.plan.tasks.some(task => !state.completed[task.id])) retirementBlock("uncertain", "The completed graph is missing a completed task receipt."); inspectOrchestration(state, orca, true); inspectStartedResources(state, access.runtime, access.verifyResource, true); return { runId: state.runId, record: file, location: "active", state: "completed", eligible: false, blocker: "The current-v4 graph is completed." } }
    catch (error) { return { runId, record: file, location: "active", state: error instanceof RetirementBlocker ? error.state : "uncertain", eligible: false, blocker: error instanceof Error ? error.message : "The completed graph record is uncertain." } }
   }
   const access = lease === "available" ? inspectResources() : undefined
@@ -443,8 +461,8 @@ export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resource
    }
    const sidecars = join(directory, "sidecars"), recordStat = lstatSync(preserved), sidecarStat = lstatSync(sidecars)
    if (sourcePresent || !recordStat.isFile() || recordStat.isSymbolicLink() || recordStat.nlink !== 1 || digest(readFileSync(preserved)) !== receipt.recordHash || !sidecarStat.isDirectory() || sidecarStat.isSymbolicLink() || realpathSync(sidecars) !== sidecars) throw new Error()
-   const state = readGraphRecord(preserved); if (state.runId !== runId || runCounts.get(runId) !== 1) throw new Error()
-   const access = inspectResources(); if (!access) throw new Error(); inspectStartedResources(state, access.runtime, access.verifyResource)
+   const state = validateRetainedGraphRecord(JSON.parse(readFileSync(preserved, "utf8")), preserved); if (state.runId !== runId || runCounts.get(runId) !== 1) throw new Error()
+   const access = inspectResources(); if (!access) throw new Error(); inspectStartedResources(state, access.runtime, access.verifyResource, true)
    records.push({ runId, record: preserved, location: "archived", state: "archived", eligible: false, blocker: "The completed current-v4 graph is archived." })
   } catch (error) { records.push({ runId, record: preserved, location: "archived", state: error instanceof RetirementBlocker ? error.state : "uncertain", eligible: false, blocker: error instanceof Error && error.message ? error.message : "The archive receipt or preserved record is missing or changed." }) }
  }

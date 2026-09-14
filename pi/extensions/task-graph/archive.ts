@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
 import { acquireLease, digest, graphLeaseState, saveRecord } from "./task-graph-core.ts"
-import { graphDeliveryInventory, validateGraphRecord } from "./workspaces.ts"
+import { graphDeliveryInventory, validateRetainedGraphRecord } from "./workspaces.ts"
 
 export interface GraphArchiveReceipt {
  version: 1
@@ -51,7 +51,7 @@ function moveSidecars(file: string, directory: string): void {
 function header(file: string): { saved: any; bytes: Buffer } {
  const stat = lstatSync(file)
  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Graph record identity is uncertain. Preserve it for inspection.")
- const bytes = readFileSync(file), saved = validateGraphRecord(JSON.parse(bytes.toString("utf8")), file)
+ const bytes = readFileSync(file), saved = validateRetainedGraphRecord(JSON.parse(bytes.toString("utf8")), file)
  if (!/^run_[a-zA-Z0-9_-]+$/.test(saved.runId ?? "") || !saved.completion || saved.plan.tasks.some(task => !saved.completed[task.id])) throw new Error("Archive only a completed current-v4 graph.")
  return { saved, bytes }
 }

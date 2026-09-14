@@ -26,6 +26,11 @@ test("completed graph archive preserves exact record and sidecars and resumes id
  assert.deepEqual(archiveCompletedGraph(f.file, f.archive), result)
 })
 
+test("archive validates a completed record whose historical source worktree is absent", () => {
+ const f = fixture(), missing = join(f.root, "missing-worktree"); f.record.root = missing; f.record.repositories[0].source = missing; f.record.plan.tasks[0].repository = missing; f.record.plan.foundations[0].repository = missing; writeFileSync(f.file, JSON.stringify(f.record))
+ assert.equal(archiveCompletedGraph(f.file, f.archive).status, "archived")
+})
+
 test("archive resumes after authorization was saved before the record move", () => {
  const f = fixture(), directory = join(f.archive, "record"), target = join(directory, "record.json"), bytes = readFileSync(f.file); mkdirSync(directory, { recursive: true })
  writeFileSync(join(directory, "archive.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: "run_archive", source: f.file, record: target, recordHash: digest(bytes), archivedAt: new Date().toISOString(), preserved: ["graph-record", "sidecars", "orchestration-evidence", "commits", "worktrees", "branches", "resources"] }))
@@ -36,6 +41,7 @@ test("archive rejects incomplete, legacy, and live graph records", () => {
  const incomplete = fixture(); delete (incomplete.record as any).completion; writeFileSync(incomplete.file, JSON.stringify(incomplete.record)); assert.equal(inspectGraphArchive(incomplete.file).eligible, false)
  const legacy = fixture(); legacy.record.version = 2; writeFileSync(legacy.file, JSON.stringify(legacy.record)); assert.equal(inspectGraphArchive(legacy.file).eligible, false)
  const malformed = fixture(); writeFileSync(malformed.file, JSON.stringify({ version: 4, key: malformed.record.key, runId: "run_archive", plan: malformed.record.plan, completed: malformed.record.completed, completion: malformed.record.completion })); assert.equal(inspectGraphArchive(malformed.file).eligible, false)
+ const ambiguousRoot = fixture(); ambiguousRoot.record.root = join(ambiguousRoot.root, "missing-root"); ambiguousRoot.record.plan.tasks[0].repository = "."; ambiguousRoot.record.plan.foundations[0].repository = "."; writeFileSync(ambiguousRoot.file, JSON.stringify(ambiguousRoot.record)); assert.equal(inspectGraphArchive(ambiguousRoot.file).eligible, false)
  const changed = fixture(); assert.throws(() => archiveCompletedGraph(changed.file, changed.archive, undefined, "0".repeat(64)), /changed after archive approval/); assert.equal(existsSync(join(changed.archive, "record")), false)
  const pending = fixture(), deliveries = join(pending.root, "agent/task-graph-deliveries/v1"); mkdirSync(deliveries, { recursive: true }); writeFileSync(join(deliveries, "run_archive.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: "run_archive" })); assert.throws(() => archiveCompletedGraph(pending.file, pending.archive), /unfinished or uncertain delivery/)
  const malformedDelivery = fixture(), malformedDeliveries = join(malformedDelivery.root, "agent/task-graph-deliveries/v1"); mkdirSync(malformedDeliveries, { recursive: true }); writeFileSync(join(malformedDeliveries, "run_archive.json"), JSON.stringify({ version: 1, status: "delivered", runId: "run_archive" })); assert.throws(() => archiveCompletedGraph(malformedDelivery.file, malformedDelivery.archive), /unfinished or uncertain delivery/)

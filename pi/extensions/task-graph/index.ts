@@ -284,7 +284,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
  const inspectGarbage = async (args: string, ctx: any) => {
-  if (!ctx.isIdle() || args.trim()) { ctx.ui.notify("Usage: /graph gc from an idle session.", "warning"); return }
+  if (args.trim()) { ctx.ui.notify("Usage: /graph gc", "warning"); return }
   try {
    const report = inspectGraphGarbage(agentDir(), orcaJson, () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } })
    ctx.ui.notify(JSON.stringify(report, null, 2), "info")
