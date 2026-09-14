@@ -1,10 +1,10 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { archiveCompletedGraph, inspectGraphArchive } from "../archive.ts"
+import { archiveCompletedGraph, inspectGraphArchive, inspectGraphArchivePurge, purgeGraphArchive } from "../archive.ts"
 import { acquireLease, digest, graphGit } from "../task-graph-core.ts"
 import { captureGraphWorkspaces } from "../workspaces.ts"
 
@@ -35,6 +35,31 @@ test("archive resumes after authorization was saved before the record move", () 
  const f = fixture(), directory = join(f.archive, "record"), target = join(directory, "record.json"), bytes = readFileSync(f.file); mkdirSync(directory, { recursive: true })
  writeFileSync(join(directory, "archive.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: "run_archive", source: f.file, record: target, recordHash: digest(bytes), archivedAt: new Date().toISOString(), preserved: ["graph-record", "sidecars", "orchestration-evidence", "commits", "worktrees", "branches", "resources"] }))
  const result = archiveCompletedGraph(f.file, f.archive); assert.equal(result.status, "archived"); assert.deepEqual(readFileSync(target), bytes)
+})
+
+test("a verified 90-day archive purge is explicit, idempotent, and interruption-safe", () => {
+ const f = fixture(), archived = archiveCompletedGraph(f.file, f.archive), directory = join(f.archive, "record"), purges = join(f.root, "agent/task-graph-purges/v1"), now = Date.parse("2026-06-01T00:00:00.000Z"), archivedAt = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString()
+ writeFileSync(join(directory, "archive.json"), JSON.stringify({ ...archived, archivedAt }))
+ assert.equal(inspectGraphArchivePurge(directory, purges, now - 1).eligible, false)
+ const inspection = inspectGraphArchivePurge(directory, purges, now); assert.equal(inspection.eligible, true)
+ const backup = join(f.root, "backup"); cpSync(directory, backup, { recursive: true })
+ const result = purgeGraphArchive(directory, purges, inspection.archiveHash, now)
+ assert.equal(result.status, "purged"); assert.equal(existsSync(directory), false); assert.equal(existsSync(result.staging), false); assert.deepEqual(purgeGraphArchive(directory, purges, result.archiveHash, now), result)
+ writeFileSync(join(purges, "record.json"), JSON.stringify({ ...result, status: "authorized-pending", purgedAt: undefined })); cpSync(backup, result.staging, { recursive: true }); unlinkSync(join(result.staging, "sidecars/record.json.receipt"))
+ assert.throws(() => purgeGraphArchive(directory, purges, result.archiveHash, now), /evidence changed/)
+ writeFileSync(join(purges, "record.json"), JSON.stringify({ ...result, status: "removing", purgedAt: undefined }))
+ assert.equal(purgeGraphArchive(directory, purges, result.archiveHash, now).status, "purged")
+ writeFileSync(join(purges, "record.json"), JSON.stringify({ ...result, status: "removing", purgedAt: undefined }))
+ assert.equal(purgeGraphArchive(directory, purges, result.archiveHash, now).status, "purged")
+ cpSync(backup, directory, { recursive: true }); assert.match(inspectGraphArchivePurge(directory, purges, now).blocker!, /reappeared/)
+})
+
+test("archive purge rejects changed or linked evidence", () => {
+ const changed = fixture(), archived = archiveCompletedGraph(changed.file, changed.archive), directory = join(changed.archive, "record"), now = Date.parse("2026-06-01T00:00:00.000Z"); writeFileSync(join(directory, "archive.json"), JSON.stringify({ ...archived, archivedAt: "2026-01-01T00:00:00.000Z" }))
+ const purges = join(changed.root, "agent/task-graph-purges/v1"), inspection = inspectGraphArchivePurge(directory, purges, now); writeFileSync(join(directory, "extra"), "changed")
+ assert.throws(() => purgeGraphArchive(directory, purges, inspection.archiveHash, now), /changed after purge approval/)
+ const linked = fixture(), linkedArchive = archiveCompletedGraph(linked.file, linked.archive), linkedDirectory = join(linked.archive, "record"), outside = join(linked.root, "outside-purges"); writeFileSync(join(linkedDirectory, "archive.json"), JSON.stringify({ ...linkedArchive, archivedAt: "2026-01-01T00:00:00.000Z" })); mkdirSync(outside); symlinkSync(outside, join(linked.root, "agent/task-graph-purges"))
+ assert.throws(() => purgeGraphArchive(linkedDirectory, join(linked.root, "agent/task-graph-purges/v1"), undefined, now), /archive identity is uncertain/)
 })
 
 test("archive rejects incomplete, legacy, and live graph records", () => {

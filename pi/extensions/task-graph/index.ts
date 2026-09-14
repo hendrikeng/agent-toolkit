@@ -8,9 +8,9 @@ import { inspectShell, runBash } from "../development-access/index.ts"
 import { StringEnum } from "@earendil-works/pi-ai"
 import { Type, type TProperties } from "typebox"
 import { acquireLease, assertNoLegacyGraph, digest, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
-import { archiveCompletedGraph, inspectGraphArchive } from "./archive.ts"
+import { archiveCompletedGraph, inspectGraphArchive, inspectGraphArchivePurge, purgeGraphArchive } from "./archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
-import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
+import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDeliveryInventory, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
 
 const text = (details: any) => { const output = truncateHead(JSON.stringify(details, null, 2)); return { content: [{ type: "text" as const, text: output.content + (output.truncated ? "\nTruncated; inspect the retained graph record." : "") }], details } }
 const string = () => Type.String({ minLength: 1 })
@@ -293,6 +293,61 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
   finally { ctx.ui.setStatus?.("task-graph-gc", undefined) }
  }
+ const purgeArchivedGraphs = async (retention: string, ctx: any) => {
+  if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
+  if (retention.trim() !== "90d") { ctx.ui.notify("Usage: /graph purge 90d", "warning"); return }
+  const agent = agentDir(), records = join(agent, "task-graphs"), archive = join(agent, "task-graphs-archived", "v1"), purges = join(agent, "task-graph-purges", "v1")
+  ctx.ui.setStatus?.("task-graph-purge", "Inspecting graph archives…")
+  await new Promise(resolve => setTimeout(resolve, 0))
+  try {
+   const access = () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } }
+   const report = inspectGraphGarbage(agent, orcaJson, access), delivery = graphDeliveryInventory(agent)
+   if (delivery.uncertain) throw new Error("Delivery evidence is uncertain. Preserve graph archives.")
+   const uncertain = report.records.filter((item: any) => item.state === "uncertain"), referenced = new Set(delivery.receipts.flatMap(({ receipt }) => [receipt.runId, ...receipt.cleanup.map((item: any) => item.runId)]))
+   const candidates = new Map<string, { directory: string; runId: string; archiveHash: string; archivedAt: string; pending: boolean }>()
+   for (const item of report.records.filter((item: any) => item.location === "archived" && item.state === "archived")) {
+    if (referenced.has(item.runId)) continue
+    if (uncertain.some((other: any) => !other.runId || other.runId === item.runId)) throw new Error(`Uncertain graph evidence can refer to Run ${item.runId}. Preserve its archive.`)
+    const directory = dirname(item.record), inspection = inspectGraphArchivePurge(directory, purges)
+    if (inspection.eligible) candidates.set(directory, { directory, runId: inspection.runId!, archiveHash: inspection.archiveHash!, archivedAt: inspection.archivedAt!, pending: false })
+   }
+   if (existsSync(purges)) {
+    const stat = lstatSync(purges)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(purges) !== resolve(purges)) throw new Error("Graph purge evidence identity is uncertain.")
+    const entries = readdirSync(purges)
+    if (entries.some(name => !name.endsWith(".json") && !name.endsWith(".pending"))) throw new Error("Graph purge evidence contains an unknown entry. Preserve it for inspection.")
+    for (const name of entries.filter(name => name.endsWith(".pending"))) if (!entries.includes(`${name.slice(0, -8)}.json`)) throw new Error("Graph purge staging evidence has no receipt. Preserve it for inspection.")
+    for (const name of entries.filter(name => name.endsWith(".json"))) {
+     const directory = join(archive, name.slice(0, -5)), inspection = inspectGraphArchivePurge(directory, purges)
+     if (inspection.pending) {
+      if (referenced.has(inspection.runId!)) throw new Error(`Run ${inspection.runId} is referenced by delivery evidence. Preserve its archive.`)
+      if (uncertain.some((other: any) => !other.runId || other.runId === inspection.runId)) throw new Error(`Uncertain graph evidence can refer to Run ${inspection.runId}. Preserve its archive.`)
+      candidates.set(directory, { directory, runId: inspection.runId!, archiveHash: inspection.archiveHash!, archivedAt: inspection.archivedAt!, pending: true })
+     } else if (inspection.blocker !== "The graph archive is already purged.") throw new Error(`Graph purge evidence is uncertain: ${inspection.blocker}`)
+    }
+   }
+   if (!candidates.size) throw new Error("No verified graph archives are at least 90 days old and free of delivery references.")
+   const preview = [...candidates.values()].map(item => ({ runId: item.runId, archivedAt: item.archivedAt, pending: item.pending, archive: item.directory, archiveHash: item.archiveHash }))
+   if (!ctx.hasUI || !await ctx.ui.confirm("Purge graph archives?", `${JSON.stringify(preview, null, 2)}\nCAUTION: Permanently erase only these verified graph archives. Keep one hash receipt for each Run. Do not change Git, worktrees, resources, delivery evidence, retired evidence, legacy evidence, or Orca Runs.`)) return
+   mkdirSync(records, { recursive: true, mode: 0o700 })
+   const unlock = acquireLease(join(records, "startup"))
+   try {
+    const freshReport = inspectGraphGarbage(agent, orcaJson, access), freshDelivery = graphDeliveryInventory(agent)
+    if (freshDelivery.uncertain) throw new Error("Delivery evidence changed before purge. Preserve graph archives.")
+    const freshUncertain = freshReport.records.filter((item: any) => item.state === "uncertain"), freshReferenced = new Set(freshDelivery.receipts.flatMap(({ receipt }) => [receipt.runId, ...receipt.cleanup.map((item: any) => item.runId)])), ready = []
+    for (const candidate of candidates.values()) {
+     if (freshReferenced.has(candidate.runId)) throw new Error(`Run ${candidate.runId} became referenced by delivery evidence. Preserve its archive.`)
+     if (freshUncertain.some((other: any) => !other.runId || other.runId === candidate.runId)) throw new Error(`Uncertain graph evidence can refer to Run ${candidate.runId}. Preserve its archive.`)
+     const inspection = inspectGraphArchivePurge(candidate.directory, purges)
+     if (!inspection.eligible || inspection.runId !== candidate.runId || inspection.archiveHash !== candidate.archiveHash || !candidate.pending && !freshReport.records.some((item: any) => item.location === "archived" && item.state === "archived" && item.runId === candidate.runId && dirname(item.record) === candidate.directory)) throw new Error(`Run ${candidate.runId} changed before purge. Preserve its archive.`)
+     ready.push(candidate)
+    }
+    const purged = ready.map(candidate => purgeGraphArchive(candidate.directory, purges, candidate.archiveHash))
+    ctx.ui.notify(JSON.stringify({ purged: purged.map(item => ({ runId: item.runId, archivedAt: item.archivedAt, purgedAt: item.purgedAt, receipt: join(purges, `${basename(item.archive)}.json`) })) }, null, 2), "info")
+   } finally { unlock() }
+  } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+  finally { ctx.ui.setStatus?.("task-graph-purge", undefined) }
+ }
  const resumeGraph = async (runId: string, ctx: any) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   runId = runId.trim()
@@ -378,8 +433,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    ctx.ui.notify(JSON.stringify({ archived: archived.map(item => ({ runId: item.runId, record: item.record })), failed, retainedLegacy: "Legacy graph records remain immutable inspection evidence." }, null, 2), failed.length ? "warning" : "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
- pi.registerCommand("graph", { description: "Plan, execute, inspect, resume, deliver, archive, or retire a bounded graph. /graph [plan|execute|gc|resume|deliver|archive|retire] <objective-or-run-id>", handler: async (args, ctx) => {
+ pi.registerCommand("graph", { description: "Plan, execute, inspect, resume, deliver, archive, purge, or retire a bounded graph. /graph [plan|execute|gc|resume|deliver|archive|purge|retire] <objective-or-run-id>", handler: async (args, ctx) => {
   if (/^gc(?:\s|$)/.test(args.trim())) { await inspectGarbage(args.trim().slice(2), ctx); return }
+  if (/^purge(?:\s|$)/.test(args.trim())) { await purgeArchivedGraphs(args.trim().slice(5), ctx); return }
   if (/^resume(?:\s|$)/.test(args.trim())) { await resumeGraph(args.trim().slice(6), ctx); return }
   const delivery = /^deliver\s+(.+)$/s.exec(args.trim())
   if (delivery) { await deliverCompletedGraph(delivery[1], ctx); return }
@@ -413,7 +469,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    }
    let suffix = 0
    const archived = join(agentDir(), "task-graphs-archived", "v1")
-   do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))))
+   do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(request.target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(request.target, ".json")}.pending`)))
    pi.sendUserMessage(taskGraphPrompt(objective, mode))
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  } })
@@ -432,7 +488,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   if (!ctx.hasUI || !await ctx.ui.confirm(plan.mode === "plan-only" ? "Approve planning graph?" : "Approve execution graph?", `${JSON.stringify(summary, null, 2)}\nThis single approval covers the declared Run, task records, up to ${plan.worktree_budget} worktrees, pi-yolo worker launches with ${candidate.workerModel} at medium thinking, declared setup and validation on worker and combined integration commits, retries, bounded resources, internal integration, and removal of verified clean integrated lanes at closeout. It excludes secrets, unrelated or dirty worktree cleanup, production administration, publication, and source-branch merge-back.`, { signal })) return text({ status: "not-approved" })
   const target = request.target!, startup = acquireLease(join(directory, "startup"))
   try {
-   if (existsSync(target) || existsSync(join(agentDir(), "task-graphs-archived", "v1", basename(target, ".json")))) throw new Error("Graph record or archive appeared during approval; start the command again.")
+   if (existsSync(target) || existsSync(join(agentDir(), "task-graphs-archived", "v1", basename(target, ".json"))) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(target, ".json")}.pending`))) throw new Error("Graph record, archive, or purge evidence appeared during approval; start the command again.")
    for (const entry of readdirSync(directory).filter(name => name.endsWith(".json"))) {
     const existing = readGraphAdmission(join(directory, entry), candidate.repositories.map(repo => repo.identity))
     if (existing && !existing.completion) throw new Error(`Resume the unfinished graph: /graph ${existing.plan.mode} ${existing.plan.objective}`)

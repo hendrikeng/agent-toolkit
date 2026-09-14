@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import test from "node:test"
 import { registerHooks } from "node:module"
 import { digest, graphGit, repositoryIdentity } from "../task-graph-core.ts"
@@ -120,6 +120,13 @@ test("graph commands preserve multiline objectives without a model round trip", 
  } finally { coordinator.stop() }
 })
 
+test("new graphs do not reuse an orphaned purge staging name", async () => {
+ const f = fixture(), objective = f.plan.objective, stem = digest(`${repositoryIdentity(f.source)}:execute:${objective}`), pending = join(f.agent, "task-graph-purges/v1", `${stem}.pending`); mkdirSync(pending, { recursive: true })
+ const coordinator = f.runtime(f.source)
+ try { await coordinator.command(`execute ${objective}`); const approval = (await coordinator.call("propose_task_graph", f.plan)).details; assert.equal(basename(approval.record), `${stem}-1.json`) }
+ finally { coordinator.stop() }
+})
+
 test("graph gc reports eligibility without mutating the active graph", async () => {
  const f = fixture(); f.plan.worktree_budget = 2; f.plan.tasks = [f.plan.tasks[0]]
  const coordinator = f.runtime(f.source)
@@ -133,6 +140,21 @@ test("graph gc reports eligibility without mutating the active graph", async () 
   assert.equal(report.inspectionOnly, true); assert.equal(report.summary.active, 1)
   assert.equal(report.records.find((item: any) => item.runId === "run_fixture").nextAction, "/graph resume run_fixture")
   assert.equal(readFileSync(approval.record, "utf8"), before); assert.equal(f.calls.length, calls)
+ } finally { coordinator.stop() }
+})
+
+test("graph purge permanently removes only verified archives after 90 days", async () => {
+ const f = fixture(), records = join(f.agent, "task-graphs"), directory = join(f.agent, "task-graphs-archived/v1/old"), recordPath = join(directory, "record.json"), sidecars = join(directory, "sidecars")
+ const plan: any = { objective: "Old archive", mode: "plan-only", worktree_budget: 1, foundations: [{ repository: f.source, commit: f.base }], tasks: [{ id: "read", goal: "Inspect", repository: f.source, depends_on: [], owns: [], done_when: ["Inspected."], validation: "manual: inspected" }] }, record = captureGraphWorkspaces(f.source, plan)
+ record.runId = "run_old_archive"; record.completed.read = { head: f.base, integrationHead: f.base, evidence: "done" }; record.completion = { evidence: "done", deliveryPending: false }
+ mkdirSync(records, { recursive: true }); mkdirSync(sidecars, { recursive: true }); writeFileSync(recordPath, JSON.stringify(record)); writeFileSync(join(sidecars, "receipt"), "old evidence")
+ writeFileSync(join(directory, "archive.json"), JSON.stringify({ version: 1, status: "archived", runId: record.runId, source: join(records, "old.json"), record: recordPath, recordHash: digest(readFileSync(recordPath)), archivedAt: "2020-01-01T00:00:00.000Z", preserved: ["graph-record", "sidecars", "orchestration-evidence", "commits", "worktrees", "branches", "resources"] }))
+ const coordinator = f.runtime(f.source), uncertain = join(records, "uncertain.json"); writeFileSync(uncertain, "not json")
+ try {
+  await assert.rejects(coordinator.command("purge 90d"), /Uncertain graph evidence can refer/); assert.equal(existsSync(directory), true); unlinkSync(uncertain)
+  await coordinator.command("purge 90d")
+  assert.equal(existsSync(directory), false)
+  const receipt = JSON.parse(readFileSync(join(f.agent, "task-graph-purges/v1/old.json"), "utf8")); assert.equal(receipt.status, "purged"); assert.equal(receipt.runId, record.runId)
  } finally { coordinator.stop() }
 })
 

@@ -353,8 +353,13 @@ export function inspectGraphRetirement(file: string, runtime: any, orca?: Orca, 
  try { const result = assessGraphRetirement(file, runtime, orca, verifyResource); return { eligible: true, runId: result.state.runId, state: "eligible", worktrees: result.worktrees } }
  catch (error) { return { eligible: false, state: error instanceof RetirementBlocker ? error.state : "uncertain", blocker: error instanceof Error ? error.message : "Graph retirement state is uncertain.", worktrees: [] } }
 }
+function assertPhysicalDirectory(directory: string, label: string): void {
+ const stat = lstatSync(directory)
+ if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw new Error(`${label} identity is uncertain; preserve it for inspection.`)
+}
 export function findUnstartedGraphRetirement(activeDirectory: string, retiredDirectory: string, runId: string): string {
- const candidates = new Set((existsSync(activeDirectory) ? readdirSync(activeDirectory) : []).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)).filter(path => JSON.parse(readFileSync(path, "utf8")).runId === runId))
+ assertPhysicalDirectory(activeDirectory, "Active graph evidence")
+ const candidates = new Set(readdirSync(activeDirectory).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)).filter(path => JSON.parse(readFileSync(path, "utf8")).runId === runId))
  for (const name of existsSync(retiredDirectory) ? readdirSync(retiredDirectory) : []) {
   const receipt = join(retiredDirectory, name, "retirement.json")
   if (!existsSync(receipt)) continue
@@ -371,6 +376,7 @@ export function findUnstartedGraphRetirement(activeDirectory: string, retiredDir
 }
 export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resources: () => { runtime: any; verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any } = () => ({ runtime: undefined })) {
  const activeDirectory = join(agentDirectory, "task-graphs"), retiredDirectory = join(agentDirectory, "task-graphs-retired", "v4"), archivedDirectory = join(agentDirectory, "task-graphs-archived", "v1"), legacyDirectory = join(agentDirectory, "task-graph-locks")
+ if (existsSync(activeDirectory)) assertPhysicalDirectory(activeDirectory, "Active graph evidence")
  const files = (existsSync(activeDirectory) ? readdirSync(activeDirectory) : []).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)), retiredNames = existsSync(retiredDirectory) ? readdirSync(retiredDirectory) : [], archivedNames: string[] = []
  const headers = new Map<string, any>(), headerErrors = new Map<string, string>(), retiredHeaders = new Map<string, any>(), retiredErrors = new Map<string, string>(), archivedHeaders = new Map<string, any>(), archivedErrors = new Map<string, string>()
  for (const file of files) try {
@@ -491,6 +497,7 @@ function validRetirementReceipt(saved: any, file: string): boolean {
  return /^[a-f0-9]{64}$/.test(saved.recordHash) && JSON.stringify(saved.released) === JSON.stringify(["repository-ownership"]) && JSON.stringify(saved.preserved) === JSON.stringify(RETIREMENT_PRESERVED) && Array.isArray(saved.worktrees) && saved.worktrees.every((item: any) => item && ["verified-existing", "verified-absent"].includes(item.status) && typeof item.id === "string" && typeof item.path === "string" && typeof item.branch === "string")
 }
 export function retireUnstartedGraph(file: string, retiredDirectory: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any): { runId: string; record: string } {
+ assertPhysicalDirectory(dirname(file), "Active graph evidence")
  const directory = join(retiredDirectory, basename(file, ".json")), target = join(directory, "record.json"), receipt = join(directory, "retirement.json")
  const directoryExists = retirementDirectoryExists(directory)
  if (existsSync(file) && JSON.parse(readFileSync(file, "utf8")).version !== 4) readGraphRecord(file)

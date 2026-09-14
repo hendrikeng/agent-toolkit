@@ -246,7 +246,7 @@ for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
   config.permission.path[pattern] = "deny";
 }
 const managedAgentDir = fs.realpathSync(process.argv[5]);
-const graphEvidenceDirs = ["task-graphs", "task-graphs-retired", "task-graphs-archived", "task-graph-locks", "task-graph-deliveries"].map(name => path.join(managedAgentDir, name));
+const graphEvidenceDirs = ["task-graphs", "task-graphs-retired", "task-graphs-archived", "task-graph-purges", "task-graph-locks", "task-graph-deliveries"].map(name => path.join(managedAgentDir, name));
 const bundle = process.argv[4];
 const access = require(path.join(bundle, "development-policy.cjs"));
 const roots = access.developmentRoots(os.homedir());

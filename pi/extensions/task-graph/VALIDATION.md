@@ -17,6 +17,7 @@ A graph with resources must use execution mode and have a writing task and an in
 An active graph can resume with `/graph resume <run-id>` from a recorded source repository if its original command root is absent.
 
 `/graph gc` inspects current-v4, completed, retired, archived, and legacy records without changing them.
+A symlinked active-records directory stops garbage inspection and retirement before a lease or record move.
 It reports a compact summary, exact blockers, and one next command for each actionable Run.
 The report does not contain credentials or private resource values.
 
@@ -34,6 +35,13 @@ Legacy records remain unchanged and ineligible.
 Archive moves the exact record and sidecars out of active graph state. It preserves commits, worktrees, branches, resources, and Orca evidence.
 The confirmation identifies and explicitly abandons any `deliveryPending` marker. A live resource, live coordinator, unfinished delivery receipt, uncertain lease, duplicate Run ID, legacy record, or incomplete graph blocks archive.
 The archive receipt and record hash make interruption recovery idempotent.
+
+`/graph purge 90d` requires interactive approval for one verified batch.
+It uses each `archivedAt` value and removes no archive before 90 days.
+A delivery reference, changed archive, uncertain identity, or uncertain graph state blocks removal.
+The command moves each selected archive before removal and leaves a hash receipt.
+Repeat the command to recover an interrupted purge.
+The command does not change active, retired, legacy, delivery, Git, resource, worktree, or Orca evidence.
 
 `/graph deliver <run-id>` requires interactive approval for a completed Run without pending delivery work.
 It fast-forwards each clean local target branch to its exact integration commit.
@@ -57,6 +65,8 @@ They cover resource and worktree identity, missing-worktree evidence, retirement
 node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts pi/extensions/task-graph/tests/delivery.test.ts pi/extensions/task-graph/tests/archive.test.ts
 node --test shared/agent-safety/git-operation-policy.test.cjs
 ```
+
+The graph supports one trusted local user and does not support a shared graph directory. Host-local PID leases protect concurrent Pi sessions on that host.
 
 These tests do not prove installed permissions or live Orca behavior.
 A new installed session must complete the acceptance checks.

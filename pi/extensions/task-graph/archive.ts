@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from "node:fs"
-import { basename, dirname, join, resolve } from "node:path"
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync } from "node:fs"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { acquireLease, digest, graphLeaseState, saveRecord } from "./task-graph-core.ts"
 import { graphDeliveryInventory, validateRetainedGraphRecord } from "./workspaces.ts"
 
@@ -15,6 +15,22 @@ export interface GraphArchiveReceipt {
  deliveryPendingAbandoned?: true
 }
 
+export interface GraphArchivePurgeReceipt {
+ version: 1
+ status: "authorized-pending" | "removing" | "purged"
+ runId: string
+ archive: string
+ staging: string
+ archiveHash: string
+ recordHash: string
+ archivedAt: string
+ retentionDays: 90
+ entries: Array<{ path: string; type: "directory" | "file"; hash?: string }>
+ purgedAt?: string
+}
+
+export const GRAPH_ARCHIVE_RETENTION_DAYS = 90
+const retentionMs = GRAPH_ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const preserved = ["graph-record", "sidecars", "orchestration-evidence", "commits", "worktrees", "branches", "resources"]
 
 function exactDigest(path: string): string {
@@ -46,6 +62,119 @@ function moveSidecars(file: string, directory: string): void {
   if (existsSync(target)) throw new Error("Archived graph sidecar already exists. Preserve both for inspection.")
   renameSync(source, target)
  }
+}
+
+function evidenceManifest(root: string): GraphArchivePurgeReceipt["entries"] {
+ assertDirectory(root)
+ const entries: GraphArchivePurgeReceipt["entries"] = []
+ const walk = (directory: string) => {
+  for (const name of readdirSync(directory).sort()) {
+   const path = join(directory, name), local = relative(root, path), stat = lstatSync(path)
+   if (stat.isSymbolicLink()) throw new Error("Graph archive evidence identity is uncertain. Preserve it for inspection.")
+   if (stat.isDirectory()) { if (realpathSync(path) !== resolve(path)) throw new Error("Graph archive evidence identity is uncertain. Preserve it for inspection."); entries.push({ path: local, type: "directory" }); walk(path) }
+   else if (stat.isFile() && stat.nlink === 1) entries.push({ path: local, type: "file", hash: digest(readFileSync(path)) })
+   else throw new Error("Graph archive evidence identity is uncertain. Preserve it for inspection.")
+  }
+ }
+ walk(root)
+ return entries
+}
+
+function archiveHash(entries: GraphArchivePurgeReceipt["entries"]): string { return digest(JSON.stringify(entries)) }
+
+function removeEvidence(root: string, expected: GraphArchivePurgeReceipt["entries"]): void {
+ const allowed = new Map(expected.map(entry => [`${entry.type}:${entry.path}`, entry.hash]))
+ for (const entry of evidenceManifest(root)) if (!allowed.has(`${entry.type}:${entry.path}`) || entry.type === "file" && allowed.get(`file:${entry.path}`) !== entry.hash) throw new Error("Pending graph purge evidence changed. Preserve it for inspection.")
+ const remove = (directory: string) => {
+  for (const name of readdirSync(directory)) {
+   const path = join(directory, name), stat = lstatSync(path)
+   if (stat.isSymbolicLink()) throw new Error("Pending graph purge evidence changed. Preserve it for inspection.")
+   if (stat.isDirectory()) { if (realpathSync(path) !== resolve(path)) throw new Error("Pending graph purge evidence changed. Preserve it for inspection."); remove(path); rmdirSync(path) }
+   else if (stat.isFile() && stat.nlink === 1) unlinkSync(path)
+   else throw new Error("Pending graph purge evidence changed. Preserve it for inspection.")
+  }
+ }
+ remove(root); rmdirSync(root)
+}
+
+function purgeReceipt(path: string, archive: string, staging: string): GraphArchivePurgeReceipt {
+ const stat = lstatSync(path)
+ if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Graph purge receipt identity is uncertain. Preserve it for inspection.")
+ const receipt = JSON.parse(readFileSync(path, "utf8")) as GraphArchivePurgeReceipt
+ const paths = new Set<string>()
+ const validEntries = Array.isArray(receipt.entries) && receipt.entries.every(entry => {
+  if (!entry || typeof entry.path !== "string" || !entry.path || entry.path.startsWith("/") || entry.path.split(/[\\/]/).includes("..") || paths.has(entry.path)) return false
+  paths.add(entry.path); return entry.type === "directory" ? entry.hash === undefined : entry.type === "file" && /^[a-f0-9]{64}$/.test(entry.hash ?? "")
+ })
+ if (receipt.version !== 1 || !["authorized-pending", "removing", "purged"].includes(receipt.status) || receipt.archive !== archive || receipt.staging !== staging || !/^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") || !/^[a-f0-9]{64}$/.test(receipt.archiveHash ?? "") || !/^[a-f0-9]{64}$/.test(receipt.recordHash ?? "") || receipt.retentionDays !== GRAPH_ARCHIVE_RETENTION_DAYS || !Number.isFinite(Date.parse(receipt.archivedAt)) || !validEntries || archiveHash(receipt.entries) !== receipt.archiveHash || receipt.status === "purged" && !Number.isFinite(Date.parse(receipt.purgedAt ?? ""))) throw new Error("Graph purge receipt is invalid. Preserve it for inspection.")
+ return receipt
+}
+
+function archivedEvidence(directory: string): { receipt: GraphArchiveReceipt; entries: GraphArchivePurgeReceipt["entries"]; archiveHash: string } {
+ directory = resolve(directory); assertDirectory(directory)
+ const receiptPath = join(directory, "archive.json"), stat = lstatSync(receiptPath)
+ if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Graph archive receipt identity is uncertain. Preserve it for inspection.")
+ const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as GraphArchiveReceipt
+ if (receipt.version !== 1 || receipt.status !== "archived" || receipt.record !== join(directory, "record.json") || basename(receipt.source, ".json") !== basename(directory) || !/^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") || !/^[a-f0-9]{64}$/.test(receipt.recordHash ?? "") || JSON.stringify(receipt.preserved) !== JSON.stringify(preserved) || !Number.isFinite(Date.parse(receipt.archivedAt)) || existsSync(receipt.source) || exactDigest(receipt.record) !== receipt.recordHash) throw new Error("Graph archive is not verified for purge. Preserve it for inspection.")
+ const sidecars = join(directory, "sidecars"); assertDirectory(sidecars)
+ const entries = evidenceManifest(directory)
+ return { receipt, entries, archiveHash: archiveHash(entries) }
+}
+
+export function inspectGraphArchivePurge(directory: string, purgeDirectory: string, now = Date.now()): { eligible: boolean; pending?: boolean; runId?: string; archiveHash?: string; archivedAt?: string; blocker?: string } {
+ try {
+  directory = resolve(directory); purgeDirectory = resolve(purgeDirectory)
+  const name = basename(directory), receiptFile = join(purgeDirectory, `${name}.json`), staging = join(purgeDirectory, `${name}.pending`)
+  if (existsSync(receiptFile)) {
+   const receipt = purgeReceipt(receiptFile, directory, staging)
+   const archivePresent = existsSync(directory), stagingPresent = existsSync(staging)
+   if (receipt.status === "purged") {
+    if (archivePresent || stagingPresent) throw new Error("Purged graph evidence reappeared. Preserve it for inspection.")
+    return { eligible: false, runId: receipt.runId, archivedAt: receipt.archivedAt, blocker: "The graph archive is already purged." }
+   }
+   if (receipt.status === "removing" && !archivePresent && !stagingPresent) return { eligible: true, pending: true, runId: receipt.runId, archiveHash: receipt.archiveHash, archivedAt: receipt.archivedAt }
+   if (archivePresent === stagingPresent) throw new Error("Pending graph purge location is uncertain. Preserve it for inspection.")
+   return { eligible: true, pending: true, runId: receipt.runId, archiveHash: receipt.archiveHash, archivedAt: receipt.archivedAt }
+  }
+  const evidence = archivedEvidence(directory), archivedAt = Date.parse(evidence.receipt.archivedAt)
+  if (archivedAt > now || now - archivedAt < retentionMs) return { eligible: false, runId: evidence.receipt.runId, archivedAt: evidence.receipt.archivedAt, blocker: `The graph archive is less than ${GRAPH_ARCHIVE_RETENTION_DAYS} days old.` }
+  return { eligible: true, runId: evidence.receipt.runId, archiveHash: evidence.archiveHash, archivedAt: evidence.receipt.archivedAt }
+ } catch (error) { return { eligible: false, blocker: error instanceof Error ? error.message : String(error) } }
+}
+
+export function purgeGraphArchive(directory: string, purgeDirectory: string, expectedArchiveHash?: string, now = Date.now()): GraphArchivePurgeReceipt {
+ directory = resolve(directory); purgeDirectory = resolve(purgeDirectory); ensureArchiveRoot(purgeDirectory)
+ const name = basename(directory), receiptFile = join(purgeDirectory, `${name}.json`), staging = join(purgeDirectory, `${name}.pending`)
+ let receipt: GraphArchivePurgeReceipt
+ if (existsSync(receiptFile)) receipt = purgeReceipt(receiptFile, directory, staging)
+ else {
+  if (existsSync(staging)) throw new Error("Graph purge staging evidence has no receipt. Preserve it for inspection.")
+  const evidence = archivedEvidence(directory), archivedAt = Date.parse(evidence.receipt.archivedAt)
+  if (archivedAt > now || now - archivedAt < retentionMs) throw new Error(`Keep graph archives for at least ${GRAPH_ARCHIVE_RETENTION_DAYS} days.`)
+  if (expectedArchiveHash && expectedArchiveHash !== evidence.archiveHash) throw new Error("Graph archive changed after purge approval. Preserve it for inspection.")
+  receipt = { version: 1, status: "authorized-pending", runId: evidence.receipt.runId, archive: directory, staging, archiveHash: evidence.archiveHash, recordHash: evidence.receipt.recordHash, archivedAt: evidence.receipt.archivedAt, retentionDays: GRAPH_ARCHIVE_RETENTION_DAYS, entries: evidence.entries }
+  saveRecord(receiptFile, receipt)
+ }
+ if (expectedArchiveHash && expectedArchiveHash !== receipt.archiveHash) throw new Error("Graph archive changed after purge approval. Preserve it for inspection.")
+ if (receipt.status === "purged") {
+  if (existsSync(directory) || existsSync(staging)) throw new Error("Purged graph evidence reappeared. Preserve it for inspection.")
+  return receipt
+ }
+ if (receipt.status === "removing" && !existsSync(directory) && !existsSync(staging)) {
+  receipt = { ...receipt, status: "purged", purgedAt: new Date(now).toISOString() }; saveRecord(receiptFile, receipt); return receipt
+ }
+ if (existsSync(directory) && !existsSync(staging)) {
+  if (receipt.status !== "authorized-pending" || archiveHash(evidenceManifest(directory)) !== receipt.archiveHash) throw new Error("Graph archive changed after purge approval. Preserve it for inspection.")
+  renameSync(directory, staging)
+ } else if (existsSync(directory) || !existsSync(staging)) throw new Error("Pending graph purge location is uncertain. Preserve it for inspection.")
+ if (receipt.status === "authorized-pending") {
+  if (archiveHash(evidenceManifest(staging)) !== receipt.archiveHash) throw new Error("Pending graph purge evidence changed. Preserve it for inspection.")
+  receipt = { ...receipt, status: "removing" }; saveRecord(receiptFile, receipt)
+ }
+ removeEvidence(staging, receipt.entries)
+ receipt = { ...receipt, status: "purged", purgedAt: new Date(now).toISOString() }
+ saveRecord(receiptFile, receipt)
+ return receipt
 }
 
 function header(file: string): { saved: any; bytes: Buffer } {

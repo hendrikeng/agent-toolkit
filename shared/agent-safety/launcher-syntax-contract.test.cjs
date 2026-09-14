@@ -59,7 +59,7 @@ test('pi-yolo permits only native reads of graph evidence', () => {
   process: { argv: [null, null, null, null, null, '/managed-agent'] }, graphEvidenceDirs: null,
  }
  runInNewContext(`${block}\nthis.graphEvidenceDirs = graphEvidenceDirs`, context)
- assert.deepEqual([...context.graphEvidenceDirs], ['task-graphs', 'task-graphs-retired', 'task-graphs-archived', 'task-graph-locks', 'task-graph-deliveries'].map(name => `/managed-agent/${name}`))
+ assert.deepEqual([...context.graphEvidenceDirs], ['task-graphs', 'task-graphs-retired', 'task-graphs-archived', 'task-graph-purges', 'task-graph-locks', 'task-graph-deliveries'].map(name => `/managed-agent/${name}`))
  assert.match(launcher, /piInfrastructureReadPaths = \[\.\.\.new Set\(\[[^]*\.\.\.graphEvidenceDirs,/)
  assert.doesNotMatch(block, /permission\.(?:external_directory|write|edit|bash)/)
 })

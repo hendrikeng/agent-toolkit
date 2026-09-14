@@ -287,6 +287,14 @@ test("duplicate graph records and legacy records remain ineligible and byte-iden
  assert.equal(readFileSync(legacy, "utf8"), bytes); assert.throws(() => retireUnstartedGraph(legacy, f.retired, f.runtime, f.orca, f.verifyResource), /older contract/); assert.equal(readFileSync(legacy, "utf8"), bytes)
 })
 
+test("garbage inspection and retirement reject a symlinked active records directory", () => {
+ const f = settledRetirementFixture("run_symlinked_active"), external = join(f.directory, "external-records"), record = join(external, "current-v4.json")
+ renameSync(f.records, external); symlinkSync(external, f.records)
+ assert.throws(() => inspectGraphGarbage(join(f.home, "agent"), f.orca), /Active graph evidence identity is uncertain/)
+ assert.throws(() => retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource), /Active graph evidence identity is uncertain/)
+ assert.equal(existsSync(`${record}.lease`), false); assert.equal(existsSync(record), true); assert.equal(existsSync(join(f.retired, "current-v4/record.json")), false)
+})
+
 test("retirement rejects a symlinked evidence directory", () => {
  const f = settledRetirementFixture("run_symlinked_retirement"), outside = join(f.directory, "outside-retirement")
  mkdirSync(f.retired, { recursive: true }); mkdirSync(outside); symlinkSync(outside, join(f.retired, "current-v4"))

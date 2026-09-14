@@ -505,6 +505,7 @@ Keep Orca open with orchestration enabled. Use one of these commands:
 /graph deliver <run-id>
 /graph archive <run-id>
 /graph archive all
+/graph purge 90d
 /graph retire <run-id>
 ```
 
@@ -520,9 +521,10 @@ Keep Orca open with orchestration enabled. Use one of these commands:
 | `/graph deliver <run-id>` | For a completed execution Run, fast-forwards each approved local source branch to the exact integration commit. It then removes only verified clean integration worktrees that no active or pending Run still needs. It never pushes or force-updates a branch. Repeat the command to recover an interrupted delivery. |
 | `/graph archive <run-id>` | Moves one completed current-v4 record and its sidecars out of active graph state. Commits, branches, worktrees, resources, receipts, and Orca Runs remain. A `deliveryPending` marker may be abandoned only through the confirmation screen; an unfinished delivery receipt still blocks archive. Repeat the command to recover an interrupted archive. |
 | `/graph archive all` | Performs the same verified archive transition for every eligible completed current-v4 Run in one approved batch. A failed or uncertain Run is preserved and reported. Legacy records are not moved. |
+| `/graph purge 90d` | Permanently removes verified archives that are at least 90 days old. It requires interactive approval and leaves a hash receipt. Delivery references, uncertain evidence, and other graph states block the purge. Repeat the command to recover an interrupted purge. |
 | `/graph retire <run-id>` | Releases repository ownership for an incomplete current-v4 Run that cannot or should not continue. Retirement requires settled workers, stopped resources, and no integrated or completed graph task. It preserves the graph record and every worktree, branch, commit, resource identity, receipt, and Orca Run. Repeat the command to recover an interrupted retirement. |
 
-The normal lifecycle is `plan` → review the plan → `execute` → `deliver` → `archive`. Use `resume` after an interruption, `retire` for an incomplete Run that will not continue, and `gc` whenever the correct next step is unclear.
+The normal lifecycle is `plan` → review the plan → `execute` → `deliver` → `archive`. After 90 days, use `purge` to remove old archives. Use `resume` after an interruption. Use `retire` for an incomplete Run that will not continue. Use `gc` when the correct next step is unclear.
 
 These states are deliberately different:
 
@@ -533,7 +535,7 @@ These states are deliberately different:
 - **Retired:** incomplete evidence remains available, but repository ownership was explicitly released.
 - **Legacy or uncertain:** inspection only. The runtime will not guess, migrate, or delete it.
 
-`/graph gc` shows an `Inspecting graph evidence…` footer status while it checks retained state. Archived records have no automatic expiry. This is deliberate: archive preserves byte-identical evidence and does not copy repository objects or worktrees, so each archive normally costs only its small JSON record, receipt, and sidecars. Delivery removes eligible integration worktrees. Git branches, commits, Orca Runs, retired evidence, and uncertain evidence remain until a separate, explicitly approved purge lifecycle exists.
+`/graph gc` shows an `Inspecting graph evidence…` footer status while it checks retained state. Archives do not expire automatically. Run `/graph purge 90d` to select verified archives by their `archivedAt` value. The command shows the exact archives and requires approval before it removes them. It leaves one hash receipt for each removed archive. It does not remove Git data, worktrees, resources, delivery evidence, retired evidence, legacy evidence, or Orca Runs.
 
 Without a mode, `/graph` means planning. The coordinator reads repository rules and resolves the requested plan dependencies before approval.
 The coordinator must stop on ambiguous plans, blocked dependencies, or missing approvals. It must not infer feature completion from repository consolidation.
@@ -589,7 +591,7 @@ Resume does not need a second proposal or another approval. It verifies the save
 Input bytes enter the record before any workspace mutation. Capture accepts only unchanged base files or approved bytes.
 Unexpected destination files, index changes, history, or duplicate receipts stop recovery without rollback.
 A live coordinator excludes another coordinator. An unfinished graph blocks new graphs that select the same repository.
-Leases are host-local. Invalid records or interrupted lease-recovery reservations need explicit inspection, not automatic deletion.
+Leases are host-local because graph state supports one local user account and does not support shared filesystems. Multiple Pi sessions on that host use the same PID leases. Invalid records or interrupted lease-recovery reservations need explicit inspection, not automatic deletion.
 
 Legacy records under `task-graph-locks/` remain evidence. They cannot resume execution, migrate into the new workflow, or complete automatically.
 A related legacy record, or one with unknown scope, produces a diagnostic before new graph mutations.
@@ -600,6 +602,8 @@ It also reports running workers, live resources, and uncertain evidence. The rep
 
 `/graph archive <run-id>` moves one completed current-v4 record and its sidecars out of active graph state. `/graph archive all` handles every eligible completed record in one approved batch.
 Archive preserves the exact graph bytes, commits, worktrees, branches, resources, and Orca evidence. Confirmation explicitly abandons a `deliveryPending` marker, but archive refuses an unfinished delivery receipt, live resources, and legacy records.
+
+`/graph purge 90d` permanently removes archives that are at least 90 days old. The command uses `archivedAt`, not file access time. It verifies the archive again after approval. A delivery reference or uncertain state blocks removal. An atomic move and hash receipt make an interrupted purge resumable. The command does not remove other graph evidence or repository data.
 
 `/graph retire <run-id>` requires interactive approval and accepts eligible incomplete current-v4 graphs only.
 A completed Orca ledger task can represent a terminal worker report. It does not mean that the graph task completed integration.
