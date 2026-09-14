@@ -89,10 +89,9 @@ export function readGraphAdmission(file: string, identities: string[], root?: st
  if (!saved.completion) throw new Error(`An unfinished historical graph still owns a selected repository. Preserve it for inspection: ${file}`)
  return undefined
 }
-export function readGraphRecord(file: string): GraphRecord {
- const record = JSON.parse(readFileSync(file, "utf8"))
+export function validateGraphRecord(record: any, file = "graph record"): GraphRecord {
  if (record.version !== 4) throw new Error(`Graph ownership [development-roots-v1]: this approval uses an older contract. Preserve it and its Run; do not migrate or restart it. Record: ${file}`)
- if (!/^[a-f0-9-]{36}$/.test(record.key) || !record.root || !Array.isArray(record.repositories) || !Array.isArray(record.lanes) || !record.workers || !record.completed) throw new Error("Invalid graph record. Preserve it for inspection.")
+ if (!/^[a-f0-9-]{36}$/.test(record.key) || !record.root || record.runId !== undefined && !/^run_[a-zA-Z0-9_-]+$/.test(record.runId) || !Array.isArray(record.repositories) || !record.repositories.length || record.repositories.some((repo: any) => typeof repo?.source !== "string" || typeof repo?.identity !== "string" || typeof repo?.base !== "string" || !Array.isArray(repo?.inputs)) || !Array.isArray(record.lanes) || !record.workers || typeof record.workers !== "object" || !record.completed || typeof record.completed !== "object" || record.completion !== undefined && (!record.completion || typeof record.completion !== "object" || typeof record.completion.evidence !== "string" || typeof record.completion.deliveryPending !== "boolean")) throw new Error("Invalid graph record. Preserve it for inspection.")
  if (!existsSync(record.root)) {
   if (record.plan.foundations.length !== record.repositories.length) throw new Error("Missing graph root has ambiguous repository declarations. Preserve it for inspection.")
   const bindings = new Map<string, string>()
@@ -117,6 +116,35 @@ export function readGraphRecord(file: string): GraphRecord {
  }
  if (record.lanes.some((lane: GraphLane) => !record.repositories.some((repo: GraphRepository) => repo.source === lane.source) || lane.workspace.role !== "lane") || Object.entries(record.workers as Record<string, GraphWorker>).some(([id, worker]) => worker.task !== id || !record.plan.tasks.some((task: any) => task.id === id))) throw new Error("Invalid lane or worker record.")
  return record
+}
+export function readGraphRecord(file: string): GraphRecord { return validateGraphRecord(JSON.parse(readFileSync(file, "utf8")), file) }
+export function validGraphDeliveryReceipt(receipt: any): boolean {
+ const target = (item: any) => item && [item.source, item.identity, item.branch, item.from, item.head, item.workspace?.id, item.workspace?.path, item.workspace?.branch].every(value => typeof value === "string") && ["pending", "delivered"].includes(item.status)
+ const cleanup = (item: any) => item && /^run_[a-zA-Z0-9_-]+$/.test(item.runId ?? "") && [item.record, item.source, item.identity, item.head, item.workspace?.id, item.workspace?.path, item.workspace?.branch].every(value => typeof value === "string") && ["pending", "removing", "removed"].includes(item.status)
+ const retained = (item: any) => item && /^run_[a-zA-Z0-9_-]+$/.test(item.runId ?? "") && typeof item.record === "string" && typeof item.reason === "string"
+ return receipt?.version === 1 && ["authorized-pending", "delivered"].includes(receipt.status) && /^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") && typeof receipt.record === "string" && typeof receipt.approvedAt === "string" && Array.isArray(receipt.targets) && receipt.targets.length > 0 && receipt.targets.every(target) && Array.isArray(receipt.cleanup) && receipt.cleanup.every(cleanup) && Array.isArray(receipt.retained) && receipt.retained.every(retained) && (receipt.status !== "delivered" || typeof receipt.completedAt === "string" && receipt.targets.every((item: any) => item.status === "delivered") && receipt.cleanup.every((item: any) => item.status === "removed"))
+}
+export function graphDeliveryInventory(agentDirectory: string): { receipts: Array<{ file: string; receipt: any }>; uncertain: boolean } {
+ const root = join(agentDirectory, "task-graph-deliveries"), directory = join(root, "v1"), receipts: Array<{ file: string; receipt: any }> = []
+ const entries = (path: string): string[] | undefined => {
+  try { const stat = lstatSync(path); if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== resolve(path)) throw new Error(); return readdirSync(path) }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error }
+ }
+ try {
+  const versions = entries(root); if (versions === undefined) return { receipts, uncertain: false }
+  if (versions.some(name => name !== "v1")) throw new Error()
+  if (!versions.includes("v1")) return { receipts, uncertain: false }
+  const names = entries(directory); if (names === undefined) throw new Error()
+  for (const name of names) {
+   if (!name.endsWith(".json")) throw new Error()
+   const file = join(directory, name), stat = lstatSync(file)
+   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error()
+   const receipt = JSON.parse(readFileSync(file, "utf8"))
+   if (!validGraphDeliveryReceipt(receipt) || name !== `${receipt.runId}.json`) throw new Error()
+   receipts.push({ file, receipt })
+  }
+  return { receipts, uncertain: false }
+ } catch { return { receipts: [], uncertain: true } }
 }
 export function graphTaskSpec(record: GraphRecord, task: TaskGraphPlan["tasks"][number], legacy = false): string {
  const finish = legacy ? "Use checkpoint_task_graph for commits." : "Checkpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count."
@@ -323,9 +351,9 @@ export function findUnstartedGraphRetirement(activeDirectory: string, retiredDir
  return [...candidates][0]
 }
 export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resources: () => { runtime: any; verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any } = () => ({ runtime: undefined })) {
- const activeDirectory = join(agentDirectory, "task-graphs"), retiredDirectory = join(agentDirectory, "task-graphs-retired", "v4"), legacyDirectory = join(agentDirectory, "task-graph-locks")
- const files = (existsSync(activeDirectory) ? readdirSync(activeDirectory) : []).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)), retiredNames = existsSync(retiredDirectory) ? readdirSync(retiredDirectory) : []
- const headers = new Map<string, any>(), headerErrors = new Map<string, string>(), retiredHeaders = new Map<string, any>(), retiredErrors = new Map<string, string>()
+ const activeDirectory = join(agentDirectory, "task-graphs"), retiredDirectory = join(agentDirectory, "task-graphs-retired", "v4"), archivedDirectory = join(agentDirectory, "task-graphs-archived", "v1"), legacyDirectory = join(agentDirectory, "task-graph-locks")
+ const files = (existsSync(activeDirectory) ? readdirSync(activeDirectory) : []).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)), retiredNames = existsSync(retiredDirectory) ? readdirSync(retiredDirectory) : [], archivedNames: string[] = []
+ const headers = new Map<string, any>(), headerErrors = new Map<string, string>(), retiredHeaders = new Map<string, any>(), retiredErrors = new Map<string, string>(), archivedHeaders = new Map<string, any>(), archivedErrors = new Map<string, string>()
  for (const file of files) try {
   const stat = lstatSync(file)
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) { headerErrors.set(file, "The graph record identity is uncertain."); headers.set(file, undefined) }
@@ -336,9 +364,21 @@ export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resource
   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(directory) !== directory || !receiptStat.isFile() || receiptStat.isSymbolicLink() || receiptStat.nlink !== 1) { retiredErrors.set(name, "The retirement evidence identity is uncertain."); retiredHeaders.set(name, undefined) }
   else retiredHeaders.set(name, JSON.parse(readFileSync(receipt, "utf8")))
  } catch { retiredErrors.set(name, "The retirement receipt is missing or is not valid JSON."); retiredHeaders.set(name, undefined) }
+ try {
+  if (existsSync(archivedDirectory)) { const stat = lstatSync(archivedDirectory); if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(archivedDirectory) !== archivedDirectory) throw new Error(); archivedNames.push(...readdirSync(archivedDirectory)) }
+ } catch { archivedErrors.set(archivedDirectory, "The archive evidence directory is uncertain.") }
+ for (const name of archivedNames) try {
+  const directory = join(archivedDirectory, name), receipt = join(directory, "archive.json"), directoryStat = lstatSync(directory), receiptStat = lstatSync(receipt)
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(directory) !== directory || !receiptStat.isFile() || receiptStat.isSymbolicLink() || receiptStat.nlink !== 1) throw new Error()
+  archivedHeaders.set(name, JSON.parse(readFileSync(receipt, "utf8")))
+ } catch { archivedErrors.set(name, "The archive receipt is missing, malformed, or has uncertain identity."); archivedHeaders.set(name, undefined) }
  const runCounts = new Map<string, number>()
  for (const header of headers.values()) if (typeof header?.runId === "string") runCounts.set(header.runId, (runCounts.get(header.runId) ?? 0) + 1)
  for (const [name, header] of retiredHeaders) if (typeof header?.runId === "string") {
+  const source = join(activeDirectory, `${name}.json`), pairedPending = header.version === 1 && header.status === "authorized-pending" && header.source === source && headers.get(source)?.runId === header.runId
+  if (!pairedPending) runCounts.set(header.runId, (runCounts.get(header.runId) ?? 0) + 1)
+ }
+ for (const [name, header] of archivedHeaders) if (typeof header?.runId === "string") {
   const source = join(activeDirectory, `${name}.json`), pairedPending = header.version === 1 && header.status === "authorized-pending" && header.source === source && headers.get(source)?.runId === header.runId
   if (!pairedPending) runCounts.set(header.runId, (runCounts.get(header.runId) ?? 0) + 1)
  }
@@ -389,8 +429,33 @@ export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resource
    records.push({ runId, record, location: "retired", state: retired ? "retired" : inspection?.state ?? "uncertain", eligible: false, blocker: retired ? "The current-v4 graph is already retired." : inspection?.blocker ?? "The retirement receipt or preserved record is missing or changed." })
   } catch { records.push({ runId: undefined, record: join(retiredDirectory, name), location: "retired", state: "uncertain", eligible: false, blocker: "The retirement receipt or preserved record is missing or changed." }) }
  }
+ if (archivedErrors.has(archivedDirectory)) records.push({ runId: undefined, record: archivedDirectory, location: "archived", state: "uncertain", eligible: false, blocker: archivedErrors.get(archivedDirectory) })
+ for (const name of archivedNames) {
+  const directory = join(archivedDirectory, name), receipt = archivedHeaders.get(name), source = join(activeDirectory, `${name}.json`), preserved = join(directory, "record.json"), runId = /^run_[a-zA-Z0-9_-]+$/.test(receipt?.runId ?? "") ? receipt.runId : undefined
+  if (!receipt) { records.push({ runId, record: directory, location: "archived", state: "uncertain", eligible: false, blocker: archivedErrors.get(name) }); continue }
+  try {
+   if (receipt.version !== 1 || !["authorized-pending", "archived"].includes(receipt.status) || receipt.source !== source || receipt.record !== preserved || !runId || !/^[a-f0-9]{64}$/.test(receipt.recordHash ?? "")) throw new Error()
+   const sourcePresent = existsSync(source), recordPresent = existsSync(preserved)
+   if (receipt.status === "authorized-pending") {
+    const exact = (path: string) => { const stat = lstatSync(path); return stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && digest(readFileSync(path)) === receipt.recordHash }
+    const resumable = sourcePresent && !recordPresent && exact(source) || !sourcePresent && recordPresent && exact(preserved)
+    records.push({ runId, record: preserved, location: "archived", state: resumable ? "pending-archive" : "uncertain", eligible: false, blocker: resumable ? "Archive authorization is pending; resume it with /graph archive." : "The pending archive record is missing or changed." }); continue
+   }
+   const sidecars = join(directory, "sidecars"), recordStat = lstatSync(preserved), sidecarStat = lstatSync(sidecars)
+   if (sourcePresent || !recordStat.isFile() || recordStat.isSymbolicLink() || recordStat.nlink !== 1 || digest(readFileSync(preserved)) !== receipt.recordHash || !sidecarStat.isDirectory() || sidecarStat.isSymbolicLink() || realpathSync(sidecars) !== sidecars) throw new Error()
+   const state = readGraphRecord(preserved); if (state.runId !== runId || runCounts.get(runId) !== 1) throw new Error()
+   const access = inspectResources(); if (!access) throw new Error(); inspectStartedResources(state, access.runtime, access.verifyResource)
+   records.push({ runId, record: preserved, location: "archived", state: "archived", eligible: false, blocker: "The completed current-v4 graph is archived." })
+  } catch (error) { records.push({ runId, record: preserved, location: "archived", state: error instanceof RetirementBlocker ? error.state : "uncertain", eligible: false, blocker: error instanceof Error && error.message ? error.message : "The archive receipt or preserved record is missing or changed." }) }
+ }
+ const pendingDeliveries = new Set<string>(), deliveryDirectory = join(agentDirectory, "task-graph-deliveries", "v1"), deliveryInventory = graphDeliveryInventory(agentDirectory), deliveryInventoryUncertain = deliveryInventory.uncertain
+ if (deliveryInventoryUncertain) records.push({ runId: undefined, record: deliveryDirectory, location: "delivery", state: "uncertain", eligible: false, blocker: "The delivery evidence directory or one of its receipts is uncertain." })
+ for (const { file, receipt } of deliveryInventory.receipts) if (receipt.status === "authorized-pending") { pendingDeliveries.add(receipt.runId); for (const cleanup of receipt.cleanup) pendingDeliveries.add(cleanup.runId); records.push({ runId: receipt.runId, record: file, location: "delivery", state: "pending-delivery", eligible: false, blocker: "Delivery authorization is pending; resume it with /graph deliver." }) }
  for (const name of existsSync(legacyDirectory) ? readdirSync(legacyDirectory) : []) records.push({ runId: undefined, record: join(legacyDirectory, name), location: "legacy", state: "legacy", eligible: false, blocker: "Legacy graph evidence is inspection-only and cannot retire." })
- return { version: 1, inspectionOnly: true, records }
+ const actionable = records.map(record => {
+  return { ...record, nextAction: record.state === "pending-retirement" && record.runId ? `/graph retire ${record.runId}` : record.state === "pending-delivery" && record.runId ? `/graph deliver ${record.runId}` : record.eligible && record.runId ? `/graph retire ${record.runId}` : (!deliveryInventoryUncertain && (record.state === "completed" && !pendingDeliveries.has(record.runId!) || record.state === "pending-archive")) && record.runId ? `/graph archive ${record.runId}` : record.location === "active" && !headers.get(record.record)?.completion && record.runId && !["legacy", "uncertain"].includes(record.state) ? `/graph resume ${record.runId}` : undefined }
+ })
+ return { version: 1, inspectionOnly: true, summary: { active: actionable.filter(record => record.location === "active").length, completed: actionable.filter(record => record.location === "active" && Boolean(headers.get(record.record)?.completion)).length, eligibleRetirement: actionable.filter(record => record.eligible).length, legacy: actionable.filter(record => record.state === "legacy").length, retired: actionable.filter(record => record.state === "retired").length, uncertain: actionable.filter(record => record.state === "uncertain").length, archived: actionable.filter(record => record.state === "archived").length }, records: actionable }
 }
 
 const RETIREMENT_PRESERVED = ["source-checkouts", "branches", "graph-record", "orchestration-evidence", "commits", "task-receipts", "integration-worktrees", "worker-lanes", "resources", "resource-identities"]

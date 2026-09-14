@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync } from "node:fs"
-import { basename, delimiter, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 import { getAgentDir, truncateHead, withFileMutationQueue, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
@@ -8,6 +8,7 @@ import { inspectShell, runBash } from "../development-access/index.ts"
 import { StringEnum } from "@earendil-works/pi-ai"
 import { Type, type TProperties } from "typebox"
 import { acquireLease, assertNoLegacyGraph, digest, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
+import { archiveCompletedGraph, inspectGraphArchive } from "./archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
 
@@ -62,6 +63,31 @@ function inventory(orca: Orca, args: string[], field: string): any[] {
  const result = orca([...args, "--json"])?.result
  if (!Array.isArray(result?.[field]) || result.truncated || result.hostScope?.omittedHostIds?.length) throw new Error(`Incomplete Orca ${field} inventory.`)
  return result[field]
+}
+function retainedRunLocations(agent: string, runId: string): Set<string> {
+ const locations = new Set<string>(), active = join(agent, "task-graphs")
+ if (existsSync(active)) for (const name of readdirSync(active).filter(name => name.endsWith(".json"))) {
+  const path = join(active, name), stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Active graph evidence is uncertain.")
+  const saved = JSON.parse(readFileSync(path, "utf8")); if (saved.runId === runId) locations.add(path)
+ }
+ for (const [root, receiptName, statuses] of [[join(agent, "task-graphs-archived", "v1"), "archive.json", ["authorized-pending", "archived"]], [join(agent, "task-graphs-retired", "v4"), "retirement.json", ["authorized-pending", "retired"]]] as const) {
+  if (!existsSync(root)) continue
+  const rootStat = lstatSync(root)
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || realpathSync(root) !== resolve(root)) throw new Error("Retained graph evidence is uncertain.")
+  for (const name of readdirSync(root)) {
+   const directory = join(root, name), directoryStat = lstatSync(directory), receiptPath = join(directory, receiptName)
+   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw new Error("Retained graph directory identity is uncertain.")
+   if (!existsSync(receiptPath)) { if (receiptName === "archive.json" && !readdirSync(directory).length) continue; throw new Error("Retained graph receipt is missing.") }
+   const receiptStat = lstatSync(receiptPath)
+   if (!receiptStat.isFile() || receiptStat.isSymbolicLink() || receiptStat.nlink !== 1) throw new Error("Retained graph receipt identity is uncertain.")
+   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"))
+   const pendingRetirement = receiptName === "retirement.json" && receipt.status === "authorized-pending", retained = pendingRetirement ? receipt.source : receipt.record
+   if (receipt.version !== 1 || !new Set<string>(statuses).has(receipt.status) || !/^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") || typeof retained !== "string") throw new Error("Retained graph receipt is invalid.")
+   if (receipt.runId === runId) locations.add(pendingRetirement ? `pending-retirement:${retained}` : retained)
+  }
+ }
+ return locations
 }
 export function prepareLedger(record: GraphRecord, orca: Orca, persist: () => void): void {
  const objective = `Pi graph v4: ${record.key}: ${record.plan.objective}`
@@ -264,10 +290,97 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    ctx.ui.notify(JSON.stringify(report, null, 2), "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
- pi.registerCommand("graph", { description: "Plan, execute, inspect, deliver, or retire a bounded graph. /graph [plan|execute|gc|deliver|retire] <objective-or-run-id>", handler: async (args, ctx) => {
+ const resumeGraph = async (runId: string, ctx: any) => {
+  if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
+  runId = runId.trim()
+  if (!/^run_[a-zA-Z0-9_-]+$/.test(runId) || !ctx.model) { ctx.ui.notify(ctx.model ? "Usage: /graph resume <run-id>" : "No model selected.", "warning"); return }
+  const root = repositoryRoot(ctx.cwd), identity = repositoryIdentity(root), directory = join(agentDir(), "task-graphs")
+  try {
+   const directoryStat = lstatSync(directory)
+   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw new Error("Active graph evidence is uncertain.")
+   const unlockStartup = acquireLease(join(directory, "startup"))
+   try {
+    const matches = (existsSync(directory) ? readdirSync(directory).filter(name => name.endsWith(".json")) : []).map(name => join(directory, name)).filter(path => { try { return JSON.parse(readFileSync(path, "utf8")).runId === runId } catch { return false } })
+    if (matches.length !== 1) throw new Error(matches.length ? "Multiple active graph records use that Run ID. Preserve them for inspection." : "No active graph has that Run ID.")
+    const locations = retainedRunLocations(agentDir(), runId)
+    if (locations.size !== 1 || !locations.has(matches[0])) throw new Error("Multiple retained graph records use that Run ID. Preserve them for inspection.")
+    const saved = readGraphAdmission(matches[0], [identity], root)
+    if (!saved || saved.completion || !saved.repositories.some(repo => repo.identity === identity)) throw new Error("Resume an unfinished current-v4 graph from one of its recorded source repositories.")
+    assertNoLegacyGraph(agentDir(), saved.repositories.map(repo => repo.identity)); release = acquireLease(matches[0])
+    const fresh = readGraphAdmission(matches[0], [identity], root)
+    if (!fresh || fresh.runId !== runId || fresh.completion || !fresh.repositories.some(repo => repo.identity === identity)) throw new Error("The graph changed before its resume lease was acquired.")
+    file = matches[0]; record = fresh
+    request = { root, mode: fresh.plan.mode, objective: fresh.plan.objective, model: fresh.workerModel ?? `${ctx.model.provider}/${ctx.model.id}`.toLowerCase() }
+   } finally { unlockStartup() }
+   if (record!.runId) orcaJson(["orchestration", "run-use", "--id", record!.runId, "--json"])
+   pi.sendUserMessage(`${taskGraphPrompt(record!.plan.objective, record!.plan.mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record!.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`)
+  } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+ }
+ const archiveGraphs = async (selector: string, ctx: any) => {
+  if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
+  selector = selector.trim()
+  if (selector !== "all" && !/^run_[a-zA-Z0-9_-]+$/.test(selector)) { ctx.ui.notify("Usage: /graph archive <run-id|all>", "warning"); return }
+  const records = join(agentDir(), "task-graphs"), archive = join(agentDir(), "task-graphs-archived", "v1")
+  try {
+   if (existsSync(records)) { const stat = lstatSync(records); if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(records) !== resolve(records)) throw new Error("Active graph evidence is uncertain.") }
+   const paths = (existsSync(records) ? readdirSync(records).filter(name => name.endsWith(".json")) : []).map(name => join(records, name)), known = new Map<string, Set<string>>()
+   const remember = (runId: unknown, location: string) => { if (typeof runId === "string") { const locations = known.get(runId) ?? new Set<string>(); locations.add(location); known.set(runId, locations) } }
+   for (const path of paths) try { remember(JSON.parse(readFileSync(path, "utf8")).runId, path) } catch {}
+   const candidates: Array<{ path: string; evidence: string; inspection: ReturnType<typeof inspectGraphArchive>; recovery?: boolean }> = paths.map(path => ({ path, evidence: path, inspection: inspectGraphArchive(path) })).filter(item => item.inspection.eligible && (selector === "all" || item.inspection.runId === selector))
+   if (existsSync(archive)) {
+    const stat = lstatSync(archive)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(archive) !== resolve(archive)) throw new Error("Graph archive identity is uncertain. Preserve it for inspection.")
+   }
+   if (existsSync(archive)) for (const name of readdirSync(archive)) try {
+    const archivedDirectory = join(archive, name), directoryStat = lstatSync(archivedDirectory)
+    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(archivedDirectory) !== resolve(archivedDirectory)) throw new Error("Archived graph directory identity is uncertain.")
+    const receiptPath = join(archivedDirectory, "archive.json")
+    if (!existsSync(receiptPath)) { if (!readdirSync(archivedDirectory).length) continue; throw new Error("Archived graph directory has no receipt.") }
+    const stat = lstatSync(receiptPath)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Archived graph receipt identity is uncertain.")
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"))
+    if (receipt.version !== 1 || !["authorized-pending", "archived"].includes(receipt.status) || !/^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") || resolve(dirname(receipt.source ?? "")) !== resolve(records) || basename(receipt.source ?? "", ".json") !== name || receipt.record !== join(archive, name, "record.json") || !/^[a-f0-9]{64}$/.test(receipt.recordHash ?? "")) throw new Error("Archived graph receipt is invalid.")
+    const evidence = receipt.status === "authorized-pending" && existsSync(receipt.source) ? receipt.source : receipt.record
+    remember(receipt.runId, evidence)
+    if (receipt.version === 1 && receipt.status === "authorized-pending" && resolve(dirname(receipt.source)) === resolve(records) && basename(receipt.source, ".json") === name && receipt.record === join(archive, name, "record.json") && (selector === "all" || receipt.runId === selector) && !candidates.some(item => item.path === receipt.source)) candidates.push({ path: receipt.source, evidence, recovery: true, inspection: { eligible: true, runId: receipt.runId, objective: "Interrupted archive recovery", recordHash: receipt.recordHash, deliveryPending: receipt.deliveryPendingAbandoned === true } })
+   } catch (error) { throw new Error(`Archive recovery evidence is uncertain: ${error instanceof Error ? error.message : String(error)}`) }
+   const retired = join(agentDir(), "task-graphs-retired", "v4")
+   if (existsSync(retired)) {
+    const stat = lstatSync(retired)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(retired) !== resolve(retired)) throw new Error("Retired graph evidence is uncertain.")
+    for (const name of readdirSync(retired)) try {
+     const directory = join(retired, name), directoryStat = lstatSync(directory), receiptPath = join(directory, "retirement.json")
+     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw new Error("Retired graph directory identity is uncertain.")
+     const receiptStat = lstatSync(receiptPath)
+     if (!receiptStat.isFile() || receiptStat.isSymbolicLink() || receiptStat.nlink !== 1) throw new Error("Retired graph receipt identity is uncertain.")
+     const receipt = JSON.parse(readFileSync(receiptPath, "utf8")), location = receipt.status === "authorized-pending" ? receipt.source : receipt.record; if (receipt.version !== 1 || !["authorized-pending", "retired"].includes(receipt.status) || !/^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") || typeof location !== "string") throw new Error("Retired graph receipt is invalid."); remember(receipt.runId, location)
+    } catch (error) { throw new Error(`Retired graph evidence is uncertain: ${error instanceof Error ? error.message : String(error)}`) }
+   }
+   if (!candidates.length) throw new Error(selector === "all" ? "No completed current-v4 graphs are eligible for archive." : "That Run is not a completed current-v4 graph eligible for archive.")
+   if (candidates.some(item => known.get(item.inspection.runId!)?.size !== 1 || !known.get(item.inspection.runId!)?.has(item.evidence)) || new Set(candidates.map(item => item.inspection.runId)).size !== candidates.length) throw new Error("Multiple graph records use a selected Run ID. Preserve them for inspection.")
+   const preview = candidates.map(item => ({ runId: item.inspection.runId, objective: String(item.inspection.objective).replace(/\s+/g, " ").trim().slice(0, 160), deliveryPending: item.inspection.deliveryPending === true, record: item.path, recordHash: item.inspection.recordHash }))
+   if (!ctx.hasUI || !await ctx.ui.confirm(selector === "all" ? "Archive all completed graphs?" : "Archive completed graph?", `${JSON.stringify(preview, null, 2)}\nMove only these completed current-v4 records and their sidecars out of active graph state. Preserve graph bytes, commits, worktrees, branches, resources, and Orca evidence. A true deliveryPending value explicitly abandons that pending delivery state; no delivery receipt may be unfinished.`)) return
+   let helper: any, runtime: any
+   const archived = [], failed = []
+   const verify = (saved: any) => {
+    for (const resource of Object.values(saved.resources ?? {}) as any[]) {
+     helper ??= resourceHelper(); runtime ??= helper.dockerInspectionRuntime()
+     const details = helper.verifyResource(resource, runtime, false, false, false, false)
+     if (details?.State?.Running) throw new Error(`Run ${saved.runId} still has a live resource.`)
+    }
+   }
+   const unlockStartup = acquireLease(join(records, "startup"))
+   try { for (const candidate of candidates) try { archived.push(archiveCompletedGraph(candidate.path, archive, verify, candidate.inspection.recordHash, candidate.inspection.deliveryPending === true)) } catch (error) { failed.push({ runId: candidate.inspection.runId, error: error instanceof Error ? error.message : String(error) }) } }
+   finally { unlockStartup() }
+   ctx.ui.notify(JSON.stringify({ archived: archived.map(item => ({ runId: item.runId, record: item.record })), failed, retainedLegacy: "Legacy graph records remain immutable inspection evidence." }, null, 2), failed.length ? "warning" : "info")
+  } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+ }
+ pi.registerCommand("graph", { description: "Plan, execute, inspect, resume, deliver, archive, or retire a bounded graph. /graph [plan|execute|gc|resume|deliver|archive|retire] <objective-or-run-id>", handler: async (args, ctx) => {
   if (/^gc(?:\s|$)/.test(args.trim())) { await inspectGarbage(args.trim().slice(2), ctx); return }
+  if (/^resume(?:\s|$)/.test(args.trim())) { await resumeGraph(args.trim().slice(6), ctx); return }
   const delivery = /^deliver\s+(.+)$/s.exec(args.trim())
   if (delivery) { await deliverCompletedGraph(delivery[1], ctx); return }
+  if (/^archive(?:\s|$)/.test(args.trim())) { await archiveGraphs(args.trim().slice(7), ctx); return }
   if (/^retire(?:\s|$)/.test(args.trim())) { await retireGraph(args.trim().slice(6), ctx); return }
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   const parsed = /^(?:(plan|execute)\s+)?(.+)$/s.exec(args.trim())
@@ -277,16 +390,27 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   const directory = join(agentDir(), "task-graphs"), stem = digest(`${identity}:${mode}:${objective}`)
   try {
    if (process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES || process.env.AGENT_TOOLKIT_GRAPH_TASK && !workerFile) throw new Error(LEGACY_GRAPH)
-   for (const entry of (existsSync(directory) ? readdirSync(directory) : []).filter(name => name.endsWith(".json"))) {
+   mkdirSync(directory, { recursive: true, mode: 0o700 })
+   const directoryStat = lstatSync(directory)
+   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw new Error("Active graph evidence is uncertain.")
+   const unlockStartup = acquireLease(join(directory, "startup"))
+   try { for (const entry of (existsSync(directory) ? readdirSync(directory) : []).filter(name => name.endsWith(".json"))) {
     const path = join(directory, entry), saved = readGraphAdmission(path, [identity], root)
     if (saved && !saved.completion && saved.repositories.some(repo => repo.identity === identity) && saved.plan.mode === mode && saved.plan.objective === objective) {
-     assertNoLegacyGraph(agentDir(), saved.repositories.map(repo => repo.identity)); release = acquireLease(path); file = path; record = saved
-     if (saved.runId) orcaJson(["orchestration", "run-use", "--id", saved.runId, "--json"])
-     pi.sendUserMessage(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...saved, repositories: saved.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`); return
+     if (saved.runId) { const locations = retainedRunLocations(agentDir(), saved.runId); if (locations.size !== 1 || !locations.has(path)) throw new Error("Multiple retained graph records use that Run ID. Preserve them for inspection.") }
+     assertNoLegacyGraph(agentDir(), saved.repositories.map(repo => repo.identity)); release = acquireLease(path)
+     const fresh = readGraphAdmission(path, [identity], root)
+     if (!fresh || fresh.runId !== saved.runId || fresh.completion || fresh.plan.mode !== mode || fresh.plan.objective !== objective || !fresh.repositories.some(repo => repo.identity === identity)) throw new Error("The graph changed before its resume lease was acquired.")
+     file = path; record = fresh; break
     }
+   } } finally { unlockStartup() }
+   if (record) {
+    if (record.runId) orcaJson(["orchestration", "run-use", "--id", record.runId, "--json"])
+    pi.sendUserMessage(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`); return
    }
    let suffix = 0
-   do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target))
+   const archived = join(agentDir(), "task-graphs-archived", "v1")
+   do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))))
    pi.sendUserMessage(taskGraphPrompt(objective, mode))
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  } })
@@ -305,7 +429,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   if (!ctx.hasUI || !await ctx.ui.confirm(plan.mode === "plan-only" ? "Approve planning graph?" : "Approve execution graph?", `${JSON.stringify(summary, null, 2)}\nThis single approval covers the declared Run, task records, up to ${plan.worktree_budget} worktrees, pi-yolo worker launches with ${candidate.workerModel} at medium thinking, declared setup and validation on worker and combined integration commits, retries, bounded resources, internal integration, and removal of verified clean integrated lanes at closeout. It excludes secrets, unrelated or dirty worktree cleanup, production administration, publication, and source-branch merge-back.`, { signal })) return text({ status: "not-approved" })
   const target = request.target!, startup = acquireLease(join(directory, "startup"))
   try {
-   if (existsSync(target)) throw new Error("Graph record appeared during approval; resume it.")
+   if (existsSync(target) || existsSync(join(agentDir(), "task-graphs-archived", "v1", basename(target, ".json")))) throw new Error("Graph record or archive appeared during approval; start the command again.")
    for (const entry of readdirSync(directory).filter(name => name.endsWith(".json"))) {
     const existing = readGraphAdmission(join(directory, entry), candidate.repositories.map(repo => repo.identity))
     if (existing && !existing.completion) throw new Error(`Resume the unfinished graph: /graph ${existing.plan.mode} ${existing.plan.objective}`)

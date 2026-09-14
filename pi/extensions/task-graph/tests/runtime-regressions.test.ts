@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { registerHooks } from "node:module"
-import { graphGit, repositoryIdentity } from "../task-graph-core.ts"
+import { digest, graphGit, repositoryIdentity } from "../task-graph-core.ts"
 import { captureGraphWorkspaces } from "../workspaces.ts"
 
 const globals = globalThis as any
@@ -129,9 +129,21 @@ test("graph gc reports eligibility without mutating the active graph", async () 
   const before = readFileSync(approval.record, "utf8"), calls = f.calls.length
   await coordinator.command("gc")
   const report = JSON.parse(coordinator.notifications.at(-1).message)
-  assert.equal(report.inspectionOnly, true); assert.equal(report.records.find((item: any) => item.runId === "run_fixture").state, "active")
+  assert.equal(report.inspectionOnly, true); assert.equal(report.summary.active, 1)
+  assert.equal(report.records.find((item: any) => item.runId === "run_fixture").nextAction, "/graph resume run_fixture")
   assert.equal(readFileSync(approval.record, "utf8"), before); assert.equal(f.calls.length, calls)
  } finally { coordinator.stop() }
+})
+
+test("graph archive resumes after the active record was moved", async () => {
+ const f = fixture(), records = join(globals.agentDir, "task-graphs"), archive = join(globals.agentDir, "task-graphs-archived/v1"), source = join(records, "interrupted.json"), directory = join(archive, "interrupted"), target = join(directory, "record.json")
+ const record = captureGraphWorkspaces(f.source, { ...f.plan, tasks: [{ ...f.plan.tasks[0], owns: [], validation: "manual: inspected" }] }); record.runId = "run_fixture"; record.completed[record.plan.tasks[0].id] = { head: f.base, integrationHead: f.base, evidence: "done" }; record.completion = { evidence: "done", deliveryPending: false }
+ mkdirSync(records, { recursive: true }); mkdirSync(directory, { recursive: true }); mkdirSync(join(archive, "empty")); writeFileSync(source, JSON.stringify(record)); writeFileSync(`${source}.receipt`, "sidecar"); const bytes = readFileSync(source); renameSync(source, target)
+ writeFileSync(join(directory, "archive.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: record.runId, source, record: target, recordHash: digest(bytes), archivedAt: new Date().toISOString(), preserved: ["graph-record", "sidecars", "orchestration-evidence", "commits", "worktrees", "branches", "resources"] }))
+ const retired = join(globals.agentDir, "task-graphs-retired/v4/other"); mkdirSync(retired, { recursive: true }); writeFileSync(join(retired, "retirement.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: "run_other", source: join(records, "other.json") }))
+ const coordinator = f.runtime(f.source), duplicate = join(records, "duplicate.json"); writeFileSync(duplicate, JSON.stringify({ version: 4, runId: record.runId }))
+ try { await assert.rejects(coordinator.command("archive run_fixture"), /Multiple graph records/); unlinkSync(duplicate); await coordinator.command("archive run_fixture"); assert.equal(JSON.parse(readFileSync(join(directory, "archive.json"), "utf8")).status, "archived"); assert.equal(readFileSync(join(directory, "sidecars/interrupted.json.receipt"), "utf8"), "sidecar") }
+ finally { coordinator.stop() }
 })
 
 test("an active graph resumes from its repository after its original root disappears", async () => {
@@ -147,9 +159,13 @@ test("an active graph resumes from its repository after its original root disapp
  writeFileSync(record!, JSON.stringify(state))
  const upgraded = "Checkpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count."
  for (const task of f.tasks) task.spec = task.spec.replace(upgraded, "Use checkpoint_task_graph for commits.")
+ const retired = join(f.agent, "task-graphs-retired/v4/other"), retirementReceipt = join(retired, "retirement.json"); mkdirSync(retired, { recursive: true }); writeFileSync(retirementReceipt, JSON.stringify({ version: 1, status: "authorized-pending", runId: "run_fixture", source: record }))
+ const retiring = f.runtime(f.source); try { await assert.rejects(retiring.command("resume run_fixture"), /Multiple retained graph records/) } finally { retiring.stop() }; writeFileSync(retirementReceipt, JSON.stringify({ version: 1, status: "authorized-pending", runId: "run_other", source: join(f.agent, "task-graphs/other.json") }))
+ const archived = join(f.agent, "task-graphs-archived/v1/conflict"), archivedRoot = join(f.agent, "task-graphs-archived"); mkdirSync(archived, { recursive: true }); writeFileSync(join(archived, "archive.json"), JSON.stringify({ version: 1, status: "archived", runId: "run_fixture", record: join(archived, "record.json") }))
+ const conflict = f.runtime(f.source); try { await assert.rejects(conflict.command("resume run_fixture"), /Multiple retained graph records/) } finally { conflict.stop() }; renameSync(archivedRoot, `${archivedRoot}.preserved`)
  const resumed = f.runtime(f.source)
  try {
-  await resumed.command(`execute ${f.plan.objective}`)
+  await resumed.command("resume run_fixture")
   assert.ok(f.calls.some(call => call.slice(0, 2).join(" ") === "orchestration run-use" && call.includes("run_fixture")))
   await resumed.call("prepare_task_graph_workspace")
   const worker = (await resumed.call("start_task_graph_task", { task_id: "a" })).details.worker

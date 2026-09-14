@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { archiveCompletedGraph } from "../archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "../delivery.ts"
 import { digest, graphGit, type Orca, type TaskGraphPlan } from "../task-graph-core.ts"
 import { captureGraphWorkspaces, createGraphWorkspace, saveGraphRecord, verifyGraphWorkspace } from "../workspaces.ts"
@@ -57,22 +58,49 @@ test("delivery fast-forwards locally and resumes Orca cleanup after interruption
  assert.equal(delivered.status, "delivered"); assert.ok(delivered.cleanup.every(item => item.status === "removed")); assert.equal(f.items.length, 0)
  assert.equal(deliverGraph(receiptFile, undefined, f.orca).completedAt, delivered.completedAt)
  assert.equal(JSON.parse(readFileSync(current.file, "utf8")).completion.evidence, "done")
+ renameSync(current.file, `${current.file}.archived`); assert.equal(deliverGraph(receiptFile, undefined, f.orca).completedAt, delivered.completedAt)
  assert.equal(JSON.parse(readFileSync(predecessor.file, "utf8")).completion.evidence, "done")
 })
 
-test("delivery preserves a predecessor workspace referenced by an active Run", () => {
+test("unrelated legacy evidence does not block current delivery", () => {
+ const f = fixture(), current = f.make("run_current", "current")
+ writeFileSync(join(f.records, "legacy-completed.json"), JSON.stringify({ version: 2, runId: "run_legacy_completed", completion: { deliveryPending: false } }))
+ writeFileSync(join(f.records, "legacy-active.json"), JSON.stringify({ version: 2, runId: "run_legacy_active", root: "/unrelated", repositories: [{ source: "/unrelated", identity: "unrelated-repository" }] }))
+ const delivered = deliverGraph(join(f.directory, "delivery.json"), prepareGraphDelivery(current.file, f.records), f.orca)
+ assert.equal(delivered.status, "delivered")
+})
+
+test("an unfinished delivery receipt reserves its target repository", () => {
+ const f = fixture(), first = f.make("run_first", "first"), firstReceipt = prepareGraphDelivery(first.file, f.records), deliveries = join(f.directory, "task-graph-deliveries/v1"); mkdirSync(deliveries, { recursive: true }); saveGraphRecord(join(deliveries, "run_first.json"), firstReceipt)
+ const successor = f.make("run_successor", "successor", first.head), approved = prepareGraphDelivery(successor.file, f.records)
+ assert.throws(() => deliverGraph(join(f.directory, "successor-delivery.json"), approved, f.orca), /Another Run now requires/)
+})
+
+test("an unfinished delivery receipt blocks archiving its cleanup Runs", () => {
+ const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head), receipt = prepareGraphDelivery(current.file, f.records), deliveries = join(f.directory, "task-graph-deliveries/v1"); mkdirSync(deliveries, { recursive: true }); saveGraphRecord(join(deliveries, "run_current.json"), receipt)
+ assert.throws(() => archiveCompletedGraph(predecessor.file, join(f.directory, "archive")), /unfinished or uncertain delivery/)
+})
+
+test("a pending graph does not block a successor target branch", () => {
+ const f = fixture(), current = f.make("run_current", "current"), approved = prepareGraphDelivery(current.file, f.records), pending = f.make("run_pending", "pending", current.head)
+ pending.record.completion!.deliveryPending = true; saveGraphRecord(pending.file, pending.record)
+ const delivered = deliverGraph(join(f.directory, "delivery.json"), approved, f.orca)
+ assert.equal(delivered.status, "delivered"); assert.equal(existsSync(pending.repo.workspace!.path!), true)
+})
+
+test("delivery preserves a predecessor workspace used as an active Run source", () => {
  const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head), active = f.make("run_active", "active", current.head)
- active.record.root = predecessor.repo.workspace!.path!; active.record.plan.foundations[0].repository = f.source; active.record.plan.tasks[0].repository = f.source; active.record.completed = {}; delete active.record.completion; saveGraphRecord(active.file, active.record)
+ active.record.repositories[0].source = predecessor.repo.workspace!.path!; active.record.plan.foundations[0].repository = predecessor.repo.workspace!.path!; active.record.plan.tasks[0].repository = predecessor.repo.workspace!.path!; active.record.completed = {}; delete active.record.completion; saveGraphRecord(active.file, active.record)
  const approved = prepareGraphDelivery(current.file, f.records)
  assert.equal(approved.cleanup.some(item => item.runId === predecessor.record.runId), false)
- assert.match(approved.retained.find(item => item.runId === predecessor.record.runId)!.reason, /Another Run/)
+ assert.match(approved.retained.find(item => item.runId === predecessor.record.runId)!.reason, /unfinished Run/)
  assert.equal(existsSync(predecessor.repo.workspace!.path!), true)
 })
 
 test("delivery rechecks active workspace references after approval", () => {
  const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head)
  const receiptFile = join(f.directory, "delivery.json"), approved = prepareGraphDelivery(current.file, f.records), active = f.make("run_active", "active", current.head), sourceHead = graphGit(f.source, "rev-parse", "HEAD")
- active.record.root = predecessor.repo.workspace!.path!; active.record.plan.foundations[0].repository = f.source; active.record.plan.tasks[0].repository = f.source; active.record.completed = {}; delete active.record.completion; saveGraphRecord(active.file, active.record)
+ active.record.root = predecessor.repo.workspace!.path!; active.record.repositories[0].source = active.repo.workspace!.path!; active.record.plan.foundations[0].repository = active.repo.workspace!.path!; active.record.plan.tasks[0].repository = active.repo.workspace!.path!; active.record.completed = {}; delete active.record.completion; saveGraphRecord(active.file, active.record)
  assert.throws(() => deliverGraph(receiptFile, approved, f.orca), /Another Run now requires/)
  assert.equal(graphGit(f.source, "rev-parse", "HEAD"), sourceHead); assert.equal(existsSync(predecessor.repo.workspace!.path!), true)
 })
@@ -87,7 +115,7 @@ test("delivery rechecks pending-delivery workspace references after approval", (
 
 test("delivery preserves cleanup workspaces when graph evidence is unreadable", () => {
  const before = fixture(), predecessor = before.make("run_predecessor", "predecessor"), current = before.make("run_current", "current", predecessor.head)
- writeFileSync(join(before.records, "broken.json"), "{")
+ writeFileSync(join(before.records, "broken.json"), JSON.stringify({ version: 4, completion: {} }))
  const prepared = prepareGraphDelivery(current.file, before.records)
  assert.equal(prepared.cleanup.some(item => item.runId === predecessor.record.runId), false)
  assert.match(prepared.retained.find(item => item.runId === predecessor.record.runId)!.reason, /unreadable or uncertain/)
@@ -96,7 +124,7 @@ test("delivery preserves cleanup workspaces when graph evidence is unreadable", 
  const receiptFile = join(after.directory, "delivery.json"), approved = prepareGraphDelivery(latest.file, after.records)
  writeFileSync(join(after.records, "broken.json"), "{")
  assert.throws(() => deliverGraph(receiptFile, approved, after.orca))
- assert.equal(existsSync(earlier.repo.workspace!.path!), true)
+ assert.equal(graphGit(after.source, "rev-parse", "HEAD"), approved.targets[0].from); assert.equal(existsSync(earlier.repo.workspace!.path!), true)
 })
 
 test("delivery preserves a predecessor workspace changed after approval", () => {
@@ -119,6 +147,11 @@ test("delivery fails closed for a dirty target checkout", () => {
  writeFileSync(join(f.source, "local.txt"), "keep\n")
  assert.throws(() => prepareGraphDelivery(current.file, f.records), /dirty or unsettled/)
  assert.equal(readFileSync(join(f.source, "local.txt"), "utf8"), "keep\n")
+})
+
+test("stale delivery approval does not create a receipt after archive", () => {
+ const f = fixture(), current = f.make("run_current", "current"), receipt = join(f.directory, "delivery.json"), approved = prepareGraphDelivery(current.file, f.records)
+ renameSync(current.file, `${current.file}.archived`); assert.throws(() => deliverGraph(receipt, approved, f.orca)); assert.equal(existsSync(receipt), false)
 })
 
 test("delivery rejects a receipt changed after approval", () => {

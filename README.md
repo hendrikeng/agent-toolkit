@@ -497,9 +497,41 @@ Planning does not start implementation. Source files, indexes, branches, and pla
 Keep Orca open with orchestration enabled. Use one of these commands:
 
 ```text
-/graph plan Design customer search
-/graph execute docs/future/customer-search.md
+/graph <objective>
+/graph plan <objective>
+/graph execute <objective>
+/graph gc
+/graph resume <run-id>
+/graph deliver <run-id>
+/graph archive <run-id>
+/graph archive all
+/graph retire <run-id>
 ```
+
+#### What each graph command does
+
+| Command | What happens |
+|---|---|
+| `/graph <objective>` | Starts a planning graph. This is the short form of `/graph plan <objective>`. |
+| `/graph plan <objective>` | Creates a bounded, planning-only Run. Workers may write Markdown under `docs/`, but they cannot implement source changes. The result is a reviewed execution plan. |
+| `/graph execute <objective>` | Creates a separate implementation Run from exact foundation commits. After approval, workers use isolated lanes, checkpoint their owned files, and merge into the graph's integration worktree. Nothing is pushed. |
+| `/graph resume <run-id>` | Reopens one unfinished current-v4 Run from any repository recorded by that Run. It reuses the saved approval, model, commits, inputs, resources, worktrees, and task state. It does not create another Run or approval. |
+| `/graph gc` | Reads all active, pending-delivery, archived, retired, and legacy graph evidence. It changes nothing. For each actionable Run, it reports the exact next command: `resume`, `deliver`, `archive`, or `retire`. Uncertain evidence gets no mutation command. |
+| `/graph deliver <run-id>` | For a completed execution Run, fast-forwards each approved local source branch to the exact integration commit. It then removes only verified clean integration worktrees that no active or pending Run still needs. It never pushes or force-updates a branch. Repeat the command to recover an interrupted delivery. |
+| `/graph archive <run-id>` | Moves one completed current-v4 record and its sidecars out of active graph state. Commits, branches, worktrees, resources, receipts, and Orca Runs remain. A `deliveryPending` marker may be abandoned only through the confirmation screen; an unfinished delivery receipt still blocks archive. Repeat the command to recover an interrupted archive. |
+| `/graph archive all` | Performs the same verified archive transition for every eligible completed current-v4 Run in one approved batch. A failed or uncertain Run is preserved and reported. Legacy records are not moved. |
+| `/graph retire <run-id>` | Releases repository ownership for an incomplete current-v4 Run that cannot or should not continue. Retirement requires settled workers, stopped resources, and no integrated or completed graph task. It preserves the graph record and every worktree, branch, commit, resource identity, receipt, and Orca Run. Repeat the command to recover an interrupted retirement. |
+
+The normal lifecycle is `plan` → review the plan → `execute` → `deliver` → `archive`. Use `resume` after an interruption, `retire` for an incomplete Run that will not continue, and `gc` whenever the correct next step is unclear.
+
+These states are deliberately different:
+
+- **Active:** the Run may still start or resume work.
+- **Delivery pending:** local integration finished, but delivery did not finish. Use `deliver`, not `archive`.
+- **Completed:** graph work finished and the record can be delivered or archived.
+- **Archived:** completed evidence remains available but no longer owns active graph state.
+- **Retired:** incomplete evidence remains available, but repository ownership was explicitly released.
+- **Legacy or uncertain:** inspection only. The runtime will not guess, migrate, or delete it.
 
 Without a mode, `/graph` means planning. The coordinator reads repository rules and resolves the requested plan dependencies before approval.
 The coordinator must stop on ambiguous plans, blocked dependencies, or missing approvals. It must not infer feature completion from repository consolidation.
@@ -546,9 +578,9 @@ The worktree count never exceeds the approved budget. The graph reuses lanes acr
 
 #### Interruption and legacy state
 
-Repeat the exact `/graph` command from the same selected repository to resume. Keep the original command even after plan files move.
-The repository identity, mode, and exact objective select the retained version-4 record in the managed agent directory.
-The original command root can be absent. Resume uses the identity of a recorded source repository.
+Use `/graph resume <run-id>` from any recorded source repository to resume an unfinished current-v4 graph.
+The original command root can be absent. Resume verifies the saved repository identity and does not require another approval.
+The exact original `/graph` command remains supported.
 Older approvals remain unchanged evidence. They do not inherit the new contract.
 Resume does not need a second proposal or another approval. It verifies the saved contract and reuses its resource names, commits, and input bytes.
 
@@ -561,10 +593,13 @@ Legacy records under `task-graph-locks/` remain evidence. They cannot resume exe
 A related legacy record, or one with unknown scope, produces a diagnostic before new graph mutations.
 Known unrelated records remain untouched. The runtime does not assume that their workers stopped.
 
-`/graph gc` inspects graph records without changing them. It reports eligible Runs and exact blockers for active, completed, retired, and legacy state.
+`/graph gc` inspects graph records without changing them. It gives a summary and one exact next action for each actionable Run.
 It also reports running workers, live resources, and uncertain evidence. The report does not include credentials or private resource values.
 
-`/graph retire <run-id>` is the only retirement mutation. It requires interactive approval and accepts eligible incomplete current-v4 graphs only.
+`/graph archive <run-id>` moves one completed current-v4 record and its sidecars out of active graph state. `/graph archive all` handles every eligible completed record in one approved batch.
+Archive preserves the exact graph bytes, commits, worktrees, branches, resources, and Orca evidence. Confirmation explicitly abandons a `deliveryPending` marker, but archive refuses an unfinished delivery receipt, live resources, and legacy records.
+
+`/graph retire <run-id>` requires interactive approval and accepts eligible incomplete current-v4 graphs only.
 A completed Orca ledger task can represent a terminal worker report. It does not mean that the graph task completed integration.
 Every worker must have a terminal dispatch and a verified exited terminal. Every resource must have an exact stopped identity.
 Retirement releases repository ownership. It preserves records, orchestration evidence, commits, worktrees, lanes, branches, resources, and resource identities.

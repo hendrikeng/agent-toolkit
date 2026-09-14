@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { acquireLease, graphGit, repositoryIdentity, repositoryRoot, type Orca } from "./task-graph-core.ts"
-import { graphDirtyPaths, graphMergeHead, readGraphRecord, removeGraphWorkspace, saveGraphRecord, verifyGraphWorkspace, type GraphRecord } from "./workspaces.ts"
+import { graphDeliveryInventory, graphDirtyPaths, graphMergeHead, readGraphRecord, removeGraphWorkspace, saveGraphRecord, validateGraphRecord, validGraphDeliveryReceipt, verifyGraphWorkspace, type GraphRecord } from "./workspaces.ts"
 
 export interface GraphDeliveryReceipt {
  version: 1
@@ -23,13 +23,26 @@ function settled(record: GraphRecord): boolean {
   && Object.values(record.resources ?? {}).every((resource: any) => resource.stopped))
 }
 
-function activeWorkspacePaths(recordsDirectory: string): Set<string> {
- const paths = new Set<string>()
- for (const name of existsSync(recordsDirectory) ? readdirSync(recordsDirectory).filter(name => name.endsWith(".json")) : []) {
-  const saved = readGraphRecord(resolve(recordsDirectory, name))
-  if (!saved.completion || saved.completion.deliveryPending) for (const value of [saved.root, ...saved.repositories.flatMap(repo => [repo.source, repo.workspace?.path]), ...saved.lanes.map(lane => lane.workspace.path), ...Object.values(saved.workers).map(worker => worker.workspace)]) if (value) paths.add(value)
- }
- return paths
+function activeWorkspacePaths(recordsDirectory: string, currentRunId?: string): { paths: Set<string>; identities: Set<string>; uncertain: boolean } {
+ const directoryStat = lstatSync(recordsDirectory)
+ if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(recordsDirectory) !== resolve(recordsDirectory)) return { paths: new Set(), identities: new Set(), uncertain: true }
+ const paths = new Set<string>(), identities = new Set<string>(); let uncertain = false
+ for (const name of existsSync(recordsDirectory) ? readdirSync(recordsDirectory).filter(name => name.endsWith(".json")) : []) try {
+  const path = resolve(recordsDirectory, name), raw = JSON.parse(readFileSync(path, "utf8"))
+  const saved = raw.version === 4 ? validateGraphRecord(raw, path) : [2, 3].includes(raw.version) && (raw.completion?.deliveryPending === false || Array.isArray(raw.repositories) && typeof raw.root === "string") ? raw : (() => { throw new Error("Unsupported graph evidence") })()
+  const unfinished = !saved.completion, pending = saved.completion?.deliveryPending === true
+  if (!unfinished && !pending) continue
+  if (!Array.isArray(saved.repositories) || unfinished && !saved.repositories.length) { uncertain = true; continue }
+  for (const repo of saved.repositories) {
+   if (typeof repo?.source === "string") paths.add(repo.source); else uncertain = true
+   if (unfinished) { if (typeof repo?.identity === "string") identities.add(repo.identity); else uncertain = true }
+   if (typeof repo?.workspace?.path === "string") paths.add(repo.workspace.path)
+  }
+  for (const value of [saved.root, ...(Array.isArray(saved.lanes) ? saved.lanes.map((lane: any) => lane?.workspace?.path) : []), ...(saved.workers && typeof saved.workers === "object" ? Object.values(saved.workers).map((worker: any) => worker?.workspace) : [])]) if (typeof value === "string") paths.add(value)
+ } catch { uncertain = true }
+ const deliveries = graphDeliveryInventory(dirname(recordsDirectory)); uncertain ||= deliveries.uncertain
+ for (const { receipt } of deliveries.receipts) if (receipt.status === "authorized-pending" && receipt.runId !== currentRunId) for (const target of receipt.targets) identities.add(target.identity)
+ return { paths, identities, uncertain }
 }
 
 function recordedIntegrationHead(record: GraphRecord, repo: GraphRecord["repositories"][number]): string {
@@ -60,8 +73,7 @@ export function prepareGraphDelivery(recordFile: string, recordsDirectory: strin
  const targetBySource = new Map(targets.map(item => [item.source, item]))
  const cleanup: GraphDeliveryReceipt["cleanup"] = [], retained: GraphDeliveryReceipt["retained"] = []
  const records: Array<{ path: string; record: GraphRecord }> = []
- let activePaths: Set<string> | undefined
- try { activePaths = activeWorkspacePaths(recordsDirectory) } catch {}
+ const active = activeWorkspacePaths(recordsDirectory)
  for (const name of existsSync(recordsDirectory) ? readdirSync(recordsDirectory).filter(name => name.endsWith(".json")) : []) {
   const path = resolve(recordsDirectory, name)
   try { records.push({ path, record: readGraphRecord(path) }) } catch {}
@@ -73,7 +85,7 @@ export function prepareGraphDelivery(recordFile: string, recordsDirectory: strin
   if (!settled(candidate) || candidate.lanes.some(lane => lane.cleanup !== "removed")) { retained.push({ runId: candidate.runId, record: path, reason: "Run or lanes are not clean and settled." }); continue }
   const workspaces = candidate.repositories.filter(repo => repo.workspace?.role === "integration")
   if (!workspaces.length || workspaces.some(repo => !targetBySource.has(repo.source) || targetBySource.get(repo.source)!.identity !== repo.identity)) { retained.push({ runId: candidate.runId, record: path, reason: "Run contains an unrelated or uncertain repository." }); continue }
-  if (!activePaths || workspaces.some(repo => activePaths.has(repo.workspace!.path!))) { retained.push({ runId: candidate.runId, record: path, reason: activePaths ? "Another Run still requires this integration workspace." : "Graph ownership evidence is unreadable or uncertain." }); continue }
+  if (active.uncertain || workspaces.some(repo => active.paths.has(repo.workspace!.path!))) { retained.push({ runId: candidate.runId, record: path, reason: active.uncertain ? "Graph ownership evidence is unreadable or uncertain." : "An unfinished Run still requires this integration workspace." }); continue }
   try {
    const eligible = workspaces.map(repo => {
     const head = recordedIntegrationHead(candidate, repo), final = targetBySource.get(repo.source)!.head
@@ -89,23 +101,31 @@ export function prepareGraphDelivery(recordFile: string, recordsDirectory: strin
 
 export function readGraphDeliveryReceipt(file: string, expectedRunId?: string): GraphDeliveryReceipt {
  const receipt = JSON.parse(readFileSync(file, "utf8")) as GraphDeliveryReceipt
- if (receipt.version !== 1 || !["authorized-pending", "delivered"].includes(receipt.status) || !/^run_[a-zA-Z0-9_-]+$/.test(receipt.runId) || expectedRunId && receipt.runId !== expectedRunId || !Array.isArray(receipt.targets) || !receipt.targets.length || !Array.isArray(receipt.cleanup) || !Array.isArray(receipt.retained)) throw new Error("Invalid graph delivery receipt. Preserve it for inspection.")
+ if (!validGraphDeliveryReceipt(receipt) || expectedRunId && receipt.runId !== expectedRunId) throw new Error("Invalid graph delivery receipt. Preserve it for inspection.")
  return receipt
 }
 
 export function deliverGraph(receiptFile: string, approved: GraphDeliveryReceipt | undefined, orca: Orca): GraphDeliveryReceipt {
  const saved = existsSync(receiptFile) ? readGraphDeliveryReceipt(receiptFile) : undefined
- if (approved && saved && JSON.stringify(saved) !== JSON.stringify(approved)) throw new Error("The delivery receipt changed after approval. Preserve it for inspection.")
  let receipt = approved ?? saved
  if (!receipt) throw new Error("Graph delivery needs interactive approval.")
  const persist = () => saveGraphRecord(receiptFile, receipt)
- if (!existsSync(receiptFile)) persist()
+ if (receipt.status === "delivered") {
+  if (approved && saved && JSON.stringify(saved) !== JSON.stringify(approved)) throw new Error("The delivery receipt changed after approval. Preserve it for inspection.")
+  return receipt
+ }
  const unlockStartup = acquireLease(resolve(dirname(receipt.record), "startup"))
  try {
-  const activePaths = activeWorkspacePaths(dirname(receipt.record))
-  if (receipt.targets.some(item => activePaths.has(item.source)) || receipt.cleanup.some(item => item.status !== "removed" && activePaths.has(item.workspace.path))) throw new Error("Another Run now requires a delivery target or cleanup workspace. Preserve it and resume delivery after that Run settles.")
+  const locked = existsSync(receiptFile) ? readGraphDeliveryReceipt(receiptFile) : undefined
+  if (approved && locked && JSON.stringify(locked) !== JSON.stringify(approved)) throw new Error("The delivery receipt changed after approval. Preserve it for inspection.")
+  if (!approved && locked) receipt = locked
+  if (receipt.status === "delivered") return receipt
+  const active = activeWorkspacePaths(dirname(receipt.record), receipt.runId)
+  if (active.uncertain) throw new Error("Graph ownership evidence is unreadable or has unknown repository scope. Archive or repair it before delivery.")
+  if (receipt.targets.some(item => active.identities.has(item.identity)) || receipt.cleanup.some(item => item.status !== "removed" && active.paths.has(item.workspace.path))) throw new Error("Another Run now requires a delivery target or cleanup workspace. Preserve it and resume delivery after that Run is archived or settles.")
   const record = readGraphRecord(receipt.record)
   if (record.runId !== receipt.runId || !settled(record)) throw new Error("The approved Run record changed or is no longer deliverable.")
+  if (!locked) persist()
   for (const item of receipt.targets) {
    const repo = record.repositories.find(repo => repo.source === item.source && repo.identity === item.identity)
    const cleanup = receipt.cleanup.find(cleanup => cleanup.workspace.id === item.workspace.id && cleanup.workspace.path === item.workspace.path)

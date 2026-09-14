@@ -14,10 +14,10 @@ A dirty or interrupted lane stays intact.
 Closeout removes only clean integrated lanes and keeps the integration worktree.
 Read-only workers use an existing checkout.
 A graph with resources must use execution mode and have a writing task and an integration workspace.
-An active graph can resume from a recorded source repository if its original command root is absent.
+An active graph can resume with `/graph resume <run-id>` from a recorded source repository if its original command root is absent.
 
-`/graph gc` inspects current-v4, completed, retired, and legacy records without changing them.
-It reports eligible Runs and exact blockers for active mutations, workers, resources, worktrees, and uncertain evidence.
+`/graph gc` inspects current-v4, completed, retired, archived, and legacy records without changing them.
+It reports a compact summary, exact blockers, and one next command for each actionable Run.
 The report does not contain credentials or private resource values.
 
 `/graph retire <run-id>` requires interactive approval for one eligible current-v4 Run.
@@ -29,6 +29,11 @@ The receipt records this absence. Retirement does not recreate or remove a workt
 It preserves graph records, orchestration evidence, commits, task receipts, integration worktrees, lanes, branches, and resource identities.
 The atomic record move releases only repository ownership. Repeat the command to resume an interrupted retirement or read its unchanged receipt.
 Legacy records remain unchanged and ineligible.
+
+`/graph archive <run-id>` requires interactive approval for one completed current-v4 Run. `/graph archive all` approves one bounded batch.
+Archive moves the exact record and sidecars out of active graph state. It preserves commits, worktrees, branches, resources, and Orca evidence.
+The confirmation identifies and explicitly abandons any `deliveryPending` marker. A live resource, live coordinator, unfinished delivery receipt, uncertain lease, duplicate Run ID, legacy record, or incomplete graph blocks archive.
+The archive receipt and record hash make interruption recovery idempotent.
 
 `/graph deliver <run-id>` requires interactive approval for a completed Run without pending delivery work.
 It fast-forwards each clean local target branch to its exact integration commit.
@@ -49,7 +54,7 @@ They cover concurrent workers, lane reuse, dependency commits, lost creation rec
 They cover resource and worktree identity, missing-worktree evidence, retirement receipts, garbage inspection, source preservation, input capture, hooks, protected paths, and old records.
 
 ```sh
-node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts pi/extensions/task-graph/tests/delivery.test.ts
+node --experimental-strip-types --test pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts pi/extensions/task-graph/tests/delivery.test.ts pi/extensions/task-graph/tests/archive.test.ts
 node --test shared/agent-safety/git-operation-policy.test.cjs
 ```
 
