@@ -83,12 +83,12 @@ function fixture() {
  }
  globals.agentDir = join(root, "agent"); mkdirSync(globals.agentDir); process.env.AGENT_TOOLKIT_PI_AGENT_DIR = globals.agentDir
  function runtime(cwd: string) {
-  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>(), notifications: any[] = []
+  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>(), notifications: any[] = [], statuses: any[] = []
   extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: (name: string, handler: any) => events.set(name, handler), registerCommand: (name: string, command: any) => commands.set(name, command), sendUserMessage: () => {} } as never)
   let idle = true
-  const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => idle, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string, level: string) => { notifications.push({ message, level }); if (level === "error") throw new Error(message) } } }
+  const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => idle, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string, level: string) => { notifications.push({ message, level }); if (level === "error") throw new Error(message) }, setStatus: (id: string, value?: string) => statuses.push({ id, value }) } }
   let serial = 0
-  return { notifications, setIdle: (value: boolean) => { idle = value }, commandNames: () => [...commands.keys()], command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
+  return { notifications, statuses, setIdle: (value: boolean) => { idle = value }, commandNames: () => [...commands.keys()], command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
    const id = String(++serial), event = { toolName: name, input, toolCallId: id }, blocked = await events.get("tool_call")?.(event, ctx)
    if (blocked?.block) throw new Error(blocked.reason)
    let output: any, error: any
@@ -115,6 +115,7 @@ test("graph commands preserve multiline objectives without a model round trip", 
  try {
   assert.deepEqual(coordinator.commandNames(), ["graph"])
   await coordinator.command(`execute ${objective}`)
+  assert.deepEqual(coordinator.statuses, [{ id: "task-graph-command", value: "Graph working: preparing execution…" }, { id: "task-graph-command", value: undefined }])
   const result = (await coordinator.call("propose_task_graph", { ...f.plan, objective: "first line second line" })).details
   assert.equal(result.plan.objective, objective)
  } finally { coordinator.stop() }
@@ -136,6 +137,7 @@ test("graph gc reports eligibility without mutating the active graph", async () 
   await coordinator.call("prepare_task_graph_workspace")
   const before = readFileSync(approval.record, "utf8"), calls = f.calls.length
   coordinator.setIdle(false); await coordinator.command("gc")
+  assert.deepEqual(coordinator.statuses.slice(-2), [{ id: "task-graph-command", value: "Graph working: inspecting evidence…" }, { id: "task-graph-command", value: undefined }])
   const report = JSON.parse(coordinator.notifications.at(-1).message)
   assert.equal(report.inspectionOnly, true); assert.equal(report.summary.active, 1)
   assert.equal(report.records.find((item: any) => item.runId === "run_fixture").nextAction, "/graph resume run_fixture")

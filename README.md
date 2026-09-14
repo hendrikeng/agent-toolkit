@@ -535,7 +535,7 @@ These states are deliberately different:
 - **Retired:** incomplete evidence remains available, but repository ownership was explicitly released.
 - **Legacy or uncertain:** inspection only. The runtime will not guess, migrate, or delete it.
 
-`/graph gc` shows an `Inspecting graph evidence…` footer status while it checks retained state. Archives do not expire automatically. Run `/graph purge 90d` to select verified archives by their `archivedAt` value. The command shows the exact archives and requires approval before it removes them. It leaves one hash receipt for each removed archive. It does not remove Git data, worktrees, resources, delivery evidence, retired evidence, legacy evidence, or Orca Runs.
+Every `/graph` command shows a `Graph working: …` footer status before it starts work. The status remains visible until the command finishes or reports an error. Archives do not expire automatically. Run `/graph purge 90d` to select verified archives by their `archivedAt` value. The command shows the exact archives and requires approval before it removes them. It leaves one hash receipt for each removed archive. It does not remove Git data, worktrees, resources, delivery evidence, retired evidence, legacy evidence, or Orca Runs.
 
 Without a mode, `/graph` means planning. The coordinator reads repository rules and resolves the requested plan dependencies before approval.
 The coordinator must stop on ambiguous plans, blocked dependencies, or missing approvals. It must not infer feature completion from repository consolidation.

@@ -285,20 +285,15 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  }
  const inspectGarbage = async (args: string, ctx: any) => {
   if (args.trim()) { ctx.ui.notify("Usage: /graph gc", "warning"); return }
-  ctx.ui.setStatus?.("task-graph-gc", "Inspecting graph evidence…")
-  await new Promise(resolve => setTimeout(resolve, 0))
   try {
    const report = inspectGraphGarbage(agentDir(), orcaJson, () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } })
    ctx.ui.notify(JSON.stringify(report, null, 2), "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
-  finally { ctx.ui.setStatus?.("task-graph-gc", undefined) }
  }
  const purgeArchivedGraphs = async (retention: string, ctx: any) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   if (retention.trim() !== "90d") { ctx.ui.notify("Usage: /graph purge 90d", "warning"); return }
   const agent = agentDir(), records = join(agent, "task-graphs"), archive = join(agent, "task-graphs-archived", "v1"), purges = join(agent, "task-graph-purges", "v1")
-  ctx.ui.setStatus?.("task-graph-purge", "Inspecting graph archives…")
-  await new Promise(resolve => setTimeout(resolve, 0))
   try {
    const access = () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } }
    const report = inspectGraphGarbage(agent, orcaJson, access), delivery = graphDeliveryInventory(agent)
@@ -346,7 +341,6 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
     ctx.ui.notify(JSON.stringify({ purged: purged.map(item => ({ runId: item.runId, archivedAt: item.archivedAt, purgedAt: item.purgedAt, receipt: join(purges, `${basename(item.archive)}.json`) })) }, null, 2), "info")
    } finally { unlock() }
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
-  finally { ctx.ui.setStatus?.("task-graph-purge", undefined) }
  }
  const resumeGraph = async (runId: string, ctx: any) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
@@ -434,6 +428,10 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
  pi.registerCommand("graph", { description: "Plan, execute, inspect, resume, deliver, archive, purge, or retire a bounded graph. /graph [plan|execute|gc|resume|deliver|archive|purge|retire] <objective-or-run-id>", handler: async (args, ctx) => {
+  const command = args.trim(), action = /^(plan|execute|gc|resume|deliver|archive|purge|retire)(?:\s|$)/.exec(command)?.[1] ?? "plan", labels: Record<string, string> = { plan: "preparing plan", execute: "preparing execution", gc: "inspecting evidence", resume: "resuming Run", deliver: "delivering Run", archive: "archiving Run", purge: "inspecting archives", retire: "retiring Run" }
+  ctx.ui.setStatus?.("task-graph-command", `Graph working: ${labels[action]}…`)
+  await new Promise(resolve => setTimeout(resolve, 50))
+  try {
   if (/^gc(?:\s|$)/.test(args.trim())) { await inspectGarbage(args.trim().slice(2), ctx); return }
   if (/^purge(?:\s|$)/.test(args.trim())) { await purgeArchivedGraphs(args.trim().slice(5), ctx); return }
   if (/^resume(?:\s|$)/.test(args.trim())) { await resumeGraph(args.trim().slice(6), ctx); return }
@@ -472,6 +470,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(request.target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(request.target, ".json")}.pending`)))
    pi.sendUserMessage(taskGraphPrompt(objective, mode))
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+  } finally { ctx.ui.setStatus?.("task-graph-command", undefined) }
  } })
  pi.registerTool({ name: "propose_task_graph", label: "Approve Graph", description: "Approve one bounded multi-worker graph, including its worktree budget and internal execution.", parameters: graphSchema, executionMode: "sequential", async execute(_id, params, signal, _update, ctx) {
   if (!request || record) throw new Error("Start /graph first or resume its retained record.")
