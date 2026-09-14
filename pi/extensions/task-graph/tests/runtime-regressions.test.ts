@@ -134,13 +134,17 @@ test("graph gc reports eligibility without mutating the active graph", async () 
  } finally { coordinator.stop() }
 })
 
-test("an active graph resumes across the final-validation prompt upgrade", async () => {
+test("an active graph resumes from its repository after its original root disappears", async () => {
  const f = fixture(), coordinator = f.runtime(f.source)
+ let record: string
  try {
   await coordinator.command(`execute ${f.plan.objective}`)
-  await coordinator.call("propose_task_graph", f.plan)
+  record = (await coordinator.call("propose_task_graph", f.plan)).details.record
   await coordinator.call("prepare_task_graph_workspace")
  } finally { coordinator.stop() }
+ const state = JSON.parse(readFileSync(record!, "utf8")); state.root = join(f.root, "missing-original-root")
+ for (const item of [...state.plan.tasks, ...state.plan.foundations]) item.repository = "."
+ writeFileSync(record!, JSON.stringify(state))
  const upgraded = "Checkpoint all final writes first, then run the exact Validation command on the clean checkpoint as your final non-inspection command before reporting completion. Validation before the final checkpoint does not count."
  for (const task of f.tasks) task.spec = task.spec.replace(upgraded, "Use checkpoint_task_graph for commits.")
  const resumed = f.runtime(f.source)
@@ -178,15 +182,21 @@ test("one approval runs concurrent workers, reuses bounded lanes, and delivers p
   await assert.rejects(coordinator.call("start_task_graph_task", { task_id: "c" }), /dependencies/)
   for (const [id, worker, path] of [["a", a, "a.txt"], ["b", b, "b.txt"]] as const) {
    process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = id
-   const previous = process.cwd(); process.chdir(worker.workspace)
+   const previous = process.cwd(), previousRepositories = process.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES, launcherRepositories = `launcher-${id}`
+   process.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES = launcherRepositories; process.chdir(worker.workspace)
+   let child: ReturnType<typeof f.runtime> | undefined
    try {
-    const child = f.runtime(worker.workspace)
+    child = f.runtime(worker.workspace)
     await assert.rejects(child.call("bash", { repository: worker.workspace, command: "git commit --allow-empty -m bypass" }), /checkpoint_task_graph/)
     await child.call("write", { path: join(worker.workspace, path), content: `${id}\n` })
     await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: [path], message: id })
     await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
     await child.call("bash", { repository: worker.workspace, command: "orca orchestration send --message done" })
-   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+   } finally {
+    child?.stop(); assert.equal(process.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES, launcherRepositories)
+    process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK
+    if (previousRepositories === undefined) delete process.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES; else process.env.AGENT_TOOLKIT_GRAPH_REPOSITORIES = previousRepositories
+   }
    const dispatch = f.dispatches.find(item => item.id === worker.dispatch); dispatch.status = "completed"
    f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
   }

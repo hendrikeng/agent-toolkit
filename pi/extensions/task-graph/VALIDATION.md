@@ -13,13 +13,16 @@ A failed combined validation keeps the lane and receives an in-scope repair disp
 A dirty or interrupted lane stays intact.
 Closeout removes only clean integrated lanes and keeps the integration worktree.
 Read-only workers use an existing checkout.
+A graph with resources must use execution mode and have a writing task and an integration workspace.
+An active graph can resume from a recorded source repository if its original command root is absent.
 
 `/graph gc` inspects current-v4, completed, retired, and legacy records without changing them.
 It reports eligible Runs and exact blockers for active mutations, workers, resources, worktrees, and uncertain evidence.
 The report does not contain credentials or private resource values.
 
 `/graph retire <run-id>` requires interactive approval for one eligible current-v4 Run.
-The Run can be unstarted or started with no completed or integrated task.
+The Run can be unstarted or started with no completed graph task or integrated worker.
+A completed Orca ledger status can represent a terminal worker report. This status does not alone block retirement.
 All recorded dispatches must be terminal, and each worker terminal must have verified exit evidence. All declared resources must have one verified, stopped identity.
 Retirement verifies each existing recorded worktree. Complete Orca inventory and filesystem checks can prove that a recorded worktree is absent.
 The receipt records this absence. Retirement does not recreate or remove a worktree or resource.
@@ -32,6 +35,8 @@ It fast-forwards each clean local target branch to its exact integration commit.
 It does not push.
 After delivery, it removes eligible integration worktrees through Orca.
 It also removes eligible integration worktrees from predecessor Runs.
+It retains an integration workspace when an active or pending-delivery Run still needs that workspace.
+Unreadable graph evidence blocks cleanup.
 The command preserves dirty, unsettled, unrelated, unmerged, live, or uncertain worktrees.
 A durable receipt records each fast-forward and cleanup step.
 Repeat the command to resume an interrupted delivery.

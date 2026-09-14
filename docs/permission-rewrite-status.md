@@ -3,8 +3,10 @@
 ## Result
 
 The source implementation passes the focused checks. The full specification is not release-complete.
-Installation, fresh-session acceptance, and live resource acceptance remain separate required gates.
-No live installation, permission change, publication, or removal of retained resources occurred during these checks.
+A fresh Pi 0.85.1 session loaded a retained `development-roots-v1` bundle on 2026-09-14.
+Ordinary Bash routing, outside-root denial, Orca status, and Docker status worked in that session.
+The current source still needs bundle comparison and the full installed acceptance matrix.
+No installation, permission change, publication, or removal of retained resources occurred during these checks.
 
 The implementation uses `development-roots-v1`, graph records version 4, and `@gotgenes/pi-permission-system@20.7.3`.
 The package exports the native shell inspector and the accepted-policy evaluator.
@@ -24,10 +26,10 @@ The real-package compatibility check and installed-session checks remain pending
 | Git boundaries | Ordinary local commands use a denylist with narrow protected operations |
 | Graph workers | Independent tasks use separate `pi-yolo` workers with the selected model |
 | Graph lanes | The worktree budget holds, clean lanes return to the pool, and read-only workers add no worktree |
-| Graph resume | Task receipts do not look like graph records, lost worktree receipts reconcile, and repeated starts do not create duplicates |
+| Graph resume | Task receipts do not look like graph records, lost worktree receipts reconcile, repeated starts do not create duplicates, and a recorded source repository can resume a Run after its original command root is absent |
 | Graph dependencies | Dependent lanes contain integrated prerequisite commits, and approved cross-repository checks work |
 | Graph validation | Worker checkpoints and combined integration commits run the declared validation |
-| Graph cleanup | Approved closeout removes clean integrated lanes and retains the integration worktree |
+| Graph cleanup | Approved closeout removes clean integrated lanes, retains the integration worktree, and delivery retains predecessor workspaces required by other Runs or uncertain evidence |
 | Graph conflicts | The coordinator can edit and checkpoint an owned integration conflict |
 | Resource identity | Simulated resources retain their limits and identities |
 
@@ -68,11 +70,11 @@ These results remain source evidence, not installed acceptance.
 
 | Gate | Current status | Required evidence |
 | --- | --- | --- |
-| Human-reviewed installation | User reported installation of an earlier candidate | Reinstall the corrected source with an explicit policy choice |
-| Fresh Pi session | Earlier installed candidate failed extension loading | Retry after reinstall, then complete the native probe and actual Bash routing |
-| Installed boundaries | Not performed | Root paths, selected directories, secrets, later allowances, asks, and unsupported operations |
-| Live Orca graph | Not performed | Approval, workspaces, task order, validation, restart, scope expansion, and separate execution |
-| Live local resources | Not performed | Declared image versions, startup, actual privileges, mounts, limits, expiry, reset, and verified stop |
+| Human-reviewed installation | A retained bundle is active, but its source revision is not recorded here | Compare the active bundle with the corrected source and reinstall if they differ |
+| Fresh Pi session | Pi 0.85.1 loaded the retained bundle and routed ordinary Bash successfully | Complete the remaining native path and operation matrix |
+| Installed boundaries | Partial | Complete root paths, selected directories, secrets, later allowances, asks, and unsupported operations |
+| Live Orca graph | Existing Run state and the Orca 1.4.201 runtime were inspected | Run a new approval, workspace, task-order, validation, restart, scope-expansion, and separate-execution acceptance flow |
+| Live local resources | Docker was reachable and one retained stopped container was inspected without credentials | Run new declared startup, privilege, mount, limit, expiry, reset, and verified-stop checks |
 | Update acceptance | Source checks only | Failed update preserves the selected bundle. Existing sessions retain their original bundle |
 
 These gates require a human installation and a new session. Source tests do not grant installed-runtime authority.

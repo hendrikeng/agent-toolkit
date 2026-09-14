@@ -73,7 +73,9 @@ export function captureGraphWorkspaces(root: string, plan: TaskGraphPlan): Graph
   const workspace = writing || selected.length ? { role, name: `graph-${label}-${key.slice(0, 8)}-${role}`, base } as GraphWorkspace : undefined
   return { source, sourceSeal: sourceSeal(source), sourceBranches: graphGit(source, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"), identity: repositoryIdentity(source), base, inputs: selected.map(path => graphInput(source, path)), ...(workspace ? { workspace } : {}) }
  })
- const record: GraphRecord = { version: 4, key, root: realpathSync(root), plan: structuredClone(plan), repositories, lanes: [], workers: {}, completed: {} }
+ const approvedPlan = structuredClone(plan)
+ for (const item of [...approvedPlan.tasks, ...approvedPlan.foundations, ...(approvedPlan.inputs ?? [])]) item.repository = realpathSync(resolve(root, item.repository))
+ const record: GraphRecord = { version: 4, key, root: realpathSync(root), plan: approvedPlan, repositories, lanes: [], workers: {}, completed: {} }
  validateSelectedPlan(record)
  return record
 }
@@ -91,6 +93,21 @@ export function readGraphRecord(file: string): GraphRecord {
  const record = JSON.parse(readFileSync(file, "utf8"))
  if (record.version !== 4) throw new Error(`Graph ownership [development-roots-v1]: this approval uses an older contract. Preserve it and its Run; do not migrate or restart it. Record: ${file}`)
  if (!/^[a-f0-9-]{36}$/.test(record.key) || !record.root || !Array.isArray(record.repositories) || !Array.isArray(record.lanes) || !record.workers || !record.completed) throw new Error("Invalid graph record. Preserve it for inspection.")
+ if (!existsSync(record.root)) {
+  if (record.plan.foundations.length !== record.repositories.length) throw new Error("Missing graph root has ambiguous repository declarations. Preserve it for inspection.")
+  const bindings = new Map<string, string>()
+  for (const foundation of record.plan.foundations) {
+   const matches = record.repositories.filter((repo: GraphRepository) => repo.base === foundation.commit && (!isAbsolute(foundation.repository) || foundation.repository === repo.source))
+   if (matches.length !== 1 || bindings.has(foundation.repository) && bindings.get(foundation.repository) !== matches[0].source) throw new Error("Missing graph root has ambiguous repository declarations. Preserve it for inspection.")
+   bindings.set(foundation.repository, matches[0].source); foundation.repository = matches[0].source
+  }
+  for (const item of [...record.plan.tasks, ...(record.plan.inputs ?? [])]) {
+   if (isAbsolute(item.repository)) continue
+   const source = bindings.get(item.repository) ?? (record.repositories.length === 1 ? record.repositories[0].source : undefined)
+   if (!source) throw new Error("Missing graph root has ambiguous repository declarations. Preserve it for inspection.")
+   item.repository = source
+  }
+ }
  validateTaskGraph(record.plan, record.root)
  const selected = record.plan.foundations.map((item: any) => ({ source: realpathSync(resolve(record.root, item.repository)), base: item.commit }))
  if (record.repositories.length !== selected.length || record.repositories.some((repo: GraphRepository) => !selected.some((item: any) => item.source === repo.source && item.base === repo.base) || repositoryIdentity(repo.source) !== repo.identity)) throw new Error("Workspace foundations no longer match approval.")
@@ -198,7 +215,7 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
  for (const task of tasks) {
   if (task?.run_id !== state.runId) retirementBlock("uncertain", `Ledger task ${String(task?.id)} belongs to another Run.`)
   if (task.parent_id != null) retirementBlock("uncertain", `Ledger task ${String(task.id)} is not a top-level graph task.`)
-  if (completedGraph ? task.status !== "completed" : task.status === "completed") retirementBlock("uncertain", `Ledger task ${String(task.id)} has incompatible status ${String(task.status)}.`)
+  if (completedGraph && task.status !== "completed") retirementBlock("uncertain", `Ledger task ${String(task.id)} has incompatible status ${String(task.status)}.`)
   if (!state.plan.tasks.some(declaration => matchesGraphTaskSpec(state, declaration, task.spec))) retirementBlock("uncertain", `Ledger task ${String(task.id)} does not match a declared graph task.`)
  }
  for (const declaration of state.plan.tasks) if (tasks.filter(task => matchesGraphTaskSpec(state, declaration, task.spec)).length !== 1) retirementBlock("uncertain", `Declared task ${declaration.id} has a missing or duplicated ledger receipt.`)

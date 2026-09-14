@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
-import { resolve } from "node:path"
-import { graphGit, repositoryIdentity, repositoryRoot, type Orca } from "./task-graph-core.ts"
+import { dirname, resolve } from "node:path"
+import { acquireLease, graphGit, repositoryIdentity, repositoryRoot, type Orca } from "./task-graph-core.ts"
 import { graphDirtyPaths, graphMergeHead, readGraphRecord, removeGraphWorkspace, saveGraphRecord, verifyGraphWorkspace, type GraphRecord } from "./workspaces.ts"
 
 export interface GraphDeliveryReceipt {
@@ -21,6 +21,15 @@ function settled(record: GraphRecord): boolean {
   && Object.values(record.workers).every(worker => record.completed[worker.task] && (!record.plan.tasks.find(task => task.id === worker.task)?.owns.length || worker.integrated))
   && record.lanes.every(lane => !lane.task)
   && Object.values(record.resources ?? {}).every((resource: any) => resource.stopped))
+}
+
+function activeWorkspacePaths(recordsDirectory: string): Set<string> {
+ const paths = new Set<string>()
+ for (const name of existsSync(recordsDirectory) ? readdirSync(recordsDirectory).filter(name => name.endsWith(".json")) : []) {
+  const saved = readGraphRecord(resolve(recordsDirectory, name))
+  if (!saved.completion || saved.completion.deliveryPending) for (const value of [saved.root, ...saved.repositories.flatMap(repo => [repo.source, repo.workspace?.path]), ...saved.lanes.map(lane => lane.workspace.path), ...Object.values(saved.workers).map(worker => worker.workspace)]) if (value) paths.add(value)
+ }
+ return paths
 }
 
 function recordedIntegrationHead(record: GraphRecord, repo: GraphRecord["repositories"][number]): string {
@@ -50,16 +59,21 @@ export function prepareGraphDelivery(recordFile: string, recordsDirectory: strin
  if (!targets.length) throw new Error("The Run has no integration commit to deliver.")
  const targetBySource = new Map(targets.map(item => [item.source, item]))
  const cleanup: GraphDeliveryReceipt["cleanup"] = [], retained: GraphDeliveryReceipt["retained"] = []
+ const records: Array<{ path: string; record: GraphRecord }> = []
+ let activePaths: Set<string> | undefined
+ try { activePaths = activeWorkspacePaths(recordsDirectory) } catch {}
  for (const name of existsSync(recordsDirectory) ? readdirSync(recordsDirectory).filter(name => name.endsWith(".json")) : []) {
   const path = resolve(recordsDirectory, name)
-  let candidate: GraphRecord
-  try { candidate = readGraphRecord(path) } catch { continue }
+  try { records.push({ path, record: readGraphRecord(path) }) } catch {}
+ }
+ for (const { path, record: candidate } of records) {
   if (!candidate.runId || !candidate.completion || candidate.completion.deliveryPending) continue
   const related = candidate.repositories.some(repo => targetBySource.get(repo.source)?.identity === repo.identity)
   if (!related) continue
   if (!settled(candidate) || candidate.lanes.some(lane => lane.cleanup !== "removed")) { retained.push({ runId: candidate.runId, record: path, reason: "Run or lanes are not clean and settled." }); continue }
   const workspaces = candidate.repositories.filter(repo => repo.workspace?.role === "integration")
   if (!workspaces.length || workspaces.some(repo => !targetBySource.has(repo.source) || targetBySource.get(repo.source)!.identity !== repo.identity)) { retained.push({ runId: candidate.runId, record: path, reason: "Run contains an unrelated or uncertain repository." }); continue }
+  if (!activePaths || workspaces.some(repo => activePaths.has(repo.workspace!.path!))) { retained.push({ runId: candidate.runId, record: path, reason: activePaths ? "Another Run still requires this integration workspace." : "Graph ownership evidence is unreadable or uncertain." }); continue }
   try {
    const eligible = workspaces.map(repo => {
     const head = recordedIntegrationHead(candidate, repo), final = targetBySource.get(repo.source)!.head
@@ -86,31 +100,36 @@ export function deliverGraph(receiptFile: string, approved: GraphDeliveryReceipt
  if (!receipt) throw new Error("Graph delivery needs interactive approval.")
  const persist = () => saveGraphRecord(receiptFile, receipt)
  if (!existsSync(receiptFile)) persist()
- const record = readGraphRecord(receipt.record)
- if (record.runId !== receipt.runId || !settled(record)) throw new Error("The approved Run record changed or is no longer deliverable.")
- for (const item of receipt.targets) {
-  const repo = record.repositories.find(repo => repo.source === item.source && repo.identity === item.identity)
-  const cleanup = receipt.cleanup.find(cleanup => cleanup.workspace.id === item.workspace.id && cleanup.workspace.path === item.workspace.path)
-  const removalRecorded = item.status === "delivered" && cleanup && cleanup.status !== "pending" && !existsSync(item.workspace.path)
-  if (!repo?.workspace || repo.workspace.id !== item.workspace.id || repo.workspace.path !== item.workspace.path || repo.workspace.branch !== item.workspace.branch || !removalRecorded && verifyGraphWorkspace(repo) !== item.head) throw new Error("The approved repository, workspace, or integration commit changed.")
-  if (repositoryRoot(item.source) !== item.source || repositoryIdentity(item.source) !== item.identity || graphGit(item.source, "rev-parse", "--abbrev-ref", "HEAD") !== item.branch || graphDirtyPaths(item.source).length || graphMergeHead(item.source)) throw new Error("The delivery target checkout changed, is dirty, or is unsettled.")
-  const current = graphGit(item.source, "rev-parse", "HEAD")
-  if (current !== item.from && current !== item.head) throw new Error("The delivery target commit changed after approval.")
-  if (current !== item.head) graphGit(item.source, "merge", "--ff-only", item.head)
-  if (graphGit(item.source, "rev-parse", "HEAD") !== item.head || graphDirtyPaths(item.source).length) throw new Error("The local fast-forward did not reach the approved integration commit.")
-  item.status = "delivered"; persist()
- }
- for (const item of receipt.targets) graphGit(item.source, "merge-base", "--is-ancestor", item.head, "HEAD")
- for (const item of receipt.cleanup.filter(item => item.status !== "removed")) {
-  const candidate = readGraphRecord(item.record), repo = candidate.repositories.find(repo => repo.source === item.source && repo.identity === item.identity)
-  if (candidate.runId !== item.runId || !settled(candidate) || candidate.lanes.some(lane => lane.cleanup !== "removed") || !repo?.workspace || repo.workspace.id !== item.workspace.id || repo.workspace.path !== item.workspace.path || repo.workspace.branch !== item.workspace.branch) throw new Error("A cleanup Run or workspace no longer matches its durable receipt.")
-  const final = receipt.targets.find(target => target.source === item.source && target.identity === item.identity)
-  if (!final) throw new Error("A cleanup target is no longer related to this delivery.")
-  if (repositoryIdentity(final.source) !== final.identity || graphGit(final.source, "rev-parse", "--abbrev-ref", "HEAD") !== final.branch || graphGit(final.source, "rev-parse", "HEAD") !== final.head || graphDirtyPaths(final.source).length || graphMergeHead(final.source)) throw new Error("The delivered target changed before cleanup.")
-  if (existsSync(item.workspace.path) && verifyGraphWorkspace(repo) !== item.head) throw new Error("A cleanup workspace advanced after approval.")
-  removeGraphWorkspace(repo, repo.workspace, final.head, orca, item.status === "removing", () => { item.status = "removing"; persist() }, false)
-  item.status = "removed"; persist()
- }
- receipt.status = "delivered"; receipt.completedAt ??= new Date().toISOString(); persist()
- return receipt
+ const unlockStartup = acquireLease(resolve(dirname(receipt.record), "startup"))
+ try {
+  const activePaths = activeWorkspacePaths(dirname(receipt.record))
+  if (receipt.targets.some(item => activePaths.has(item.source)) || receipt.cleanup.some(item => item.status !== "removed" && activePaths.has(item.workspace.path))) throw new Error("Another Run now requires a delivery target or cleanup workspace. Preserve it and resume delivery after that Run settles.")
+  const record = readGraphRecord(receipt.record)
+  if (record.runId !== receipt.runId || !settled(record)) throw new Error("The approved Run record changed or is no longer deliverable.")
+  for (const item of receipt.targets) {
+   const repo = record.repositories.find(repo => repo.source === item.source && repo.identity === item.identity)
+   const cleanup = receipt.cleanup.find(cleanup => cleanup.workspace.id === item.workspace.id && cleanup.workspace.path === item.workspace.path)
+   const removalRecorded = item.status === "delivered" && cleanup && cleanup.status !== "pending" && !existsSync(item.workspace.path)
+   if (!repo?.workspace || repo.workspace.id !== item.workspace.id || repo.workspace.path !== item.workspace.path || repo.workspace.branch !== item.workspace.branch || !removalRecorded && verifyGraphWorkspace(repo) !== item.head) throw new Error("The approved repository, workspace, or integration commit changed.")
+   if (repositoryRoot(item.source) !== item.source || repositoryIdentity(item.source) !== item.identity || graphGit(item.source, "rev-parse", "--abbrev-ref", "HEAD") !== item.branch || graphDirtyPaths(item.source).length || graphMergeHead(item.source)) throw new Error("The delivery target checkout changed, is dirty, or is unsettled.")
+   const current = graphGit(item.source, "rev-parse", "HEAD")
+   if (current !== item.from && current !== item.head) throw new Error("The delivery target commit changed after approval.")
+   if (current !== item.head) graphGit(item.source, "merge", "--ff-only", item.head)
+   if (graphGit(item.source, "rev-parse", "HEAD") !== item.head || graphDirtyPaths(item.source).length) throw new Error("The local fast-forward did not reach the approved integration commit.")
+   item.status = "delivered"; persist()
+  }
+  for (const item of receipt.targets) graphGit(item.source, "merge-base", "--is-ancestor", item.head, "HEAD")
+  for (const item of receipt.cleanup.filter(item => item.status !== "removed")) {
+   const candidate = readGraphRecord(item.record), repo = candidate.repositories.find(repo => repo.source === item.source && repo.identity === item.identity)
+   if (candidate.runId !== item.runId || !settled(candidate) || candidate.lanes.some(lane => lane.cleanup !== "removed") || !repo?.workspace || repo.workspace.id !== item.workspace.id || repo.workspace.path !== item.workspace.path || repo.workspace.branch !== item.workspace.branch) throw new Error("A cleanup Run or workspace no longer matches its durable receipt.")
+   const final = receipt.targets.find(target => target.source === item.source && target.identity === item.identity)
+   if (!final) throw new Error("A cleanup target is no longer related to this delivery.")
+   if (repositoryIdentity(final.source) !== final.identity || graphGit(final.source, "rev-parse", "--abbrev-ref", "HEAD") !== final.branch || graphGit(final.source, "rev-parse", "HEAD") !== final.head || graphDirtyPaths(final.source).length || graphMergeHead(final.source)) throw new Error("The delivered target changed before cleanup.")
+   if (existsSync(item.workspace.path) && verifyGraphWorkspace(repo) !== item.head) throw new Error("A cleanup workspace advanced after approval.")
+   removeGraphWorkspace(repo, repo.workspace, final.head, orca, item.status === "removing", () => { item.status = "removing"; persist() }, false)
+   item.status = "removed"; persist()
+  }
+  receipt.status = "delivered"; receipt.completedAt ??= new Date().toISOString(); persist()
+  return receipt
+ } finally { unlockStartup() }
 }

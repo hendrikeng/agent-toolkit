@@ -37,15 +37,12 @@ test("an authorized unstarted graph retirement preserves its record", () => {
  assert.equal(readFileSync(result.record, "utf8"), bytes)
  assert.equal(JSON.parse(readFileSync(join(retired, "fixture", "retirement.json"), "utf8")).status, "retired")
 })
-test("unstarted retirement rejects a declared live resource without a recorded identity", () => {
- const root = process.cwd(), directory = fixture(), base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
- const plan: any = { objective: "Unstarted resource fixture", mode: "execute", worktree_budget: 1, foundations: [{ repository: ".", commit: base }], tasks: [{ id: "read", goal: "Inspect", repository: ".", depends_on: [], owns: [], done_when: ["Inspected."], validation: "manual: inspect" }], resources: [{ id: "database", type: "postgres", image: `postgres:17.6@sha256:${"b".repeat(64)}`, purpose: "fixture", memoryMiB: 256, storageMiB: 128, lifetimeSeconds: 3600 }] }
- const record = captureGraphWorkspaces(root, plan), file = join(directory, "record.json"), container = { Id: "a".repeat(64), Config: { Labels: { "agent-toolkit.scope": record.key } } }; record.runId = "run_unstarted_resource"; writeFileSync(file, JSON.stringify(record))
- assert.equal(inspectGraphRetirement(file, { list: () => [], inspect: () => undefined }, retirementOrca(record)).eligible, true)
- const runtime = { list: () => [container.Id], inspect: () => container }, result = inspectGraphRetirement(file, runtime, retirementOrca(record))
- assert.equal(result.eligible, false); assert.match(result.blocker!, /resource/)
- delete record.plan.resources; writeFileSync(file, JSON.stringify(record))
- assert.match(inspectGraphRetirement(file, runtime, retirementOrca(record)).blocker!, /resource/)
+test("resource declarations require a writing task before approval", () => {
+ const root = process.cwd(), base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+ const plan: any = { objective: "Resource fixture", mode: "execute", worktree_budget: 1, foundations: [{ repository: ".", commit: base }], tasks: [{ id: "read", goal: "Inspect", repository: ".", depends_on: [], owns: [], done_when: ["Inspected."], validation: "manual: inspect" }], resources: [{ id: "database", type: "postgres", image: `postgres:17.6@sha256:${"b".repeat(64)}`, purpose: "fixture", memoryMiB: 256, storageMiB: 128, lifetimeSeconds: 3600 }] }
+ assert.throws(() => captureGraphWorkspaces(root, plan), /resources require a writing task/)
+ plan.mode = "plan-only"; plan.tasks[0].owns = ["docs/plan.md"]; plan.tasks[0].validation = "node check.cjs"
+ assert.throws(() => captureGraphWorkspaces(root, plan), /execution mode/)
 })
 
 test("an interrupted unstarted graph retirement resumes from its receipt", () => {
@@ -185,12 +182,14 @@ test("workerless resource startup can retire after its exact resource is stopped
  assert.equal(result.eligible, true); assert.equal(result.state, "eligible")
 })
 
-test("run_072fca697cae-shaped retirement records an authoritatively missing integration worktree", () => {
- const f = settledRetirementFixture("run_072fca697cae", true), result = retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource)
+test("run_072fca697cae-shaped retirement accepts a completed worker report and records absent worktrees", () => {
+ const f = settledRetirementFixture("run_072fca697cae", true); f.tasks[0].status = "completed"
+ renameSync(f.lane, `${f.lane}.removed`); f.worktrees.splice(f.worktrees.findIndex(item => item.path === f.lane), 1)
+ const result = retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource)
  const receipt = JSON.parse(readFileSync(join(f.retired, "current-v4/retirement.json"), "utf8"))
  assert.equal(receipt.worktrees.find((item: any) => item.role === "integration").status, "verified-absent")
- assert.equal(receipt.worktrees.find((item: any) => item.role === "lane").status, "verified-existing")
- assert.equal(existsSync(f.integration), false); assert.equal(readFileSync(join(f.lane, "stranded.txt"), "utf8"), "keep\n")
+ assert.equal(receipt.worktrees.find((item: any) => item.role === "lane").status, "verified-absent")
+ assert.equal(existsSync(f.integration), false); assert.equal(existsSync(f.lane), false)
  const bytes = readFileSync(join(f.retired, "current-v4/retirement.json"), "utf8")
  assert.equal(retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource).record, result.record); assert.equal(readFileSync(join(f.retired, "current-v4/retirement.json"), "utf8"), bytes)
 })
@@ -198,7 +197,6 @@ test("run_072fca697cae-shaped retirement records an authoritatively missing inte
 test("settled retirement rejects nonterminal, changed, missing, duplicate, or foreign orchestration evidence", () => {
  const cases: Array<[string, (f: ReturnType<typeof settledRetirementFixture>) => void, RegExp]> = [
   ["running dispatch", f => { f.dispatches[0].status = "running" }, /nonterminal/],
-  ["completed task", f => { f.tasks[0].status = "completed" }, /completed/],
   ["missing task", f => { f.tasks.length = 0 }, /ledger/i],
   ["changed task", f => { f.tasks[0].spec += " changed" }, /ledger/i],
   ["duplicate task", f => { f.tasks.push({ ...f.tasks[0], id: "task_duplicate" }) }, /ledger/i],

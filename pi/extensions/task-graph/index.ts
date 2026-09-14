@@ -108,9 +108,14 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  let record: GraphRecord | undefined, file: string | undefined, release: (() => void) | undefined
  const workerFile = process.env.AGENT_TOOLKIT_GRAPH_RECORD, workerTask = process.env.AGENT_TOOLKIT_GRAPH_TASK
  const agentDir = () => process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir()
+ const graphEnvironmentOriginals = new Map<string, string | undefined>()
+ const clearGraphEnvironment = () => {
+  for (const [key, value] of graphEnvironmentOriginals) value === undefined ? delete process.env[key] : process.env[key] = value
+  graphEnvironmentOriginals.clear()
+ }
  const persist = () => { if (!file || !record) throw new Error("No approved graph record."); saveGraphRecord(file, record) }
  const bound = () => { if (!record || !release || record.completion) throw new Error("Approve or resume an unfinished graph first."); return record }
- const stop = () => { release?.(); release = undefined; record = undefined; file = undefined; request = undefined }
+ const stop = () => { clearGraphEnvironment(); release?.(); release = undefined; record = undefined; file = undefined; request = undefined }
  const cleanupGeneratedLinks = (workspace: string, owners: string[]) => {
   const workspaceRoot = realpathSync(workspace)
   for (const local of graphDirtyPaths(workspace).filter(local => !owners.some(owner => local === owner || local.startsWith(`${owner}/`)))) {
@@ -138,7 +143,6 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   }
  }
  const taskSources = (state: GraphRecord, task: TaskGraphPlan["tasks"][number]) => new Set([task.id, ...task.depends_on].map(id => state.plan.tasks.find(item => item.id === id)!).map(item => realpathSync(resolve(state.root, item.repository))))
- const graphEnvKeys = new Set<string>()
  const currentRepositoryMap = (state: GraphRecord) => Object.fromEntries(state.repositories.map(repo => [repo.source, { path: repo.workspace?.path ?? repo.source, head: graphGit(repo.workspace?.path ?? repo.source, "rev-parse", "HEAD"), branch: repo.workspace?.branch ?? graphGit(repo.source, "rev-parse", "--abbrev-ref", "HEAD") }]))
  const graphEnvironment = (state: GraphRecord, repositories = currentRepositoryMap(state)) => {
   const resources = state.resources && Object.keys(state.resources).length ? resourceHelper().resourceEnvironment(state.resources, resourceHelper().dockerRuntime()) : {}
@@ -146,9 +150,8 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   return { AGENT_TOOLKIT_GRAPH_REPOSITORIES: JSON.stringify(repositories), ...resources, ...(postgres.length === 1 ? { TEST_DATABASE_URL: postgres[0] } : {}) }
  }
  const exposeGraphEnvironment = (state: GraphRecord, repositories: any) => {
-  for (const key of graphEnvKeys) delete process.env[key]
-  graphEnvKeys.clear()
-  for (const [key, value] of Object.entries(graphEnvironment(state, repositories))) { process.env[key] = value; graphEnvKeys.add(key) }
+  clearGraphEnvironment()
+  for (const [key, value] of Object.entries(graphEnvironment(state, repositories))) { graphEnvironmentOriginals.set(key, process.env[key]); process.env[key] = value }
  }
  const runIntegrationCommand = async (state: GraphRecord, repo: GraphRecord["repositories"][number], worker: GraphRecord["workers"][string], command: string, id: string, signal: AbortSignal | undefined, update: any) => {
   const integration = repo.workspace!, before = verifyGraphWorkspace(repo, integration), approved = state.repositories.map(item => item.workspace?.path ?? item.source), facts = await inspectShell(command, integration.path!)
@@ -269,14 +272,14 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }
   const parsed = /^(?:(plan|execute)\s+)?(.+)$/s.exec(args.trim())
   if (!parsed || !ctx.model) { ctx.ui.notify(parsed ? "No model selected." : "Usage: /graph [plan|execute] <objective>", "warning"); return }
-  const root = repositoryRoot(ctx.cwd), mode = parsed[1] === "execute" ? "execute" : "plan-only", objective = parsed[2]
+  const root = repositoryRoot(ctx.cwd), identity = repositoryIdentity(root), mode = parsed[1] === "execute" ? "execute" : "plan-only", objective = parsed[2]
   request = { root, mode, objective, model: `${ctx.model.provider}/${ctx.model.id}`.toLowerCase() }
-  const directory = join(agentDir(), "task-graphs"), stem = digest(`${repositoryIdentity(root)}:${mode}:${objective}`)
+  const directory = join(agentDir(), "task-graphs"), stem = digest(`${identity}:${mode}:${objective}`)
   try {
    if (process.env.AGENT_TOOLKIT_GRAPH_WORKSPACES || process.env.AGENT_TOOLKIT_GRAPH_TASK && !workerFile) throw new Error(LEGACY_GRAPH)
    for (const entry of (existsSync(directory) ? readdirSync(directory) : []).filter(name => name.endsWith(".json"))) {
-    const path = join(directory, entry), saved = readGraphAdmission(path, [repositoryIdentity(root)], root)
-    if (saved && !saved.completion && saved.root === root && saved.plan.mode === mode && saved.plan.objective === objective) {
+    const path = join(directory, entry), saved = readGraphAdmission(path, [identity], root)
+    if (saved && !saved.completion && saved.repositories.some(repo => repo.identity === identity) && saved.plan.mode === mode && saved.plan.objective === objective) {
      assertNoLegacyGraph(agentDir(), saved.repositories.map(repo => repo.identity)); release = acquireLease(path); file = path; record = saved
      if (saved.runId) orcaJson(["orchestration", "run-use", "--id", saved.runId, "--json"])
      pi.sendUserMessage(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...saved, repositories: saved.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`); return
@@ -563,5 +566,5 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    writeReceipt(workerFile, task.id, receipt)
   } catch {}
  })
- pi.on("session_shutdown", () => { for (const key of graphEnvKeys) delete process.env[key]; if (!workerFile) stop() })
+ pi.on("session_shutdown", () => { clearGraphEnvironment(); if (!workerFile) stop() })
 }

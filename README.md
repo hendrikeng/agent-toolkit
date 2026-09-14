@@ -510,6 +510,7 @@ Each repository needs a full foundation commit. Branch names and short hashes ar
 The proposal also declares a worktree budget. The approval screen shows the paths, commits, input hashes, and budget.
 
 One approval covers the Run, task records, worker launches, setup, validation, retries, bounded resources, and internal integration.
+A graph with resources must use execution mode and include a writing task and an integration worktree.
 Closeout removes verified clean lanes and keeps each integration worktree.
 It does not permit source writes, publication, source-branch merge-back, unrelated or dirty cleanup, or production administration.
 Planning writes must be Markdown under `docs/`, outside `docs/exec-plans/`. Planning cannot implement code or promote execution plans.
@@ -547,6 +548,7 @@ The worktree count never exceeds the approved budget. The graph reuses lanes acr
 
 Repeat the exact `/graph` command from the same selected repository to resume. Keep the original command even after plan files move.
 The repository identity, mode, and exact objective select the retained version-4 record in the managed agent directory.
+The original command root can be absent. Resume uses the identity of a recorded source repository.
 Older approvals remain unchanged evidence. They do not inherit the new contract.
 Resume does not need a second proposal or another approval. It verifies the saved contract and reuses its resource names, commits, and input bytes.
 
@@ -563,6 +565,7 @@ Known unrelated records remain untouched. The runtime does not assume that their
 It also reports running workers, live resources, and uncertain evidence. The report does not include credentials or private resource values.
 
 `/graph retire <run-id>` is the only retirement mutation. It requires interactive approval and accepts eligible incomplete current-v4 graphs only.
+A completed Orca ledger task can represent a terminal worker report. It does not mean that the graph task completed integration.
 Every worker must have a terminal dispatch and a verified exited terminal. Every resource must have an exact stopped identity.
 Retirement releases repository ownership. It preserves records, orchestration evidence, commits, worktrees, lanes, branches, resources, and resource identities.
 A missing recorded worktree requires complete Orca inventory and filesystem evidence. Retirement records an authoritative absence and never recreates the worktree.

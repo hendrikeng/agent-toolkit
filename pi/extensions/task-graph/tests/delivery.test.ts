@@ -60,6 +60,45 @@ test("delivery fast-forwards locally and resumes Orca cleanup after interruption
  assert.equal(JSON.parse(readFileSync(predecessor.file, "utf8")).completion.evidence, "done")
 })
 
+test("delivery preserves a predecessor workspace referenced by an active Run", () => {
+ const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head), active = f.make("run_active", "active", current.head)
+ active.record.root = predecessor.repo.workspace!.path!; active.record.plan.foundations[0].repository = f.source; active.record.plan.tasks[0].repository = f.source; active.record.completed = {}; delete active.record.completion; saveGraphRecord(active.file, active.record)
+ const approved = prepareGraphDelivery(current.file, f.records)
+ assert.equal(approved.cleanup.some(item => item.runId === predecessor.record.runId), false)
+ assert.match(approved.retained.find(item => item.runId === predecessor.record.runId)!.reason, /Another Run/)
+ assert.equal(existsSync(predecessor.repo.workspace!.path!), true)
+})
+
+test("delivery rechecks active workspace references after approval", () => {
+ const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head)
+ const receiptFile = join(f.directory, "delivery.json"), approved = prepareGraphDelivery(current.file, f.records), active = f.make("run_active", "active", current.head), sourceHead = graphGit(f.source, "rev-parse", "HEAD")
+ active.record.root = predecessor.repo.workspace!.path!; active.record.plan.foundations[0].repository = f.source; active.record.plan.tasks[0].repository = f.source; active.record.completed = {}; delete active.record.completion; saveGraphRecord(active.file, active.record)
+ assert.throws(() => deliverGraph(receiptFile, approved, f.orca), /Another Run now requires/)
+ assert.equal(graphGit(f.source, "rev-parse", "HEAD"), sourceHead); assert.equal(existsSync(predecessor.repo.workspace!.path!), true)
+})
+
+test("delivery rechecks pending-delivery workspace references after approval", () => {
+ const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head)
+ const receiptFile = join(f.directory, "delivery.json"), approved = prepareGraphDelivery(current.file, f.records), pending = f.make("run_pending", "pending", current.head)
+ pending.record.root = predecessor.repo.workspace!.path!; pending.record.completion!.deliveryPending = true; saveGraphRecord(pending.file, pending.record)
+ assert.throws(() => deliverGraph(receiptFile, approved, f.orca), /Another Run now requires/)
+ assert.equal(existsSync(predecessor.repo.workspace!.path!), true)
+})
+
+test("delivery preserves cleanup workspaces when graph evidence is unreadable", () => {
+ const before = fixture(), predecessor = before.make("run_predecessor", "predecessor"), current = before.make("run_current", "current", predecessor.head)
+ writeFileSync(join(before.records, "broken.json"), "{")
+ const prepared = prepareGraphDelivery(current.file, before.records)
+ assert.equal(prepared.cleanup.some(item => item.runId === predecessor.record.runId), false)
+ assert.match(prepared.retained.find(item => item.runId === predecessor.record.runId)!.reason, /unreadable or uncertain/)
+
+ const after = fixture(), earlier = after.make("run_earlier", "earlier"), latest = after.make("run_latest", "latest", earlier.head)
+ const receiptFile = join(after.directory, "delivery.json"), approved = prepareGraphDelivery(latest.file, after.records)
+ writeFileSync(join(after.records, "broken.json"), "{")
+ assert.throws(() => deliverGraph(receiptFile, approved, after.orca))
+ assert.equal(existsSync(earlier.repo.workspace!.path!), true)
+})
+
 test("delivery preserves a predecessor workspace changed after approval", () => {
  const f = fixture(), predecessor = f.make("run_predecessor", "predecessor"), current = f.make("run_current", "current", predecessor.head)
  const receiptFile = join(f.directory, "delivery.json"), approved = prepareGraphDelivery(current.file, f.records)
