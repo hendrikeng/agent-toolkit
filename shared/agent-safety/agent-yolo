@@ -255,7 +255,7 @@ const scratchRoot = process.argv[6];
 fs.mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
 access.assertDevelopmentPath(scratchRoot, roots);
 const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
-for (const surface of ["write", "edit"]) config.permission[surface] = { ...config.permission.path, ...config.permission[surface], [runtimeAgentDir]: "deny", [path.join(runtimeAgentDir, "*")]: "deny" };
+for (const surface of ["write", "edit"]) config.permission[surface] = { ...config.permission.path, ...(typeof config.permission[surface] === "object" ? config.permission[surface] : {}), [runtimeAgentDir]: "deny", [path.join(runtimeAgentDir, "*")]: "deny" };
 config.permission.bash[`*${runtimeAgentDir}*`] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";

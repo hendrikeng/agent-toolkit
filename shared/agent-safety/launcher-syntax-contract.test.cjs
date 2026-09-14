@@ -64,6 +64,18 @@ test('pi-yolo permits only native reads of graph evidence', () => {
  assert.doesNotMatch(block, /permission\.(?:external_directory|write|edit|bash)/)
 })
 
+test('pi-yolo keeps scalar write defaults valid when adding runtime guards', () => {
+ const { runInNewContext } = require('node:vm')
+ const config = JSON.parse(readFileSync(join(__dirname, 'pi-permission-system.json'), 'utf8'))
+ const guard = launcher.split('\n').find(line => line.startsWith('for (const surface of ["write", "edit"]) config.permission[surface]'))
+ runInNewContext(guard, { config, path: require('node:path'), runtimeAgentDir: '/runtime-agent' })
+ for (const surface of ['write', 'edit']) {
+  assert.equal(config.permission[surface]['/runtime-agent'], 'deny')
+  assert.equal(config.permission[surface]['/runtime-agent/*'], 'deny')
+  assert.equal(config.permission[surface][0], undefined)
+ }
+})
+
 test('pi-yolo keeps subprocess temporary files inside the development root', () => {
  assert.match(launcher, /scratch_root=\$HOME\/Code\/\.agent-toolkit-scratch/)
  assert.match(launcher, /access\.assertDevelopmentPath\(scratchRoot, roots\)/)
