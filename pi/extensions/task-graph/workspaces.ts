@@ -327,7 +327,7 @@ function assessGraphRetirement(file: string, runtime: any, orca?: Orca, verifyRe
  const unstarted = !state.lanes.length && !workers.length && !resourceStarted
  if (!orca) retirementBlock("uncertain", "Graph retirement requires complete Run and ledger evidence.")
  inspectOrchestration(state, orca)
- if (!unstarted) inspectStartedResources(state, runtime, verifyResource)
+ if (!unstarted) inspectStartedResources(state, runtime, verifyResource, true)
  const worktrees = unstarted ? (() => {
   for (const repo of state.repositories.filter(repo => repo.workspace)) {
    try { if (verifyGraphWorkspace(repo) !== repo.workspace!.captureCommit || graphMergeHead(repo.workspace!.path) || graphDirtyPaths(repo.workspace!.path).length) retirementBlock("uncertain", "Unstarted retirement requires every integration worktree to be clean and unchanged.") }

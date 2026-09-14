@@ -177,7 +177,7 @@ test("run_4786ff0ea472-shaped retirement needs no repair marker and preserves a 
 })
 
 test("workerless resource startup can retire after its exact resource is stopped", () => {
- const f = settledRetirementFixture("run_workerless_resource", false, true); f.record.lanes = []; f.record.workers = {}; f.tasks[0].status = "ready"; saveSettled(f)
+ const f = settledRetirementFixture("run_workerless_resource", false, true); f.record.lanes = []; f.record.workers = {}; f.record.resources!.database.stopped = false; f.record.resources!.database.ready = true; f.tasks[0].status = "ready"; saveSettled(f)
  const result = inspectGraphRetirement(f.file, f.runtime, f.orca, f.verifyResource)
  assert.equal(result.eligible, true); assert.equal(result.state, "eligible")
 })
