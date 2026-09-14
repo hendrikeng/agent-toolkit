@@ -39,7 +39,7 @@ test("archive resumes after authorization was saved before the record move", () 
 
 test("archive rejects incomplete, legacy, and live graph records", () => {
  const incomplete = fixture(); delete (incomplete.record as any).completion; writeFileSync(incomplete.file, JSON.stringify(incomplete.record)); assert.equal(inspectGraphArchive(incomplete.file).eligible, false)
- const legacy = fixture(); legacy.record.version = 2; writeFileSync(legacy.file, JSON.stringify(legacy.record)); assert.equal(inspectGraphArchive(legacy.file).eligible, false)
+ const legacy = fixture(); legacy.record.version = 2; legacy.record.repositories[0].source = join(legacy.root, "missing-legacy-source"); writeFileSync(legacy.file, JSON.stringify(legacy.record)); assert.equal(inspectGraphArchive(legacy.file).eligible, false)
  const malformed = fixture(); writeFileSync(malformed.file, JSON.stringify({ version: 4, key: malformed.record.key, runId: "run_archive", plan: malformed.record.plan, completed: malformed.record.completed, completion: malformed.record.completion })); assert.equal(inspectGraphArchive(malformed.file).eligible, false)
  const ambiguousRoot = fixture(); ambiguousRoot.record.root = join(ambiguousRoot.root, "missing-root"); ambiguousRoot.record.plan.tasks[0].repository = "."; ambiguousRoot.record.plan.foundations[0].repository = "."; writeFileSync(ambiguousRoot.file, JSON.stringify(ambiguousRoot.record)); assert.equal(inspectGraphArchive(ambiguousRoot.file).eligible, false)
  const changed = fixture(); assert.throws(() => archiveCompletedGraph(changed.file, changed.archive, undefined, "0".repeat(64)), /changed after archive approval/); assert.equal(existsSync(join(changed.archive, "record")), false)

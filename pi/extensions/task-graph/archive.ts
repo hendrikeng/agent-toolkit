@@ -51,7 +51,9 @@ function moveSidecars(file: string, directory: string): void {
 function header(file: string): { saved: any; bytes: Buffer } {
  const stat = lstatSync(file)
  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Graph record identity is uncertain. Preserve it for inspection.")
- const bytes = readFileSync(file), saved = validateRetainedGraphRecord(JSON.parse(bytes.toString("utf8")), file)
+ const bytes = readFileSync(file), parsed = JSON.parse(bytes.toString("utf8"))
+ if (parsed.version !== 4) throw new Error("Archive only a completed current-v4 graph.")
+ const saved = validateRetainedGraphRecord(parsed, file)
  if (!/^run_[a-zA-Z0-9_-]+$/.test(saved.runId ?? "") || !saved.completion || saved.plan.tasks.some(task => !saved.completed[task.id])) throw new Error("Archive only a completed current-v4 graph.")
  return { saved, bytes }
 }

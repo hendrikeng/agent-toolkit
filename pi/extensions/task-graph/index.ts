@@ -285,10 +285,13 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  }
  const inspectGarbage = async (args: string, ctx: any) => {
   if (args.trim()) { ctx.ui.notify("Usage: /graph gc", "warning"); return }
+  ctx.ui.setStatus?.("task-graph-gc", "Inspecting graph evidence…")
+  await new Promise(resolve => setTimeout(resolve, 0))
   try {
    const report = inspectGraphGarbage(agentDir(), orcaJson, () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } })
    ctx.ui.notify(JSON.stringify(report, null, 2), "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
+  finally { ctx.ui.setStatus?.("task-graph-gc", undefined) }
  }
  const resumeGraph = async (runId: string, ctx: any) => {
   if (!ctx.isIdle() || release) { ctx.ui.notify("Finish the current response or graph first.", "warning"); return }

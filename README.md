@@ -533,6 +533,8 @@ These states are deliberately different:
 - **Retired:** incomplete evidence remains available, but repository ownership was explicitly released.
 - **Legacy or uncertain:** inspection only. The runtime will not guess, migrate, or delete it.
 
+`/graph gc` shows an `Inspecting graph evidence…` footer status while it checks retained state. Archived records have no automatic expiry. This is deliberate: archive preserves byte-identical evidence and does not copy repository objects or worktrees, so each archive normally costs only its small JSON record, receipt, and sidecars. Delivery removes eligible integration worktrees. Git branches, commits, Orca Runs, retired evidence, and uncertain evidence remain until a separate, explicitly approved purge lifecycle exists.
+
 Without a mode, `/graph` means planning. The coordinator reads repository rules and resolves the requested plan dependencies before approval.
 The coordinator must stop on ambiguous plans, blocked dependencies, or missing approvals. It must not infer feature completion from repository consolidation.
 

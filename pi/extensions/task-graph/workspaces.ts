@@ -296,6 +296,7 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
 }
 function inspectStartedResources(state: GraphRecord, runtime: any, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any, allowStaleStopped = false): void {
  const declarations = state.plan.resources ?? [], resources = state.resources ?? {}, keys = Object.keys(resources)
+ if (!declarations.length && !keys.length) return
  if (keys.length !== declarations.length || declarations.some(declaration => !Object.hasOwn(resources, declaration.id) || JSON.stringify(resources[declaration.id]?.declaration) !== JSON.stringify(declaration))) retirementBlock("uncertain", "Each declared resource must have one exact recorded identity.")
  if (declarations.length && !verifyResource) retirementBlock("uncertain", "Resource identity verification is unavailable.")
  let ids: string[], containers: any[]
