@@ -303,7 +303,11 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
   if (!["completed", "failed"].includes(dispatch.status)) retirementBlock("running-worker", `Worker ${worker.task} has nonterminal dispatch status ${String(dispatch.status)}.`)
   if (!completedGraph) {
    let wait: any
-   try { wait = orca(["terminal", "wait", "--terminal", worker.terminal!, "--for", "exit", "--timeout-ms", "1", "--json"])?.result?.wait } catch { retirementBlock("uncertain", `Worker ${worker.task} terminal exit cannot be verified.`) }
+   try { wait = orca(["terminal", "wait", "--terminal", worker.terminal!, "--for", "exit", "--timeout-ms", "1", "--json"])?.result?.wait }
+   catch (error) {
+    if (error instanceof Error && error.message === "timeout") retirementBlock("running-worker", `Worker ${worker.task} terminal has not verifiably exited.`)
+    retirementBlock("uncertain", `Worker ${worker.task} terminal exit cannot be verified.`)
+   }
    if (wait?.satisfied !== true) retirementBlock("running-worker", `Worker ${worker.task} terminal has not verifiably exited.`)
   }
  }

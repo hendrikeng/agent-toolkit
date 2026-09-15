@@ -234,6 +234,8 @@ test("settled retirement rejects nonterminal, changed, missing, duplicate, or fo
  assert.match(inspectGraphRetirement(missingDispatch.file, missingDispatch.runtime, missingDispatch.orca, missingDispatch.verifyResource).blocker!, /dispatch/i)
  const runningTerminal = settledRetirementFixture("run_running_terminal"), runningOrca = (args: string[]) => args.slice(0, 2).join(" ") === "terminal wait" ? { result: { wait: { satisfied: false } } } : runningTerminal.orca(args)
  assert.equal(inspectGraphRetirement(runningTerminal.file, runningTerminal.runtime, runningOrca, runningTerminal.verifyResource).state, "running-worker")
+ const timedOutTerminal = settledRetirementFixture("run_timed_out_terminal"), timedOutOrca = (args: string[]) => { if (args.slice(0, 2).join(" ") === "terminal wait") throw new Error("timeout"); return timedOutTerminal.orca(args) }
+ assert.equal(inspectGraphRetirement(timedOutTerminal.file, timedOutTerminal.runtime, timedOutOrca, timedOutTerminal.verifyResource).state, "running-worker")
  const activeWithoutWorker = settledRetirementFixture("run_active_without_worker"), activeTask = { id: "active", goal: "Active", repository: ".", depends_on: [], owns: ["active.txt"], done_when: ["Done."], validation: "node check.cjs" }
  activeWithoutWorker.record.plan.tasks.push(activeTask); activeWithoutWorker.tasks.push({ id: "task_active", run_id: activeWithoutWorker.record.runId, parent_id: null, status: "dispatched", spec: graphTaskSpec(activeWithoutWorker.record, activeTask) }); saveSettled(activeWithoutWorker)
  assert.equal(inspectGraphRetirement(activeWithoutWorker.file, activeWithoutWorker.runtime, activeWithoutWorker.orca, activeWithoutWorker.verifyResource).state, "running-worker")
