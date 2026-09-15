@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { acquireLease, assertGraphMode, assertGraphShell, assertNoLegacyGraph, digest, graphGit, graphLeaseState, LEGACY_GRAPH, literalPath, repositoryIdentity, taskGraphPrompt } from "../task-graph-core.ts"
-import { captureGraphWorkspaces, findUnstartedGraphRetirement, graphTaskSpec, inspectGraphGarbage, inspectGraphRetirement, retireUnstartedGraph } from "../workspaces.ts"
+import { captureGraphWorkspaces, findUnstartedGraphRetirement, graphTaskSpec, inspectGraphGarbage, inspectGraphRetirement, retirementSourceReserved, retireUnstartedGraph } from "../workspaces.ts"
 
 const fixture = () => mkdtempSync(join(tmpdir(), "graph-core-"))
 const retirementOrca = (record: any) => (args: string[]) => {
@@ -36,6 +36,20 @@ test("an authorized unstarted graph retirement preserves its record", () => {
  assert.equal(existsSync(file), false)
  assert.equal(readFileSync(result.record, "utf8"), bytes)
  assert.equal(JSON.parse(readFileSync(join(retired, "fixture", "retirement.json"), "utf8")).status, "retired")
+})
+test("retirement preserves an older run that reused the active record path", () => {
+ const root = process.cwd(), directory = fixture(), records = join(directory, "records"), retired = join(directory, "retired"), file = join(records, "fixture.json"), priorDirectory = join(retired, "fixture"), priorTarget = join(priorDirectory, "record.json")
+ const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+ const plan = { objective: "Retirement collision fixture", mode: "execute" as const, worktree_budget: 1, foundations: [{ repository: ".", commit: base }], tasks: [{ id: "read", goal: "Inspect one file", repository: ".", depends_on: [], owns: [], done_when: ["The file was inspected."], validation: "manual: confirm the file contents are understood" }] }
+ const record = captureGraphWorkspaces(root, plan), prior = structuredClone(record)
+ record.runId = "run_current"; prior.runId = "run_prior"
+ mkdirSync(records); mkdirSync(priorDirectory, { recursive: true }); writeFileSync(file, JSON.stringify(record)); writeFileSync(priorTarget, JSON.stringify(prior)); writeFileSync(join(priorDirectory, "retirement.json"), JSON.stringify({ version: 1, status: "retired", runId: prior.runId, source: file, record: priorTarget, retiredAt: new Date().toISOString() }))
+ const result = retireUnstartedGraph(file, retired, { list: () => [], inspect: () => { throw new Error("unexpected inspect") } }, retirementOrca(record), undefined, record.runId)
+ assert.equal(result.record, join(retired, "fixture-run_current", "record.json")); assert.equal(JSON.parse(readFileSync(priorTarget, "utf8")).runId, prior.runId)
+ assert.equal(findUnstartedGraphRetirement(records, retired, record.runId), file)
+ assert.equal(retireUnstartedGraph(file, retired, { list: () => [], inspect: () => { throw new Error("unexpected inspect") } }, retirementOrca(record), undefined, record.runId).record, result.record)
+ rmSync(priorDirectory, { recursive: true }); assert.equal(retirementSourceReserved(retired, file), true)
+ assert.equal(retireUnstartedGraph(file, retired, { list: () => [], inspect: () => { throw new Error("unexpected inspect") } }, retirementOrca(record), undefined, record.runId).record, result.record)
 })
 test("resource declarations require a writing task before approval", () => {
  const root = process.cwd(), base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
@@ -295,6 +309,37 @@ test("garbage inspection and retirement reject a symlinked active records direct
  assert.equal(existsSync(`${record}.lease`), false); assert.equal(existsSync(record), true); assert.equal(existsSync(join(f.retired, "current-v4/record.json")), false)
 })
 
+test("retirement rejects a symlinked active record before reading its target", () => {
+ const f = settledRetirementFixture("run_symlinked_record_source"), outside = join(f.directory, "outside-active-record.json")
+ renameSync(f.file, outside); symlinkSync(outside, f.file)
+ assert.throws(() => retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource), /Graph record identity changed/)
+ assert.equal(graphLeaseState(f.file), "available"); assert.equal(existsSync(outside), true)
+})
+
+test("retirement rejects an active record replaced during assessment", () => {
+ const f = settledRetirementFixture("run_replaced_record_source"), original = join(f.directory, "original-active-record.json")
+ let replaced = false
+ const orca = (args: string[]) => {
+  const result = f.orca(args)
+  if (!replaced) { replaced = true; renameSync(f.file, original); writeFileSync(f.file, JSON.stringify(f.record)) }
+  return result
+ }
+ assert.throws(() => retireUnstartedGraph(f.file, f.retired, f.runtime, orca, f.verifyResource), /Graph record identity changed/)
+ assert.equal(graphLeaseState(f.file), "available"); assert.equal(existsSync(original), true); assert.equal(existsSync(join(f.retired, "current-v4/record.json")), false)
+})
+
+test("retirement rejects an active record changed in place during assessment", () => {
+ const f = settledRetirementFixture("run_changed_record_source")
+ let changed = false
+ const orca = (args: string[]) => {
+  const result = f.orca(args)
+  if (!changed) { changed = true; f.record.key = `${f.record.key}-changed`; writeFileSync(f.file, JSON.stringify(f.record)) }
+  return result
+ }
+ assert.throws(() => retireUnstartedGraph(f.file, f.retired, f.runtime, orca, f.verifyResource), /Graph record identity changed/)
+ assert.equal(graphLeaseState(f.file), "available"); assert.equal(existsSync(f.file), true); assert.equal(existsSync(join(f.retired, "current-v4/record.json")), false)
+})
+
 test("retirement rejects a symlinked evidence directory", () => {
  const f = settledRetirementFixture("run_symlinked_retirement"), outside = join(f.directory, "outside-retirement")
  mkdirSync(f.retired, { recursive: true }); mkdirSync(outside); symlinkSync(outside, join(f.retired, "current-v4"))
@@ -305,7 +350,7 @@ test("retirement rejects a symlinked evidence directory", () => {
 test("pending retirement rejects a symlinked moved record", () => {
  const f = settledRetirementFixture("run_symlinked_record"), directory = join(f.retired, "current-v4"), target = join(directory, "record.json"), outside = join(f.directory, "outside-record.json")
  mkdirSync(directory, { recursive: true }); renameSync(f.file, outside); symlinkSync(outside, target); writeFileSync(join(directory, "retirement.json"), JSON.stringify({ version: 1, status: "authorized-pending", runId: f.record.runId, source: f.file, retiredAt: new Date().toISOString() }))
- assert.throws(() => retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource), /Pending retirement record changed/)
+ assert.throws(() => retireUnstartedGraph(f.file, f.retired, f.runtime, f.orca, f.verifyResource), /Graph record identity changed/)
 })
 
 test("graph garbage inspection is mutation-free, state-specific, and credential-redacted", () => {

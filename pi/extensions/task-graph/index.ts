@@ -10,7 +10,7 @@ import { Type, type TProperties } from "typebox"
 import { acquireLease, assertNoLegacyGraph, digest, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
 import { archiveCompletedGraph, inspectGraphArchive, inspectGraphArchivePurge, purgeGraphArchive } from "./archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
-import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDeliveryInventory, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
+import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDeliveryInventory, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retirementSourceReserved, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
 
 const text = (details: any) => { const output = truncateHead(JSON.stringify(details, null, 2)); return { content: [{ type: "text" as const, text: output.content + (output.truncated ? "\nTruncated; inspect the retained graph record." : "") }], details } }
 const string = () => Type.String({ minLength: 1 })
@@ -279,7 +279,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   try {
    const path = findUnstartedGraphRetirement(directory, retired, runId)
    if (!ctx.hasUI || !await ctx.ui.confirm("Retire settled graph?", `Retire Run ${runId} only if all recorded work is settled. Preserve all worktrees, lanes, resources, commits, receipts, and orchestration evidence. Release only repository ownership.`)) return
-   const helper = resourceHelper(), result = retireUnstartedGraph(path, retired, helper.dockerRuntime(), orcaJson, helper.verifyResource)
+   const helper = resourceHelper(), result = retireUnstartedGraph(path, retired, helper.dockerRuntime(), orcaJson, helper.verifyResource, runId)
    ctx.ui.notify(`Retired ${result.runId}; preserved record at ${result.record}`, "info")
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
@@ -466,8 +466,8 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
     pi.sendUserMessage(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`); return
    }
    let suffix = 0
-   const archived = join(agentDir(), "task-graphs-archived", "v1")
-   do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(request.target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(request.target, ".json")}.pending`)))
+   const archived = join(agentDir(), "task-graphs-archived", "v1"), retired = join(agentDir(), "task-graphs-retired", "v4")
+   do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))) || existsSync(join(retired, basename(request.target, ".json"))) || retirementSourceReserved(retired, request.target) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(request.target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(request.target, ".json")}.pending`)))
    pi.sendUserMessage(taskGraphPrompt(objective, mode))
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
   } finally { ctx.ui.setStatus?.("task-graph-command", undefined) }
@@ -487,7 +487,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   if (!ctx.hasUI || !await ctx.ui.confirm(plan.mode === "plan-only" ? "Approve planning graph?" : "Approve execution graph?", `${JSON.stringify(summary, null, 2)}\nThis single approval covers the declared Run, task records, up to ${plan.worktree_budget} worktrees, pi-yolo worker launches with ${candidate.workerModel} at medium thinking, declared setup and validation on worker and combined integration commits, retries, bounded resources, internal integration, and removal of verified clean integrated lanes at closeout. It excludes secrets, unrelated or dirty worktree cleanup, production administration, publication, and source-branch merge-back.`, { signal })) return text({ status: "not-approved" })
   const target = request.target!, startup = acquireLease(join(directory, "startup"))
   try {
-   if (existsSync(target) || existsSync(join(agentDir(), "task-graphs-archived", "v1", basename(target, ".json"))) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(target, ".json")}.pending`))) throw new Error("Graph record, archive, or purge evidence appeared during approval; start the command again.")
+   if (existsSync(target) || existsSync(join(agentDir(), "task-graphs-archived", "v1", basename(target, ".json"))) || existsSync(join(agentDir(), "task-graphs-retired", "v4", basename(target, ".json"))) || retirementSourceReserved(join(agentDir(), "task-graphs-retired", "v4"), target) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(target, ".json")}.pending`))) throw new Error("Graph record, archive, retirement, or purge evidence appeared during approval; start the command again.")
    for (const entry of readdirSync(directory).filter(name => name.endsWith(".json"))) {
     const existing = readGraphAdmission(join(directory, entry), candidate.repositories.map(repo => repo.identity))
     if (existing && !existing.completion) throw new Error(`Resume the unfinished graph: /graph ${existing.plan.mode} ${existing.plan.objective}`)

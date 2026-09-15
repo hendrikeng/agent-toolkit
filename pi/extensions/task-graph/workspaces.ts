@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, closeSync, constants, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { acquireLease, assertGraphMode, digest, graphGit, graphLeaseState, literalPath, owns, repositoryIdentity, repositoryRoot, saveRecord, validateTaskGraph, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
 export { graphGit } from "./task-graph-core.ts"
@@ -117,7 +117,22 @@ export function validateGraphRecord(record: any, file = "graph record"): GraphRe
  if (record.lanes.some((lane: GraphLane) => !record.repositories.some((repo: GraphRepository) => repo.source === lane.source) || lane.workspace.role !== "lane") || Object.entries(record.workers as Record<string, GraphWorker>).some(([id, worker]) => worker.task !== id || !record.plan.tasks.some((task: any) => task.id === id))) throw new Error("Invalid lane or worker record.")
  return record
 }
-export function readGraphRecord(file: string): GraphRecord { return validateGraphRecord(JSON.parse(readFileSync(file, "utf8")), file) }
+function readGraphFileSnapshot(file: string) {
+ let descriptor: number
+ try { descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK) }
+ catch { throw new Error("Graph record identity changed; preserve it for inspection.") }
+ try {
+  const stat = fstatSync(descriptor, { bigint: true })
+  if (!stat.isFile() || stat.nlink !== 1n) throw new Error("Graph record identity changed; preserve it for inspection.")
+  return { contents: readFileSync(descriptor, "utf8"), device: stat.dev, inode: stat.ino }
+ } finally { closeSync(descriptor) }
+}
+function assertGraphFileSnapshot(file: string, snapshot: ReturnType<typeof readGraphFileSnapshot>): void {
+ const current = readGraphFileSnapshot(file)
+ if (current.device !== snapshot.device || current.inode !== snapshot.inode || current.contents !== snapshot.contents) throw new Error("Graph record identity changed; preserve it for inspection.")
+}
+function readGraphFile(file: string): string { return readGraphFileSnapshot(file).contents }
+export function readGraphRecord(file: string): GraphRecord { return validateGraphRecord(JSON.parse(readGraphFile(file)), file) }
 export function validateRetainedGraphRecord(record: any, file = "graph record"): GraphRecord {
  const missing = typeof record?.root === "string" && !existsSync(record.root) || Array.isArray(record?.repositories) && record.repositories.some((repo: any) => typeof repo?.source === "string" && !existsSync(repo.source))
  if (!missing) { validateGraphRecord(structuredClone(record), file); return record }
@@ -316,8 +331,8 @@ function inspectStartedResources(state: GraphRecord, runtime: any, verifyResourc
   if (details?.State?.Running !== false || !allowStaleStopped && (resource.stopped !== true || resource.ready !== false)) retirementBlock("uncertain", `Resource ${declaration.id} is not recorded as stopped.`)
  }
 }
-function assessGraphRetirement(file: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any) {
- const state = readGraphRecord(file), workers = Object.values(state.workers)
+function assessGraphRetirementState(state: GraphRecord, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any) {
+ const workers = Object.values(state.workers)
  if (!state.runId || state.completion) retirementBlock("uncertain", "Retire only an incomplete current-v4 graph with a recorded Run.")
  if (Object.keys(state.completed).length) retirementBlock("uncertain", "A graph with a completed task cannot retire.")
  const mutating = workers.find(worker => worker.integration), integrated = workers.find(worker => worker.integrated)
@@ -343,6 +358,9 @@ function assessGraphRetirement(file: string, runtime: any, orca?: Orca, verifyRe
  })() : inspectRecordedWorktrees(state, orca!, false)
  return { state, unstarted, worktrees }
 }
+function assessGraphRetirement(file: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any) {
+ return assessGraphRetirementState(readGraphRecord(file), runtime, orca, verifyResource)
+}
 export interface GraphRetirementInspection { eligible: boolean; runId?: string; state: "eligible" | "active" | "running-worker" | "live-resource" | "uncertain"; blocker?: string; worktrees: any[] }
 export function inspectGraphRetirement(file: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any): GraphRetirementInspection {
  try { const stat = lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return { eligible: false, state: "uncertain", blocker: "The graph record identity is uncertain.", worktrees: [] } }
@@ -357,17 +375,44 @@ function assertPhysicalDirectory(directory: string, label: string): void {
  const stat = lstatSync(directory)
  if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(directory) !== resolve(directory)) throw new Error(`${label} identity is uncertain; preserve it for inspection.`)
 }
+function retirementSource(saved: any, activeDirectory: string): string {
+ const source = saved?.source
+ if (typeof source !== "string" || source !== resolve(source) || dirname(source) !== resolve(activeDirectory) || !basename(source).endsWith(".json")) throw new Error("Retirement evidence does not match its active graph path; preserve it for inspection.")
+ return source
+}
+function retirementDirectoriesForSource(retiredDirectory: string, source: string): Array<{ directory: string; saved: any }> {
+ if (!existsSync(retiredDirectory)) return []
+ assertPhysicalDirectory(retiredDirectory, "Retired graph evidence")
+ const matches: Array<{ directory: string; saved: any }> = []
+ for (const name of readdirSync(retiredDirectory)) {
+  const directory = join(retiredDirectory, name)
+  if (!retirementDirectoryExists(directory)) continue
+  const receipt = join(directory, "retirement.json")
+  if (!existsSync(receipt)) continue
+  const stat = lstatSync(receipt)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Retirement evidence identity changed; preserve it for inspection.")
+  let saved: any
+  try { saved = JSON.parse(readFileSync(receipt, "utf8")) } catch { continue }
+  if (saved.source !== source) continue
+  if (retirementSource(saved, dirname(source)) !== source || !validRetirementReceipt(saved, source)) throw new Error("Retirement evidence does not match its active graph path; preserve it for inspection.")
+  matches.push({ directory, saved })
+ }
+ return matches
+}
+export function retirementSourceReserved(retiredDirectory: string, source: string): boolean {
+ return retirementDirectoriesForSource(retiredDirectory, source).length > 0
+}
 export function findUnstartedGraphRetirement(activeDirectory: string, retiredDirectory: string, runId: string): string {
  assertPhysicalDirectory(activeDirectory, "Active graph evidence")
- const candidates = new Set(readdirSync(activeDirectory).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)).filter(path => JSON.parse(readFileSync(path, "utf8")).runId === runId))
+ const candidates = new Set(readdirSync(activeDirectory).filter(name => name.endsWith(".json")).map(name => join(activeDirectory, name)).filter(path => JSON.parse(readGraphFile(path)).runId === runId))
  for (const name of existsSync(retiredDirectory) ? readdirSync(retiredDirectory) : []) {
   const receipt = join(retiredDirectory, name, "retirement.json")
   if (!existsSync(receipt)) continue
   let saved: any
   try { saved = JSON.parse(readFileSync(receipt, "utf8")) } catch { continue }
   if (saved.runId !== runId) continue
-  const source = join(activeDirectory, `${name}.json`)
-  if (saved.version !== 1 || !["authorized-pending", "retired"].includes(saved.status) || saved.source !== source) throw new Error("Retirement evidence does not match its active graph path; preserve it for inspection.")
+  const source = retirementSource(saved, activeDirectory)
+  if (saved.version !== 1 || !["authorized-pending", "retired"].includes(saved.status)) throw new Error("Retirement evidence does not match its active graph path; preserve it for inspection.")
   if (saved.status === "retired" && existsSync(source)) throw new Error("An active graph conflicts with completed retirement evidence; preserve both for inspection.")
   candidates.add(source)
  }
@@ -434,7 +479,7 @@ export function inspectGraphGarbage(agentDirectory: string, orca: Orca, resource
   const receipt = join(retiredDirectory, name, "retirement.json"), saved = retiredHeaders.get(name)
   if (!saved) { records.push({ runId: undefined, record: join(retiredDirectory, name), location: "retired", state: "uncertain", eligible: false, blocker: retiredErrors.get(name) }); continue }
   try {
-   const record = join(retiredDirectory, name, "record.json"), source = join(activeDirectory, `${name}.json`), runId = /^run_[a-zA-Z0-9_-]+$/.test(saved.runId ?? "") ? saved.runId : undefined
+   const record = join(retiredDirectory, name, "record.json"), source = retirementSource(saved, activeDirectory), runId = /^run_[a-zA-Z0-9_-]+$/.test(saved.runId ?? "") ? saved.runId : undefined
    if (validRetirementReceipt(saved, source) && saved.status === "authorized-pending" && runId) {
     const beforeMove = headers.get(source)?.runId === runId && authoritativeAbsence(record)
     let afterMove = false
@@ -496,19 +541,30 @@ function validRetirementReceipt(saved: any, file: string): boolean {
  if (!saved.recordHash) return true
  return /^[a-f0-9]{64}$/.test(saved.recordHash) && JSON.stringify(saved.released) === JSON.stringify(["repository-ownership"]) && JSON.stringify(saved.preserved) === JSON.stringify(RETIREMENT_PRESERVED) && Array.isArray(saved.worktrees) && saved.worktrees.every((item: any) => item && ["verified-existing", "verified-absent"].includes(item.status) && typeof item.id === "string" && typeof item.path === "string" && typeof item.branch === "string")
 }
-export function retireUnstartedGraph(file: string, retiredDirectory: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any): { runId: string; record: string } {
+export function retireUnstartedGraph(file: string, retiredDirectory: string, runtime: any, orca?: Orca, verifyResource?: (record: any, runtime: any, enforceLifetime?: boolean, recordEndpoint?: boolean, rebaselineLegacyStart?: boolean, recordConfiguration?: boolean) => any, expectedRunId?: string): { runId: string; record: string } {
  assertPhysicalDirectory(dirname(file), "Active graph evidence")
- const directory = join(retiredDirectory, basename(file, ".json")), target = join(directory, "record.json"), receipt = join(directory, "retirement.json")
- const directoryExists = retirementDirectoryExists(directory)
- if (existsSync(file) && JSON.parse(readFileSync(file, "utf8")).version !== 4) readGraphRecord(file)
  const release = acquireLease(file)
  try {
+  const sourceSnapshot = existsSync(file) ? readGraphFileSnapshot(file) : undefined
+  const header = sourceSnapshot ? JSON.parse(sourceSnapshot.contents) : undefined
+  if (header && header.version !== 4) validateGraphRecord(header, file)
+  const stem = basename(file, ".json"), originalDirectory = join(retiredDirectory, stem), originalExists = retirementDirectoryExists(originalDirectory), originalReceipt = join(originalDirectory, "retirement.json")
+  let runId = expectedRunId ?? header?.runId, original: any
+  if (originalExists && existsSync(originalReceipt)) try { original = JSON.parse(readFileSync(originalReceipt, "utf8")); if (!runId && validRetirementReceipt(original, file)) runId = original.runId } catch {}
+  const sourceRetirements = retirementDirectoriesForSource(retiredDirectory, file)
+  if (!runId && sourceRetirements.length === 1) runId = sourceRetirements[0]!.saved.runId
+  if (!/^run_[a-zA-Z0-9_-]+$/.test(runId ?? "") || expectedRunId && header && header.runId !== expectedRunId) throw new Error("Graph retirement selected a different Run; preserve both for inspection.")
+  const matchingRetirements = sourceRetirements.filter(({ saved }) => saved.runId === runId)
+  if (matchingRetirements.length > 1) throw new Error("Multiple retirement records match the selected Run; preserve them for inspection.")
+  let directory = matchingRetirements[0]?.directory ?? originalDirectory
+  if (!matchingRetirements.length && original && validRetirementReceipt(original, file) && original.runId !== runId) directory = join(retiredDirectory, `${stem}-${runId}`)
+  const target = join(directory, "record.json"), receipt = join(directory, "retirement.json"), directoryExists = retirementDirectoryExists(directory)
   let pending: any
   if (existsSync(receipt)) {
    const stat = lstatSync(receipt)
    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Retirement evidence identity changed; preserve it for inspection.")
    pending = JSON.parse(readFileSync(receipt, "utf8"))
-   if (!validRetirementReceipt(pending, file)) throw new Error("Retirement evidence changed; preserve it for inspection.")
+   if (!validRetirementReceipt(pending, file) || pending.runId !== runId) throw new Error("Retirement evidence changed; preserve it for inspection.")
    if (pending.status === "retired") {
     if (existsSync(file) || !existsSync(target) || pending.record !== target) throw new Error("Completed retirement evidence does not match the preserved record.")
     const targetStat = lstatSync(target)
@@ -517,20 +573,25 @@ export function retireUnstartedGraph(file: string, retiredDirectory: string, run
     if (state.runId !== pending.runId) throw new Error("Completed retirement evidence does not match the preserved record.")
     return { runId: pending.runId, record: target }
    }
-   if (!existsSync(file) && existsSync(target)) {
-    const targetStat = lstatSync(target)
-    if (!targetStat.isFile() || targetStat.isSymbolicLink() || targetStat.nlink !== 1 || pending.recordHash && digest(readFileSync(target)) !== pending.recordHash) throw new Error("Pending retirement record changed; preserve it for inspection.")
-    const state = pending.recordHash ? readGraphRecord(target) : assessGraphRetirement(target, runtime, orca, verifyResource).state
+   if (existsSync(target) && (!existsSync(file) || pending.recordHash)) {
+    const targetSnapshot = readGraphFileSnapshot(target)
+    if (pending.recordHash && digest(targetSnapshot.contents) !== pending.recordHash) throw new Error("Pending retirement record changed; preserve it for inspection.")
+    const state = pending.recordHash ? validateGraphRecord(JSON.parse(targetSnapshot.contents), target) : assessGraphRetirement(target, runtime, orca, verifyResource).state
     if (state.runId !== pending.runId) throw new Error("Pending retirement evidence does not match the preserved record.")
+    if (existsSync(file)) {
+     const activeSnapshot = readGraphFileSnapshot(file)
+     if (digest(activeSnapshot.contents) !== pending.recordHash || validateGraphRecord(JSON.parse(activeSnapshot.contents), file).runId !== pending.runId) throw new Error("Pending retirement record changed; preserve it for inspection.")
+     unlinkSync(file)
+    }
     saveGraphRecord(receipt, { ...pending, status: "retired", record: target })
     return { runId: state.runId!, record: target }
    }
   }
   if (!existsSync(file) || existsSync(target)) throw new Error("Pending retirement record state is uncertain; preserve it for inspection.")
-  const stat = lstatSync(file)
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Graph record identity changed; preserve it for inspection.")
-  const assessed = assessGraphRetirement(file, runtime, orca, verifyResource), recordHash = digest(readFileSync(file))
-  if (findUnstartedGraphRetirement(dirname(file), retiredDirectory, assessed.state.runId!) !== file) throw new Error("Graph retirement selected a different record; preserve both for inspection.")
+  if (!sourceSnapshot) throw new Error("Pending retirement record state is uncertain; preserve it for inspection.")
+  const assessed = assessGraphRetirementState(validateGraphRecord(JSON.parse(sourceSnapshot.contents), file), runtime, orca, verifyResource), recordHash = digest(sourceSnapshot.contents)
+  assertGraphFileSnapshot(file, sourceSnapshot)
+  if (assessed.state.runId !== runId || findUnstartedGraphRetirement(dirname(file), retiredDirectory, assessed.state.runId!) !== file) throw new Error("Graph retirement selected a different record; preserve both for inspection.")
   if (pending) {
    if (pending.runId !== assessed.state.runId || pending.recordHash && (pending.recordHash !== recordHash || JSON.stringify(pending.worktrees) !== JSON.stringify(assessed.worktrees))) throw new Error("Retirement evidence changed; preserve it for inspection.")
   } else {
@@ -540,7 +601,13 @@ export function retireUnstartedGraph(file: string, retiredDirectory: string, run
    pending = { version: 1, status: "authorized-pending", runId: assessed.state.runId, source: file, recordHash, retiredAt: new Date().toISOString(), reason: assessed.unstarted ? "Human-approved retirement after startup failed before task launch." : "Human-approved retirement after all workers and resources settled.", released: ["repository-ownership"], preserved: RETIREMENT_PRESERVED, worktrees: assessed.worktrees }
    saveGraphRecord(receipt, pending)
   }
-  renameSync(file, target)
+  assertGraphFileSnapshot(file, sourceSnapshot)
+  copyFileSync(file, target, constants.COPYFILE_EXCL)
+  assertGraphFileSnapshot(file, sourceSnapshot)
+  const targetSnapshot = readGraphFileSnapshot(target)
+  if (targetSnapshot.contents !== sourceSnapshot.contents) throw new Error("Retirement copy changed; preserve both records for inspection.")
+  unlinkSync(file)
+  if (readGraphFileSnapshot(target).contents !== sourceSnapshot.contents) throw new Error("Retirement copy changed; preserve it for inspection.")
   saveGraphRecord(receipt, { ...pending, status: "retired", record: target })
   return { runId: assessed.state.runId!, record: target }
  } finally { release() }
