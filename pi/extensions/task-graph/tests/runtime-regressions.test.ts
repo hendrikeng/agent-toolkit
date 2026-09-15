@@ -14,6 +14,7 @@ const hooks = registerHooks({ resolve(specifier, context, next) {
  const modules: Record<string, string> = {
   "@earendil-works/pi-coding-agent": "export const getAgentDir=()=>globalThis.agentDir; export const truncateHead=content=>({content}); export const withFileMutationQueue=(_path,fn)=>fn();",
   "@earendil-works/pi-ai": "export const StringEnum=()=>({});",
+  "@earendil-works/pi-tui": "export class Loader { stop(){} }",
   typebox: "export const Type=new Proxy({}, {get:()=>()=>({})});",
   "node:child_process": "export const execFileSync=(_binary,args)=>JSON.stringify(globalThis.orcaRpc(args));",
   "../development-access/index.ts": "export const inspectShell=async(command,cwd)=>({command,cwd,inspection:command.startsWith('git ')||command.startsWith('cross-check '),effects:command.includes('>')||command.startsWith('PATH='),gitMutation:/(?:^|\\/)git (?:add|commit|merge)/.test(command)||command.includes('git hash-object'),commands:command.includes('git hash-object')?(command.startsWith('git hash-object')?[command.split(' ')]:[['git','show'],['git','hash-object','--stdin']]):[command.startsWith('/usr/bin/git ')?command.split(' '):command.startsWith('orca ')?['orca','orchestration','send']:command.startsWith('./orca ')?['./orca','orchestration','send']:command.startsWith('PATH=')?['orca','orchestration','send']:['node','check.cjs']],paths:command.startsWith('cross-')?[command.slice(command.indexOf(' ')+1)]:[],candidates:[],directories:[]}); export const runBash=async(_id,params,_signal,_update,cwd,env)=>{globalThis.graphBashRuns.push({command:params.command,cwd,env}); if(globalThis.graphBashFailure) throw new Error(globalThis.graphBashFailure); return {content:[]}};"
@@ -83,12 +84,12 @@ function fixture() {
  }
  globals.agentDir = join(root, "agent"); mkdirSync(globals.agentDir); process.env.AGENT_TOOLKIT_PI_AGENT_DIR = globals.agentDir
  function runtime(cwd: string) {
-  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>(), notifications: any[] = [], workingMessages: Array<string | undefined> = []
+  const tools = new Map<string, any>(), events = new Map<string, any>(), commands = new Map<string, any>(), notifications: any[] = [], workingMessages: Array<string | undefined> = [], widgets: any[] = []
   extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: (name: string, handler: any) => events.set(name, handler), registerCommand: (name: string, command: any) => commands.set(name, command), sendUserMessage: () => {} } as never)
   let idle = true
-  const ctx = { cwd, model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => idle, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string, level: string) => { notifications.push({ message, level }); if (level === "error") throw new Error(message) }, setWorkingMessage: (message?: string) => workingMessages.push(message) } }
+  const ctx = { cwd, mode: "tui", model: { provider: "test", id: "model" }, hasUI: true, isIdle: () => idle, ui: { confirm: async () => { globals.graphConfirm?.(); return true }, notify: (message: string, level: string) => { notifications.push({ message, level }); if (level === "error") throw new Error(message) }, setWorkingMessage: (message?: string) => workingMessages.push(message), setWidget: (id: string, content?: any, options?: any) => { widgets.push({ id, value: content ? "loader" : undefined, placement: options?.placement }); if (typeof content === "function") content({}, { fg: (_color: string, value: string) => value }) } } }
   let serial = 0
-  return { notifications, workingMessages, settle: () => events.get("agent_settled")?.({}, ctx), setIdle: (value: boolean) => { idle = value }, commandNames: () => [...commands.keys()], command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
+  return { notifications, workingMessages, widgets, settle: () => events.get("agent_settled")?.({}, ctx), setIdle: (value: boolean) => { idle = value }, commandNames: () => [...commands.keys()], command: (args: string) => commands.get("graph").handler(args, ctx), stop: () => events.get("session_shutdown")?.(), async call(name: string, input: any = {}) {
    const id = String(++serial), event = { toolName: name, input, toolCallId: id }, blocked = await events.get("tool_call")?.(event, ctx)
    if (blocked?.block) throw new Error(blocked.reason)
    let output: any, error: any
@@ -115,6 +116,7 @@ test("graph commands preserve multiline objectives without a model round trip", 
  try {
   assert.deepEqual(coordinator.commandNames(), ["graph"])
   await coordinator.command(`execute ${objective}`)
+  assert.deepEqual(coordinator.widgets, [{ id: "task-graph-command", value: "loader", placement: "aboveEditor" }, { id: "task-graph-command", value: undefined, placement: undefined }])
   assert.deepEqual(coordinator.workingMessages, ["Graph: preparing execution…"])
   await coordinator.settle()
   assert.deepEqual(coordinator.workingMessages, ["Graph: preparing execution…", undefined])
@@ -139,6 +141,7 @@ test("graph gc reports eligibility without mutating the active graph", async () 
   await coordinator.call("prepare_task_graph_workspace")
   const before = readFileSync(approval.record, "utf8"), calls = f.calls.length
   coordinator.setIdle(false); await coordinator.command("gc")
+  assert.deepEqual(coordinator.widgets.slice(-2), [{ id: "task-graph-command", value: "loader", placement: "aboveEditor" }, { id: "task-graph-command", value: undefined, placement: undefined }])
   assert.deepEqual(coordinator.workingMessages, ["Graph: preparing execution…"])
   const report = JSON.parse(coordinator.notifications.at(-1).message)
   assert.equal(report.inspectionOnly, true); assert.equal(report.summary.active, 1)
