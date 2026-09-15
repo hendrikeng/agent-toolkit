@@ -16,7 +16,7 @@ Read-only workers use an existing checkout.
 A graph with resources must use execution mode and have a writing task and an integration workspace.
 An active graph can resume with `/graph resume <run-id>` from a recorded source repository if its original command root is absent.
 
-Every `/graph` command shows a footer status before it starts work. The command clears the status after success or error.
+Graph planning, execution, and resume turns show status in the Pi `Working` row. Pi restores the default text after the agent settles.
 
 `/graph gc` inspects current-v4, completed, retired, archived, and legacy records without changing them.
 A symlinked active-records directory stops garbage inspection and retirement before a lease or record move.

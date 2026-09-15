@@ -131,8 +131,9 @@ function writeReceipt(file: string, task: string, value: any): void { saveGraphR
 
 export default function taskGraphExtension(pi: ExtensionAPI): void {
  let request: { objective: string; mode: TaskGraphPlan["mode"]; root: string; model: string; target?: string } | undefined
- let record: GraphRecord | undefined, file: string | undefined, release: (() => void) | undefined
+ let record: GraphRecord | undefined, file: string | undefined, release: (() => void) | undefined, graphWorking = false
  const workerFile = process.env.AGENT_TOOLKIT_GRAPH_RECORD, workerTask = process.env.AGENT_TOOLKIT_GRAPH_TASK
+ const sendGraphPrompt = (prompt: string, message: string, ctx: any) => { graphWorking = true; ctx.ui.setWorkingMessage(message); pi.sendUserMessage(prompt) }
  const agentDir = () => process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir()
  const graphEnvironmentOriginals = new Map<string, string | undefined>()
  const clearGraphEnvironment = () => {
@@ -365,7 +366,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
     request = { root, mode: fresh.plan.mode, objective: fresh.plan.objective, model: fresh.workerModel ?? `${ctx.model.provider}/${ctx.model.id}`.toLowerCase() }
    } finally { unlockStartup() }
    if (record!.runId) orcaJson(["orchestration", "run-use", "--id", record!.runId, "--json"])
-   pi.sendUserMessage(`${taskGraphPrompt(record!.plan.objective, record!.plan.mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record!.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`)
+   sendGraphPrompt(`${taskGraphPrompt(record!.plan.objective, record!.plan.mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record!.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`, "Graph: resuming Run…", ctx)
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
  const archiveGraphs = async (selector: string, ctx: any) => {
@@ -428,10 +429,6 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
  }
  pi.registerCommand("graph", { description: "Plan, execute, inspect, resume, deliver, archive, purge, or retire a bounded graph. /graph [plan|execute|gc|resume|deliver|archive|purge|retire] <objective-or-run-id>", handler: async (args, ctx) => {
-  const command = args.trim(), action = /^(plan|execute|gc|resume|deliver|archive|purge|retire)(?:\s|$)/.exec(command)?.[1] ?? "plan", labels: Record<string, string> = { plan: "preparing plan", execute: "preparing execution", gc: "inspecting evidence", resume: "resuming Run", deliver: "delivering Run", archive: "archiving Run", purge: "inspecting archives", retire: "retiring Run" }
-  ctx.ui.setStatus?.("task-graph-command", `Graph working: ${labels[action]}…`)
-  await new Promise(resolve => setTimeout(resolve, 50))
-  try {
   if (/^gc(?:\s|$)/.test(args.trim())) { await inspectGarbage(args.trim().slice(2), ctx); return }
   if (/^purge(?:\s|$)/.test(args.trim())) { await purgeArchivedGraphs(args.trim().slice(5), ctx); return }
   if (/^resume(?:\s|$)/.test(args.trim())) { await resumeGraph(args.trim().slice(6), ctx); return }
@@ -463,14 +460,13 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    } } finally { unlockStartup() }
    if (record) {
     if (record.runId) orcaJson(["orchestration", "run-use", "--id", record.runId, "--json"])
-    pi.sendUserMessage(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`); return
+    sendGraphPrompt(`${taskGraphPrompt(objective, mode)}\nResume this record without another approval: ${JSON.stringify({ ...record, repositories: record.repositories.map(repo => ({ ...repo, inputs: repo.inputs.map(({ bytes, ...input }) => input) })) })}`, `Graph: preparing ${mode === "execute" ? "execution" : "plan"}…`, ctx); return
    }
    let suffix = 0
    const archived = join(agentDir(), "task-graphs-archived", "v1"), retired = join(agentDir(), "task-graphs-retired", "v4")
    do { request.target = join(directory, `${stem}${suffix ? `-${suffix}` : ""}.json`); suffix++ } while (existsSync(request.target) || existsSync(join(archived, basename(request.target, ".json"))) || existsSync(join(retired, basename(request.target, ".json"))) || retirementSourceReserved(retired, request.target) || existsSync(join(agentDir(), "task-graph-purges", "v1", basename(request.target))) || existsSync(join(agentDir(), "task-graph-purges", "v1", `${basename(request.target, ".json")}.pending`)))
-   pi.sendUserMessage(taskGraphPrompt(objective, mode))
+   sendGraphPrompt(taskGraphPrompt(objective, mode), `Graph: preparing ${mode === "execute" ? "execution" : "plan"}…`, ctx)
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
-  } finally { ctx.ui.setStatus?.("task-graph-command", undefined) }
  } })
  pi.registerTool({ name: "propose_task_graph", label: "Approve Graph", description: "Approve one bounded multi-worker graph, including its worktree budget and internal execution.", parameters: graphSchema, executionMode: "sequential", async execute(_id, params, signal, _update, ctx) {
   if (!request || record) throw new Error("Start /graph first or resume its retained record.")
@@ -748,5 +744,6 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    writeReceipt(workerFile, task.id, receipt)
   } catch {}
  })
+ pi.on("agent_settled", (_event, ctx) => { if (graphWorking) { graphWorking = false; ctx.ui.setWorkingMessage() } })
  pi.on("session_shutdown", () => { clearGraphEnvironment(); if (!workerFile) stop() })
 }
