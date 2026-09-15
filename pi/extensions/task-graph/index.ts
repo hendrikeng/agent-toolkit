@@ -706,7 +706,9 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
  } })
  pi.registerTool({ name: "finish_task_graph", label: "Finish Graph", description: "Finish after every worker is integrated. Remove verified clean lanes, retain the integration worktree, and never publish.", parameters: object({ run_id: string(), evidence: string(), delivery_pending: Type.Optional(Type.Boolean()) }), executionMode: "sequential", async execute(_id, params) {
   const state = bound(); if (params.run_id !== state.runId || !params.evidence.trim() || state.plan.tasks.some(task => !state.completed[task.id])) throw new Error("Finish only after every task completes.")
-  if (Object.values(state.completed).some(task => task.deliveryPending) && !params.delivery_pending) throw new Error("A task retained its plan for delivery; retry finish with delivery_pending enabled.")
+  const deliveryPending = Object.values(state.completed).some(task => task.deliveryPending)
+  if (deliveryPending && !params.delivery_pending) throw new Error("A task retained its plan for delivery; retry finish with delivery_pending enabled.")
+  if (params.delivery_pending && !deliveryPending) throw new Error("Pending delivery requires at least one completed task with pending delivery.")
   verify(); if (Object.values(state.workers).some(worker => !state.completed[worker.task])) throw new Error("An unsettled worker remains.")
   for (const repo of state.repositories.filter(repo => repo.workspace)) {
    const validated = Object.entries(state.completed).filter(([id]) => { const task = state.plan.tasks.find(task => task.id === id)!; return task.owns.length && realpathSync(resolve(state.root, task.repository)) === repo.source }).map(([, result]) => result.integrationHead)

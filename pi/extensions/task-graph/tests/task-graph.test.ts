@@ -134,6 +134,7 @@ test("dangling graph lease symlinks are uncertain", () => {
 test("one prompt states the bounded lane and approval contract", () => {
  const prompt = taskGraphPrompt("Build search", "plan-only")
  for (const rule of [/separate \/graph execute/, /pi-yolo workers/, /worktree budget/, /reusable lanes/, /future implementation paths and serial ownership/, /Read-only repositories use owns: \[\]/, /one exact copy-ready \/graph execute <objective> command/, /user must not reconstruct it from task details/, /install required dependencies/, /only a directly runnable shell command/, /leave tracked files unchanged/, /native shell syntax instead of opaque wrappers/, /do not probe helper or binary availability/, /Legacy Runs are unsupported/, /never recapture/, /hooks enabled/, /internal integration/]) assert.match(prompt, rule)
+ assert.match(taskGraphPrompt("Execute the next eligible plan", "execute"), /Stop on missing or duplicate plans, dependency-ineligible or blocked plans, and approvals explicitly required before implementation\. In execute mode, an explicit objective may promote only the next dependency-ready draft plan; draft status alone does not block admission\. A pending delivered-code approval gates completion, not pre-implementation\. Never invent external approval\./)
  assert.doesNotMatch(prompt, /per-task worktree|current_checkout|worker-start/)
 })
 

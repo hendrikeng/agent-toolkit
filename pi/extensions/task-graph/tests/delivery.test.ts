@@ -6,8 +6,8 @@ import { join } from "node:path"
 import test from "node:test"
 import { archiveCompletedGraph } from "../archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "../delivery.ts"
-import { digest, graphGit, type Orca, type TaskGraphPlan } from "../task-graph-core.ts"
-import { captureGraphWorkspaces, createGraphWorkspace, saveGraphRecord, verifyGraphWorkspace } from "../workspaces.ts"
+import { acquireLease, digest, graphGit, type Orca, type TaskGraphPlan } from "../task-graph-core.ts"
+import { captureGraphWorkspaces, createGraphWorkspace, graphDeliveryInventory, saveGraphRecord, verifyGraphWorkspace } from "../workspaces.ts"
 
 function fixture() {
  const directory = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "graph-delivery-"))), home = join(directory, "home"), source = join(home, "Code/source"), records = join(directory, "records")
@@ -39,6 +39,44 @@ function fixture() {
  }
  return { directory, source, records, items, orca, make }
 }
+
+test("delivery inventory accepts only the explicitly expected live receipt lease", () => {
+ const released = fixture(), releasedDirectory = join(released.directory, "task-graph-deliveries/v1"); mkdirSync(releasedDirectory, { recursive: true })
+ const releasedReceipt = join(releasedDirectory, "run_released.json")
+ writeFileSync(`${releasedReceipt}.lease`, JSON.stringify({ pid: 0, token: "released" }))
+ assert.deepEqual(graphDeliveryInventory(released.directory), { receipts: [], uncertain: false })
+ assert.equal(graphDeliveryInventory(released.directory, releasedReceipt).uncertain, true)
+
+ const live = fixture(), liveDirectory = join(live.directory, "task-graph-deliveries/v1"), liveReceipt = join(liveDirectory, "run_current.json"); mkdirSync(liveDirectory, { recursive: true })
+ const unlock = acquireLease(liveReceipt)
+ try {
+  assert.deepEqual(graphDeliveryInventory(live.directory, liveReceipt), { receipts: [], uncertain: false })
+  assert.equal(graphDeliveryInventory(live.directory).uncertain, true)
+  assert.equal(graphDeliveryInventory(live.directory, join(liveDirectory, "run_other.json")).uncertain, true)
+ } finally { unlock() }
+
+ for (const [name, prepare] of [
+  ["live", (directory: string) => writeFileSync(join(directory, "run_live.json.lease"), JSON.stringify({ pid: process.pid, token: "live" }))],
+  ["recovery", (directory: string) => { writeFileSync(join(directory, "run_recovery.json.lease"), JSON.stringify({ pid: 0, token: "released" })); mkdirSync(join(directory, "run_recovery.json.lease.recovery")) }],
+  ["malformed", (directory: string) => writeFileSync(join(directory, "run_malformed.json.lease"), "{}")],
+  ["unrelated", (directory: string) => writeFileSync(join(directory, "unrelated"), "entry")],
+  ["unexpected delivery", (directory: string) => writeFileSync(join(directory, "run_unexpected.json"), "{}")],
+ ] as const) {
+  const f = fixture(), directory = join(f.directory, "task-graph-deliveries/v1"), expected = join(directory, "run_current.json"); mkdirSync(directory, { recursive: true })
+  const unlock = acquireLease(expected)
+  try { prepare(directory); assert.equal(graphDeliveryInventory(f.directory, expected).uncertain, true, name) }
+  finally { unlock() }
+ }
+})
+
+test("delivery completes while the command holds its receipt lease", () => {
+ const f = fixture(), current = f.make("run_current", "current"), deliveries = join(f.directory, "task-graph-deliveries/v1"), receiptFile = join(deliveries, "run_current.json")
+ mkdirSync(deliveries, { recursive: true })
+ const approved = prepareGraphDelivery(current.file, f.records), unlock = acquireLease(receiptFile)
+ try { assert.equal(deliverGraph(receiptFile, approved, f.orca).status, "delivered") }
+ finally { unlock() }
+ assert.equal(graphGit(f.source, "rev-parse", "HEAD"), current.head)
+})
 
 test("delivery fast-forwards locally and resumes Orca cleanup after interruption", () => {
  const f = fixture(), predecessor = f.make("run_predecessor", "predecessor")
