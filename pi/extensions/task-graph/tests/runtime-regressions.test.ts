@@ -22,8 +22,8 @@ const hooks = registerHooks({ resolve(specifier, context, next) {
  return modules[specifier] ? { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true } : next(specifier, context)
 } })
 const originalPath = process.env.PATH
-let extension: (api: never) => void
-try { process.env.PATH = ""; ({ default: extension } = await import("../index.ts")) }
+let extension: (api: never) => void, compareTaskGraphRuntime: (expected: Record<string, string>, runtime: string) => { files: number; digest: string }
+try { process.env.PATH = ""; ({ default: extension, compareTaskGraphRuntime } = await import("../index.ts")) }
 finally { process.env.PATH = originalPath }
 test.after(() => hooks.deregister())
 
@@ -110,6 +110,15 @@ function fixture() {
  ] }
  return { root, agent: globals.agentDir, source, dependency, base, dependencyBase: graphGit(dependency, "rev-parse", "HEAD"), plan, tasks, worktrees, terminals, dispatches, calls, integrationValidations, loseNextWorktreeReceipt: () => { loseWorktreeReceipt = true }, failNextTerminalWait: () => { globals.graphTerminalNotReady = true }, failNextDispatch: () => { globals.graphDispatchFailures = 1 }, runtime }
 }
+
+test("runtime inspection compares installed bytes to a commit-bound inventory", () => {
+ const runtime = join(mkdtempSync(join(tmpdir(), "graph-runtime-identity-")), "runtime"); mkdirSync(runtime)
+ writeFileSync(join(runtime, "index.ts"), "current\n")
+ const expected = { "index.ts": digest("current\n") }, result = compareTaskGraphRuntime(expected, runtime)
+ assert.equal(result.files, 1); assert.match(result.digest, /^[a-f0-9]{64}$/)
+ writeFileSync(join(runtime, "index.ts"), "stale\n")
+ assert.throws(() => compareTaskGraphRuntime(expected, runtime), /does not match the source foundation/)
+})
 
 test("graph commands preserve multiline objectives without a model round trip", async () => {
  const f = fixture(), coordinator = f.runtime(f.source), objective = "first line\nsecond line"

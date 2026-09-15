@@ -3,12 +3,13 @@ import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, 
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
+import { fileURLToPath } from "node:url"
 import { getAgentDir, truncateHead, withFileMutationQueue, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { inspectShell, runBash } from "../development-access/index.ts"
 import { StringEnum } from "@earendil-works/pi-ai"
 import { Type, type TProperties } from "typebox"
 import { Loader } from "@earendil-works/pi-tui"
-import { acquireLease, assertNoLegacyGraph, digest, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
+import { acquireLease, assertNoLegacyGraph, digest, gitEnvironment, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
 import { archiveCompletedGraph, inspectGraphArchive, inspectGraphArchivePurge, purgeGraphArchive } from "./archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDeliveryInventory, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retirementSourceReserved, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
@@ -32,7 +33,31 @@ const graphSchema = object({
  foundations: Type.Array(foundationSchema, { minItems: 1, maxItems: 12 }), tasks: Type.Array(taskDeclarationSchema, { minItems: 1, maxItems: 12 }), inputs: Type.Optional(Type.Array(inputSchema, { maxItems: 12 })),
 })
 const taskSchema = object({ task_id: string() })
+const runtimeInspectionSchema = object({ repository: string(), commit: Type.String({ pattern: "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }) })
 const POLICY_VERSION = "development-roots-v1"
+
+function taskGraphFileInventory(directory: string, root = realpathSync(directory)): Record<string, string> {
+ const files: Record<string, string> = {}
+ for (const name of readdirSync(directory).sort()) {
+  const path = join(directory, name), local = relative(root, path).split(sep).join("/"), stat = lstatSync(path)
+  if (stat.isSymbolicLink()) throw new Error("Task-graph runtime contains a symbolic link.")
+  if (stat.isDirectory()) Object.assign(files, taskGraphFileInventory(path, root))
+  else if (stat.isFile()) files[local] = digest(readFileSync(path))
+  else throw new Error("Task-graph runtime contains an unsupported entry.")
+ }
+ return files
+}
+export function compareTaskGraphRuntime(expected: Record<string, string>, runtimeDirectory: string): { files: number; digest: string } {
+ const runtime = taskGraphFileInventory(runtimeDirectory)
+ if (JSON.stringify(runtime) !== JSON.stringify(expected)) throw new Error("The active task-graph runtime does not match the source foundation.")
+ return { files: Object.keys(runtime).length, digest: digest(JSON.stringify(runtime)) }
+}
+function taskGraphCommitInventory(source: string, commit: string): Record<string, string> {
+ const prefix = "pi/extensions/task-graph/", files: Record<string, string> = {}
+ const paths = graphGit(source, "ls-tree", "-r", "--name-only", commit, "--", prefix).split("\n").filter(path => path.startsWith(prefix) && !path.startsWith(`${prefix}tests/`))
+ for (const path of paths) files[path.slice(prefix.length)] = digest(execFileSync("git", ["--no-replace-objects", "-C", source, "show", `${commit}:${path}`], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...gitEnvironment(), AGENT_TOOLKIT_GIT_INSPECTION_ONLY: "false" } }))
+ return files
+}
 
 const ORCA_COMMAND = process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : process.platform === "linux" ? "orca-ide" : "orca")
 function executablePath(command: string, cwd: string, trusted = false): string {
@@ -479,6 +504,22 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   } catch (error) { stop(); ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
   } finally { stopLoader() }
  } })
+ pi.registerTool({ name: "inspect_task_graph_runtime", label: "Inspect Graph Runtime", description: "Verify the active installed task graph against an exact clean source foundation, confirm PostgreSQL 17 maintenance-owner support, and run graph garbage inspection.", parameters: runtimeInspectionSchema, executionMode: "sequential", async execute(_id, params) {
+  const source = repositoryRoot(params.repository), head = graphGit(source, "rev-parse", "HEAD")
+  if (head !== params.commit) throw new Error(`Task-graph source HEAD changed: expected ${params.commit}, found ${head}.`)
+  if (graphGit(source, "status", "--porcelain=v1", "--untracked-files=all")) throw new Error("Task-graph source checkout is dirty.")
+  const selected = process.env.AGENT_TOOLKIT_PERMISSION_BUNDLE
+  if (!selected) throw new Error("Installation [development-roots-v1]: missing selected bundle")
+  const bundle = realpathSync(selected), runtime = realpathSync(dirname(fileURLToPath(import.meta.url)))
+  if (runtime !== join(bundle, "extensions", "task-graph")) throw new Error("The active task-graph runtime is not loaded from the selected bundle.")
+  const manifest = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"))
+  if (manifest.version !== POLICY_VERSION || manifest.graphVersion !== 4) throw new Error("The selected task-graph bundle has an unsupported manifest.")
+  const implementation = compareTaskGraphRuntime(taskGraphCommitInventory(source, head), runtime)
+  if (graphGit(source, "rev-parse", "HEAD") !== head || graphGit(source, "status", "--porcelain=v1", "--untracked-files=all")) throw new Error("Task-graph source checkout changed during runtime inspection.")
+  resourceHelper().validateResources([{ id: "database", type: "postgres", image: POSTGRES_GRAPH_IMAGE, purpose: "Runtime capability check", memoryMiB: 256, storageMiB: 128, lifetimeSeconds: 64, profile: "maintenance-owner" }])
+  const garbage = inspectGraphGarbage(agentDir(), orcaJson, () => { const helper = resourceHelper(); return { runtime: helper.dockerInspectionRuntime(), verifyResource: helper.verifyResource } })
+  return text({ status: "verified", policy_version: POLICY_VERSION, graph_version: manifest.graphVersion, source: { repository: source, commit: head }, implementation, postgres: { image: POSTGRES_GRAPH_IMAGE, profile: "maintenance-owner" }, garbage })
+ } })
  pi.registerTool({ name: "propose_task_graph", label: "Approve Graph", description: "Approve one bounded multi-worker graph, including its worktree budget and internal execution.", parameters: graphSchema, executionMode: "sequential", async execute(_id, params, signal, _update, ctx) {
   if (!request || record) throw new Error("Start /graph first or resume its retained record.")
   const submitted = params as TaskGraphPlan
@@ -721,7 +762,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
    }
    if (!request && !record) return
    if (["read", "fffind", "ffgrep", "grep", "find", "ls", "ask_user_question"].includes(event.toolName)) return
-   if (["propose_task_graph", "prepare_task_graph_workspace", "start_task_graph_task", "checkpoint_task_graph", "complete_task_graph_task", "finish_task_graph", "operate_task_graph_resource"].includes(event.toolName)) return
+   if (["inspect_task_graph_runtime", "propose_task_graph", "prepare_task_graph_workspace", "start_task_graph_task", "checkpoint_task_graph", "complete_task_graph_task", "finish_task_graph", "operate_task_graph_resource"].includes(event.toolName)) return
    if (["write", "edit"].includes(event.toolName)) {
     const state = bound(), path = resolve(ctx.cwd, String((event.input as any).path).replace(/^@/, ""))
     const repo = state.repositories.find(repo => repo.workspace?.path && path.startsWith(`${repo.workspace.path}${sep}`)), worker = repo && Object.values(state.workers).find(item => item.source === repo.source && item.integration && !item.integrated)
