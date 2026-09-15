@@ -157,20 +157,28 @@ export function validGraphDeliveryReceipt(receipt: any): boolean {
  const retained = (item: any) => item && /^run_[a-zA-Z0-9_-]+$/.test(item.runId ?? "") && typeof item.record === "string" && typeof item.reason === "string"
  return receipt?.version === 1 && ["authorized-pending", "delivered"].includes(receipt.status) && /^run_[a-zA-Z0-9_-]+$/.test(receipt.runId ?? "") && typeof receipt.record === "string" && typeof receipt.approvedAt === "string" && Array.isArray(receipt.targets) && receipt.targets.length > 0 && receipt.targets.every(target) && Array.isArray(receipt.cleanup) && receipt.cleanup.every(cleanup) && Array.isArray(receipt.retained) && receipt.retained.every(retained) && (receipt.status !== "delivered" || typeof receipt.completedAt === "string" && receipt.targets.every((item: any) => item.status === "delivered") && receipt.cleanup.every((item: any) => item.status === "removed"))
 }
-export function graphDeliveryInventory(agentDirectory: string): { receipts: Array<{ file: string; receipt: any }>; uncertain: boolean } {
+export function graphDeliveryInventory(agentDirectory: string, expectedLiveReceipt?: string): { receipts: Array<{ file: string; receipt: any }>; uncertain: boolean } {
  const root = join(agentDirectory, "task-graph-deliveries"), directory = join(root, "v1"), receipts: Array<{ file: string; receipt: any }> = []
+ const expected = expectedLiveReceipt === undefined ? undefined : resolve(expectedLiveReceipt); let expectedLease = false
  const entries = (path: string): string[] | undefined => {
   try { const stat = lstatSync(path); if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== resolve(path)) throw new Error(); return readdirSync(path) }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error }
  }
  try {
-  const versions = entries(root); if (versions === undefined) return { receipts, uncertain: false }
+  const versions = entries(root)
+  if (versions === undefined) { if (expected) throw new Error(); return { receipts, uncertain: false } }
   if (versions.some(name => name !== "v1")) throw new Error()
-  if (!versions.includes("v1")) return { receipts, uncertain: false }
+  if (!versions.includes("v1")) { if (expected) throw new Error(); return { receipts, uncertain: false } }
   const names = entries(directory); if (names === undefined) throw new Error()
+  if (expected && (dirname(expected) !== resolve(directory) || !/^run_[a-zA-Z0-9_-]+\.json$/.test(basename(expected)))) throw new Error()
   for (const name of names) {
    if (/^run_[a-zA-Z0-9_-]+\.json\.lease$/.test(name)) {
-    if (graphLeaseState(join(directory, name.slice(0, -".lease".length))) !== "available") throw new Error()
+    const file = join(directory, name.slice(0, -".lease".length)), state = graphLeaseState(file)
+    if (file === expected) {
+     const owner = JSON.parse(readFileSync(`${file}.lease`, "utf8"))
+     if (state !== "live" || owner.pid !== process.pid || typeof owner.start !== "string") throw new Error()
+     expectedLease = true
+    } else if (state !== "available") throw new Error()
     continue
    }
    if (!name.endsWith(".json")) throw new Error()
@@ -180,6 +188,7 @@ export function graphDeliveryInventory(agentDirectory: string): { receipts: Arra
    if (!validGraphDeliveryReceipt(receipt) || name !== `${receipt.runId}.json`) throw new Error()
    receipts.push({ file, receipt })
   }
+  if (expected && !expectedLease) throw new Error()
   return { receipts, uncertain: false }
  } catch { return { receipts: [], uncertain: true } }
 }

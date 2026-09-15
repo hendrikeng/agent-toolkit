@@ -23,7 +23,7 @@ function settled(record: GraphRecord): boolean {
   && Object.values(record.resources ?? {}).every((resource: any) => resource.stopped))
 }
 
-function activeWorkspacePaths(recordsDirectory: string, currentRunId?: string): { paths: Set<string>; identities: Set<string>; uncertain: boolean } {
+function activeWorkspacePaths(recordsDirectory: string, currentRunId?: string, receiptFile?: string): { paths: Set<string>; identities: Set<string>; uncertain: boolean } {
  const directoryStat = lstatSync(recordsDirectory)
  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || realpathSync(recordsDirectory) !== resolve(recordsDirectory)) return { paths: new Set(), identities: new Set(), uncertain: true }
  const paths = new Set<string>(), identities = new Set<string>(); let uncertain = false
@@ -40,7 +40,8 @@ function activeWorkspacePaths(recordsDirectory: string, currentRunId?: string): 
   }
   for (const value of [saved.root, ...(Array.isArray(saved.lanes) ? saved.lanes.map((lane: any) => lane?.workspace?.path) : []), ...(saved.workers && typeof saved.workers === "object" ? Object.values(saved.workers).map((worker: any) => worker?.workspace) : [])]) if (typeof value === "string") paths.add(value)
  } catch { uncertain = true }
- const deliveries = graphDeliveryInventory(dirname(recordsDirectory)); uncertain ||= deliveries.uncertain
+ const expectedReceipt = currentRunId && receiptFile && resolve(receiptFile) === resolve(dirname(recordsDirectory), "task-graph-deliveries", "v1", `${currentRunId}.json`) ? receiptFile : undefined
+ const deliveries = graphDeliveryInventory(dirname(recordsDirectory), expectedReceipt); uncertain ||= deliveries.uncertain
  for (const { receipt } of deliveries.receipts) if (receipt.status === "authorized-pending" && receipt.runId !== currentRunId) for (const target of receipt.targets) identities.add(target.identity)
  return { paths, identities, uncertain }
 }
@@ -120,7 +121,7 @@ export function deliverGraph(receiptFile: string, approved: GraphDeliveryReceipt
   if (approved && locked && JSON.stringify(locked) !== JSON.stringify(approved)) throw new Error("The delivery receipt changed after approval. Preserve it for inspection.")
   if (!approved && locked) receipt = locked
   if (receipt.status === "delivered") return receipt
-  const active = activeWorkspacePaths(dirname(receipt.record), receipt.runId)
+  const active = activeWorkspacePaths(dirname(receipt.record), receipt.runId, receiptFile)
   if (active.uncertain) throw new Error("Graph ownership evidence is unreadable or has unknown repository scope. Archive or repair it before delivery.")
   if (receipt.targets.some(item => active.identities.has(item.identity)) || receipt.cleanup.some(item => item.status !== "removed" && active.paths.has(item.workspace.path))) throw new Error("Another Run now requires a delivery target or cleanup workspace. Preserve it and resume delivery after that Run is archived or settles.")
   const record = readGraphRecord(receipt.record)
