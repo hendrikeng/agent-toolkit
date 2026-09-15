@@ -169,6 +169,10 @@ export function graphDeliveryInventory(agentDirectory: string): { receipts: Arra
   if (!versions.includes("v1")) return { receipts, uncertain: false }
   const names = entries(directory); if (names === undefined) throw new Error()
   for (const name of names) {
+   if (/^run_[a-zA-Z0-9_-]+\.json\.lease$/.test(name)) {
+    if (graphLeaseState(join(directory, name.slice(0, -".lease".length))) !== "available") throw new Error()
+    continue
+   }
    if (!name.endsWith(".json")) throw new Error()
    const file = join(directory, name), stat = lstatSync(file)
    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error()
@@ -293,7 +297,14 @@ function inspectOrchestration(state: GraphRecord, orca: Orca, completedGraph = f
   if (!declaration) retirementBlock("uncertain", `Worker ${worker.task} has no declared graph task.`)
   if (!ledger) retirementBlock("uncertain", `Worker ${worker.task} has no exact ledger task receipt.`)
   if (!repo || worker.source !== repo.source) retirementBlock("uncertain", `Worker ${worker.task} repository identity changed.`)
-  if (worker.integration) retirementBlock("uncertain", `Worker ${worker.task} has an integration mutation in progress.`)
+  if (worker.integration) {
+   const completed = state.completed[worker.task]
+   try {
+    if (!completedGraph || typeof worker.integration.before !== "string" || worker.integration.tip !== worker.integrated || completed?.head !== worker.integrated) throw new Error()
+    graphGit(repo.source, "merge-base", "--is-ancestor", worker.integration.before, completed.integrationHead)
+    graphGit(repo.source, "merge-base", "--is-ancestor", worker.integration.tip, completed.integrationHead)
+   } catch { retirementBlock("uncertain", `Worker ${worker.task} has an inconsistent integration mutation marker.`) }
+  }
   if (!completedGraph && worker.integrated) retirementBlock("uncertain", `Worker ${worker.task} already has an integrated commit.`)
   if (!completedGraph && (declaration.owns.length ? !lane || lane.task !== worker.task || lane.source !== worker.source || lane.workspace.path !== worker.workspace || lane.cleanup : Boolean(worker.lane))) retirementBlock("uncertain", "A worker lane assignment changed.")
   if (!worker.dispatch || !completedGraph && !worker.terminal) retirementBlock("uncertain", "A recorded worker has no complete dispatch receipt.")
@@ -747,9 +758,11 @@ export function integrateGraphWorker(record: GraphRecord, worker: GraphWorker, p
  const tip = verifyGraphWorkspace(repo, lane.workspace), integration = repo.workspace!, head = verifyGraphWorkspace(repo, integration)
  if (graphDirtyPaths(lane.workspace.path!).length) throw new Error("Commit worker changes before integration.")
  if (worker.integrated) {
-  if (worker.integrated !== tip) throw new Error("Worker changed after integration.")
+  if (worker.integrated !== tip || worker.integration && worker.integration.tip !== tip) throw new Error("Worker changed after integration.")
   graphGit(integration.path!, "merge-base", "--is-ancestor", tip, "HEAD")
-  if (releaseLane) { lane.previousTasks.push(worker.task); lane.task = undefined; persist() }
+  delete worker.integration
+  if (releaseLane) { lane.previousTasks.push(worker.task); lane.task = undefined }
+  persist()
   return verifyGraphWorkspace(repo, integration)
  }
  const mergeHead = graphMergeHead(integration.path!)
@@ -767,6 +780,7 @@ export function integrateGraphWorker(record: GraphRecord, worker: GraphWorker, p
  graphGit(integration.path!, "merge-base", "--is-ancestor", tip, "HEAD")
  if (graphDirtyPaths(integration.path!).length) throw new Error("Integration left dirty files; preserve them for resolution.")
  worker.integrated = tip
+ delete worker.integration
  if (releaseLane) { lane.previousTasks.push(worker.task); lane.task = undefined }
  persist()
  return verifyGraphWorkspace(repo, integration)
