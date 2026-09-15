@@ -38,7 +38,7 @@ test("accepted development roots need no checkout registration or startup probe"
  }
 })
 
-test("prepare_local_resources creates its scope record before resource preparation", async () => {
+test("prepare_local_resources needs no UI approval and records its scope before preparation", async () => {
  const fixture = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "development-resources-"))), home = join(fixture, "home"), workspace = join(home, "Code/project"), bundle = join(fixture, "bundle")
  mkdirSync(workspace, { recursive: true }); mkdirSync(bundle)
  writeFileSync(join(bundle, "development-policy.cjs"), "module.exports = {}\n")
@@ -51,7 +51,7 @@ test("prepare_local_resources creates its scope record before resource preparati
  try {
   const tools = new Map<string, any>()
   extension({ registerTool: (tool: any) => tools.set(tool.name, tool), on: () => {} } as never)
-  const result = await tools.get("prepare_local_resources").execute("id", { declarations: [] }, undefined, undefined, { cwd: workspace, hasUI: true, ui: { confirm: async () => true } })
+  const result = await tools.get("prepare_local_resources").execute("id", { declarations: [] }, undefined, undefined, { cwd: workspace, hasUI: false })
   const scope = JSON.parse(result.content[0].text).scope_id
   assert.equal(existsSync(join(realpathSync(tmpdir()), "agent-toolkit-resources", scope, "resource-scope.json")), true)
  } finally {
