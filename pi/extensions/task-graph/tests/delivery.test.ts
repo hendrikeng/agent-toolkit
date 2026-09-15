@@ -7,7 +7,7 @@ import test from "node:test"
 import { archiveCompletedGraph } from "../archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "../delivery.ts"
 import { digest, graphGit, type Orca, type TaskGraphPlan } from "../task-graph-core.ts"
-import { captureGraphWorkspaces, createGraphWorkspace, saveGraphRecord, verifyGraphWorkspace } from "../workspaces.ts"
+import { captureGraphWorkspaces, createGraphWorkspace, graphDeliveryInventory, saveGraphRecord, verifyGraphWorkspace } from "../workspaces.ts"
 
 function fixture() {
  const directory = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "graph-delivery-"))), home = join(directory, "home"), source = join(home, "Code/source"), records = join(directory, "records")
@@ -39,6 +39,22 @@ function fixture() {
  }
  return { directory, source, records, items, orca, make }
 }
+
+test("delivery inventory accepts only released receipt lease sidecars", () => {
+ const released = fixture(), releasedDirectory = join(released.directory, "task-graph-deliveries/v1"); mkdirSync(releasedDirectory, { recursive: true })
+ writeFileSync(join(releasedDirectory, "run_released.json.lease"), JSON.stringify({ pid: 0, token: "released" }))
+ assert.deepEqual(graphDeliveryInventory(released.directory), { receipts: [], uncertain: false })
+
+ for (const [name, prepare] of [
+  ["live", (directory: string) => writeFileSync(join(directory, "run_live.json.lease"), JSON.stringify({ pid: process.pid, token: "live" }))],
+  ["recovery", (directory: string) => { writeFileSync(join(directory, "run_recovery.json.lease"), JSON.stringify({ pid: 0, token: "released" })); mkdirSync(join(directory, "run_recovery.json.lease.recovery")) }],
+  ["malformed", (directory: string) => writeFileSync(join(directory, "run_malformed.json.lease"), "{}")],
+  ["unrelated", (directory: string) => writeFileSync(join(directory, "unrelated"), "entry")],
+ ] as const) {
+  const f = fixture(), directory = join(f.directory, "task-graph-deliveries/v1"); mkdirSync(directory, { recursive: true }); prepare(directory)
+  assert.equal(graphDeliveryInventory(f.directory).uncertain, true, name)
+ }
+})
 
 test("delivery fast-forwards locally and resumes Orca cleanup after interruption", () => {
  const f = fixture(), predecessor = f.make("run_predecessor", "predecessor")

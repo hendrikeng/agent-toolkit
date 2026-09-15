@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlink
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphFile, graphGit, importGraphInputs, integrateGraphWorker, prepareGraphLane, readGraphAdmission, readGraphRecord, saveGraphRecord, verifyGraphWorkspace, verifyPlanTaskCloseout } from "../workspaces.ts"
+import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, graphFile, graphGit, graphTaskSpec, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, prepareGraphLane, readGraphAdmission, readGraphRecord, saveGraphRecord, verifyGraphWorkspace, verifyPlanTaskCloseout } from "../workspaces.ts"
 import { digest, repositoryIdentity, validateTaskGraph, type TaskGraphPlan } from "../task-graph-core.ts"
 
 function fixture() {
@@ -62,13 +62,34 @@ test("independent workers use bounded lanes; clean lanes are reused with integra
   checkpointGraphChanges(f.repo, lane.workspace, [path], "execute", base, [path], id)
  }
  const aTip = verifyGraphWorkspace(f.repo, laneA.workspace), bTip = verifyGraphWorkspace(f.repo, laneB.workspace)
+ integrateGraphWorker(f.state, f.state.workers.a, persist, false)
+ assert.equal(f.state.workers.a.integration, undefined)
+ f.state.workers.a.integration = { before: f.state.workers.a.base, tip: aTip }
  integrateGraphWorker(f.state, f.state.workers.a, persist)
+ assert.equal(f.state.workers.a.integration, undefined, "a safely repeated integration clears its historical marker")
  integrateGraphWorker(f.state, f.state.workers.b, persist)
+ assert.equal(f.state.workers.b.integration, undefined, "successful integration clears its mutation marker")
  const laneC = prepareGraphLane(f.state, f.repo, "c", f.orca, persist)
  assert.equal(f.items.length, 3, "many tasks stay inside the declared worktree budget")
  assert.ok([laneA.id, laneB.id].includes(laneC.id))
  graphGit(laneC.workspace.path!, "merge-base", "--is-ancestor", aTip, "HEAD")
  graphGit(laneC.workspace.path!, "merge-base", "--is-ancestor", bTip, "HEAD")
+})
+
+test("completed graph inspection accepts only a matching historical integration marker without mutation", () => {
+ const f = fixture(), agent = join(f.directory, "agent"), records = join(agent, "task-graphs"), state = captureGraphWorkspaces(f.source, { ...f.plan, worktree_budget: 2, tasks: [f.plan.tasks[0]] }), repo = state.repositories[0]; mkdirSync(records, { recursive: true }); repo.preparation = f.repo.preparation
+ createGraphWorkspace(repo, repo.workspace!, f.orca, () => {}); importGraphInputs(repo, () => {})
+ const lane = prepareGraphLane(state, repo, "a", f.orca, () => {}), base = verifyGraphWorkspace(repo, lane.workspace)
+ state.runId = "run_completed_marker"; state.workers.a = { task: "a", ledgerTask: "task_a", source: repo.source, lane: lane.id, workspace: lane.workspace.path!, base, prerequisites: {}, attempt: 0, dispatch: "dispatch_a" }
+ writeFileSync(join(lane.workspace.path!, "a.txt"), "a\n"); checkpointGraphChanges(repo, lane.workspace, ["a.txt"], "execute", base, ["a.txt"], "a")
+ const head = verifyGraphWorkspace(repo, lane.workspace), integrationHead = integrateGraphWorker(state, state.workers.a, () => {})
+ state.workers.a.integration = { before: base, tip: head }; state.completed.a = { head, integrationHead, evidence: "done" }; state.completion = { evidence: "done", deliveryPending: false }
+ const file = join(records, "completed.json"), run = { id: state.runId, objective: `Pi graph v4: ${state.key}: ${state.plan.objective}` }, tasks = [{ id: "task_a", run_id: state.runId, parent_id: null, status: "completed", spec: graphTaskSpec(state, state.plan.tasks[0]) }]
+ const orca = (args: string[]) => args[0] === "orchestration" && args[1] === "run-list" ? { result: { runs: [run] } } : args[0] === "orchestration" && args[1] === "run-show" ? { result: { run } } : args[0] === "orchestration" && args[1] === "task-list" ? { result: { tasks } } : args[0] === "orchestration" && args[1] === "dispatch-show" ? { result: { dispatch: { id: "dispatch_a", task_id: "task_a", run_id: state.runId, status: "completed" } } } : f.orca(args)
+ const inspect = () => inspectGraphGarbage(agent, orca, () => ({ runtime: { list: () => [] } })).records.find((item: any) => item.runId === state.runId && item.location === "active")
+ saveGraphRecord(file, state); const bytes = readFileSync(file, "utf8"); assert.equal(inspect()?.state, "completed"); assert.equal(readFileSync(file, "utf8"), bytes)
+ state.workers.a.integration.tip = f.base; saveGraphRecord(file, state); assert.equal(inspect()?.state, "uncertain")
+ delete (state.workers.a.integration as any).before; saveGraphRecord(file, state); assert.equal(inspect()?.state, "uncertain")
 })
 
 test("input capture survives source edits and uncertain workspace creation without duplicates", () => {
