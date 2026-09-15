@@ -23,6 +23,7 @@ const hooks = registerHooks({ resolve(specifier, context, next) {
 } })
 const originalPath = process.env.PATH
 let extension: (api: never) => void, compareTaskGraphRuntime: (expected: Record<string, string>, runtime: string) => { files: number; digest: string }
+delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK
 try { process.env.PATH = ""; ({ default: extension, compareTaskGraphRuntime } = await import("../index.ts")) }
 finally { process.env.PATH = originalPath }
 test.after(() => hooks.deregister())
@@ -484,6 +485,31 @@ test("validation only credits the worker checkout", async () => {
    await child.call("bash", { repository: worker.workspace, command: "git diff --check" })
   } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
   await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated in worker checkout" })
+ } finally { coordinator.stop() }
+})
+
+test("finish rejects unnecessary pending delivery and remains retryable", async () => {
+ const f = fixture(); f.plan.tasks = [f.plan.tasks[0]]
+ const coordinator = f.runtime(f.source)
+ try {
+  await coordinator.command(`execute ${f.plan.objective}`)
+  const approval = (await coordinator.call("propose_task_graph", f.plan)).details
+  const prepared = (await coordinator.call("prepare_task_graph_workspace")).details
+  const worker = (await coordinator.call("start_task_graph_task", { task_id: "a" })).details.worker
+  const previous = process.cwd(); process.env.AGENT_TOOLKIT_GRAPH_RECORD = approval.record; process.env.AGENT_TOOLKIT_GRAPH_TASK = "a"; process.chdir(worker.workspace)
+  try {
+   const child = f.runtime(worker.workspace)
+   await child.call("write", { path: join(worker.workspace, "a.txt"), content: "done\n" })
+   await child.call("checkpoint_task_graph", { repository: worker.workspace, paths: ["a.txt"], message: "done" })
+   await child.call("bash", { repository: worker.workspace, command: "node check.cjs" })
+  } finally { process.chdir(previous); delete process.env.AGENT_TOOLKIT_GRAPH_RECORD; delete process.env.AGENT_TOOLKIT_GRAPH_TASK }
+  f.dispatches.find(item => item.id === worker.dispatch).status = "completed"; f.tasks.find(task => task.id === worker.ledgerTask).status = "completed"
+  await coordinator.call("complete_task_graph_task", { task_id: "a", evidence: "validated" })
+  await assert.rejects(coordinator.call("finish_task_graph", { run_id: prepared.run_id, evidence: "done", delivery_pending: true }), /requires at least one completed task/)
+  assert.equal(JSON.parse(readFileSync(approval.record, "utf8")).completion, undefined)
+  const result = (await coordinator.call("finish_task_graph", { run_id: prepared.run_id, evidence: "done" })).details
+  assert.equal(result.status, "complete")
+  assert.deepEqual(JSON.parse(readFileSync(approval.record, "utf8")).completion, { evidence: "done", deliveryPending: false })
  } finally { coordinator.stop() }
 })
 
