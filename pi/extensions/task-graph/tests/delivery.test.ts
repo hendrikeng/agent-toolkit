@@ -60,9 +60,12 @@ test("delivery inventory accepts only the explicitly expected live receipt lease
   ["recovery", (directory: string) => { writeFileSync(join(directory, "run_recovery.json.lease"), JSON.stringify({ pid: 0, token: "released" })); mkdirSync(join(directory, "run_recovery.json.lease.recovery")) }],
   ["malformed", (directory: string) => writeFileSync(join(directory, "run_malformed.json.lease"), "{}")],
   ["unrelated", (directory: string) => writeFileSync(join(directory, "unrelated"), "entry")],
+  ["unexpected delivery", (directory: string) => writeFileSync(join(directory, "run_unexpected.json"), "{}")],
  ] as const) {
-  const f = fixture(), directory = join(f.directory, "task-graph-deliveries/v1"); mkdirSync(directory, { recursive: true }); prepare(directory)
-  assert.equal(graphDeliveryInventory(f.directory).uncertain, true, name)
+  const f = fixture(), directory = join(f.directory, "task-graph-deliveries/v1"), expected = join(directory, "run_current.json"); mkdirSync(directory, { recursive: true })
+  const unlock = acquireLease(expected)
+  try { prepare(directory); assert.equal(graphDeliveryInventory(f.directory, expected).uncertain, true, name) }
+  finally { unlock() }
  }
 })
 

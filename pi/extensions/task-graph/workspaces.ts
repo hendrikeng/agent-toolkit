@@ -173,12 +173,12 @@ export function graphDeliveryInventory(agentDirectory: string, expectedLiveRecei
   if (expected && (dirname(expected) !== resolve(directory) || !/^run_[a-zA-Z0-9_-]+\.json$/.test(basename(expected)))) throw new Error()
   for (const name of names) {
    if (/^run_[a-zA-Z0-9_-]+\.json\.lease$/.test(name)) {
-    const file = join(directory, name.slice(0, -".lease".length)), state = graphLeaseState(file)
+    const file = join(directory, name.slice(0, -".lease".length))
     if (file === expected) {
-     const owner = JSON.parse(readFileSync(`${file}.lease`, "utf8"))
-     if (state !== "live" || owner.pid !== process.pid || typeof owner.start !== "string") throw new Error()
+     const lease = readFileSync(`${file}.lease`, "utf8"), owner = JSON.parse(lease)
+     if (graphLeaseState(file) !== "live" || owner.pid !== process.pid || typeof owner.start !== "string" || readFileSync(`${file}.lease`, "utf8") !== lease) throw new Error()
      expectedLease = true
-    } else if (state !== "available") throw new Error()
+    } else if (graphLeaseState(file) !== "available") throw new Error()
     continue
    }
    if (!name.endsWith(".json")) throw new Error()
