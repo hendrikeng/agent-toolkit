@@ -396,12 +396,14 @@ for legacy_handoff in "$HOME/.codex/skills/handoff" "$pi_agent_dir/skills/handof
   fi
 done
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
+install_link "$repo_dir/pi/skills/copyable-commands" "$HOME/.codex/skills/copyable-commands"
 install_link "$repo_dir/pi/skills/explore-design" "$HOME/.codex/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.codex/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
+install_link "$repo_dir/pi/skills/copyable-commands" "$HOME/.claude/skills/copyable-commands"
 install_link "$repo_dir/pi/skills/explore-design" "$HOME/.claude/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.claude/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
@@ -432,6 +434,7 @@ for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_
 done
 install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
+install_link "$repo_dir/pi/skills/copyable-commands" "$pi_agent_dir/skills/copyable-commands"
 install_link "$repo_dir/pi/skills/deepsec" "$pi_agent_dir/skills/deepsec"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
 install_link "$repo_dir/pi/skills/explore-design" "$pi_agent_dir/skills/explore-design" true

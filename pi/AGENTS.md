@@ -70,6 +70,7 @@ The `autoreview` helper provides unique default report and status paths under th
 ## Copyable output
 
 Put text the user needs to copy (prompts, handoffs, commands, or instructions for another agent) in a fenced code block, never a Markdown blockquote (`>`). Keep explanations outside the block so the user can copy its contents unchanged.
+Put each command on one physical line. Start every line at column one, including comments and later commands. Never use line-continuation characters, leading indentation, trailing spaces, or trailing tabs.
 
 ## Documentation prose
 

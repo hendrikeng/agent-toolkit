@@ -88,7 +88,7 @@ Autoreview stops before the model call if TruffleHog is missing or scanning fail
 | Web access | Load web tools only when external information is necessary. |
 | Figma MCP | Load local Figma Desktop tools only for Figma tasks. |
 
-The toolkit also includes guidance for design exploration, FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
+The toolkit also includes guidance for copyable commands, design exploration, FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
 
 ## Safety
 
