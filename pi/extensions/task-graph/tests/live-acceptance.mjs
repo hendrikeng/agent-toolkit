@@ -223,8 +223,14 @@ try {
  assert.equal(taskList.ok, true)
  assert.equal(taskList.result.tasks.length, 2)
  assert(taskList.result.tasks.every(task => task.status === "completed"), "The Orca task ledger is not complete.")
+ const finalHead = git(source, "rev-parse", "HEAD")
+ const removedSetup = JSON.parse(run(orca, ["project", "setup-delete", "--setup", state.repositories[0].preparation.configuration.repo.id, "--json"], source))
+ assert.equal(removedSetup.ok, true, "Orca did not remove the disposable repository registration.")
+ const remainingWorktrees = JSON.parse(run(orca, ["worktree", "list", "--limit", "500", "--json"], toolkit))
+ assert.equal(remainingWorktrees.ok, true)
+ assert.equal(remainingWorktrees.result.worktrees.some(worktree => worktree.path === source), false, "Orca still lists the disposable source worktree.")
 
- const report = { status: "passed", fixture: root, source, evidence, model, base, runId: state.runId, integrationHead, finalHead: git(source, "rev-parse", "HEAD"), restart: "SIGKILL after first integration, then exact-command resume", events: eventFiles, stderr: stderrFiles }
+ const report = { status: "passed", fixture: root, source, evidence, model, base, runId: state.runId, integrationHead, finalHead, restart: "SIGKILL after first integration, then exact-command resume", cleanup: "lane and integration worktrees removed; disposable repository unregistered", events: eventFiles, stderr: stderrFiles }
  writeFileSync(join(evidence, "result.json"), `${JSON.stringify(report, null, 2)}\n`)
  console.log(JSON.stringify(report, null, 2))
  resumed.send({ type: "abort" }); child.kill("SIGTERM")
