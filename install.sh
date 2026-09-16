@@ -216,16 +216,16 @@ install_pi_web_config() {
 configure_pi_settings() {
   local settings_path=$pi_agent_dir/settings.json
   local target=$pi_agent_dir/integrations/status-format
-  node - "$settings_path" "$target" "$repo_dir/shared/pi-web-access/node_modules/proper-lockfile" <<'NODE'
+  local web_source="npm:pi-web-access@0.13.0"
+  local permission_source="npm:@gotgenes/pi-permission-system@$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")"
+  node - "$settings_path" "$target" "$web_source" "$permission_source" "$repo_dir/shared/pi-web-access/node_modules/proper-lockfile" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
-const lockfile = require(process.argv[4]);
-const settingsPath = process.argv[2];
-const target = process.argv[3];
+const [settingsPath, target, webSource, permissionSource, lockfilePath] = process.argv.slice(2);
+const lockfile = require(lockfilePath);
 fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-if (!fs.existsSync(settingsPath)) fs.writeFileSync(settingsPath, "{}\n", { mode: 0o600 });
 let release;
-for (let attempt = 1; attempt <= 10; attempt++) {
+for (let attempt = 1; attempt <= 10; attempt += 1) {
   try {
     release = lockfile.lockSync(settingsPath, { realpath: false });
     break;
@@ -234,15 +234,28 @@ for (let attempt = 1; attempt <= 10; attempt++) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
   }
 }
+let temporary;
 try {
-  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-  settings.extensions = [...new Set([...(settings.extensions ?? []).filter((value) => value !== target), target])];
+  const outputPath = fs.existsSync(settingsPath) && fs.lstatSync(settingsPath).isSymbolicLink() ? fs.realpathSync(settingsPath) : settingsPath;
+  temporary = `${outputPath}.${process.pid}`;
+  const settings = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, "utf8")) : {};
+  const source = entry => typeof entry === "string" ? entry : entry?.source;
+  settings.packages = (settings.packages ?? []).filter(entry => !/^npm:(?:pi-web-access|@gotgenes\/pi-permission-system)(?:@|$)/.test(source(entry) ?? ""));
+  settings.packages.push(permissionSource, { source: webSource, skills: [] });
+  settings.extensions = [...new Set([...(settings.extensions ?? []).filter(value => value !== target), target])];
   settings.outputPad ??= 0;
   settings.markdown ??= {};
   settings.markdown.codeBlockIndent ??= "";
-  fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  fs.writeFileSync(temporary, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, outputPath);
 } finally {
-  release();
+  try {
+    if (temporary) fs.unlinkSync(temporary);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  } finally {
+    release();
+  }
 }
 NODE
 }
@@ -278,9 +291,6 @@ install_pi_packages() {
 
   install_pi_package "npm:@ff-labs/pi-fff@0.10.3"
   install_pi_package "$web_source"
-
-  local settings_path=$pi_agent_dir/settings.json
-  node "$repo_dir/shared/pi-web-access/configure-package.cjs" "$settings_path" "$web_source"
 }
 
 install_agent_safety() {
@@ -299,9 +309,16 @@ install_agent_safety() {
     printf 'skipped Codex agent safety (codex not found)\n'
   fi
 
-  # Pi permissions are staged as one retained bundle, never patched in place.
   if command -v pi >/dev/null 2>&1; then
-    permission_bundle=$(node "$repo_dir/shared/agent-safety/permission-bundle.cjs" stage "$repo_dir" "$HOME/.local/libexec/agent-toolkit/permission-bundles" "$HOME" | tail -n 1)
+    version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
+    install_pi_package "npm:@gotgenes/pi-permission-system@$version"
+    policy_temp=$(mktemp "${TMPDIR:-/tmp}/agent-toolkit-pi-policy.XXXXXX")
+    cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$policy_temp"
+    node "$repo_dir/shared/agent-safety/configure.cjs" pi "$policy_temp" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
+    install_managed_copy "$policy_temp" "$pi_agent_dir/extensions/pi-permission-system/config.json"
+    rm "$policy_temp"
+  else
+    printf 'skipped Pi agent safety (pi not found)\n'
   fi
 }
 
@@ -404,6 +421,20 @@ for retired_copy_skill in "$HOME/.codex/skills/copyable-commands" "$HOME/.claude
     printf 'retired %s\n' "$retired_copy_skill"
   fi
 done
+legacy_task_graph="$pi_agent_dir/extensions/task-graph"
+if [[ -L $legacy_task_graph ]]; then
+  case $(readlink "$legacy_task_graph") in
+    */pi/extensions/task-graph) rm "$legacy_task_graph"; printf 'retired %s\n' "$legacy_task_graph" ;;
+  esac
+fi
+for retired_extension in codex-goal skills-update; do
+  target="$pi_agent_dir/extensions/$retired_extension"
+  if [[ -L $target ]]; then
+    case $(readlink "$target") in
+      */pi/extensions/"$retired_extension") rm "$target"; printf 'retired %s\n' "$target" ;;
+    esac
+  fi
+done
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
 install_link "$repo_dir/pi/skills/explore-design" "$HOME/.codex/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
@@ -418,18 +449,29 @@ install_link "$repo_dir/pi/skills/python" "$HOME/.claude/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
 install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
+legacy_git_test="$HOME/.local/libexec/agent-toolkit/git-test"
+legacy_git_test_marker="$legacy_git_test.agent-toolkit.sha256"
+if [[ -e $legacy_git_test || -L $legacy_git_test || -e $legacy_git_test_marker || -L $legacy_git_test_marker ]]; then
+  if [[ -f $legacy_git_test && ! -L $legacy_git_test && -f $legacy_git_test_marker && ! -L $legacy_git_test_marker && $(shasum -a 256 "$legacy_git_test" | awk '{print $1}') == "$(<"$legacy_git_test_marker")" ]]; then
+    rm "$legacy_git_test" "$legacy_git_test_marker"
+    printf 'retired %s\n' "$legacy_git_test"
+  else
+    printf 'refusing to retire changed Git fixture helper at %s\n' "$legacy_git_test" >&2
+    exit 1
+  fi
+fi
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700
-install_managed_copy "$repo_dir/shared/agent-safety/git-test.cjs" "$HOME/.local/libexec/agent-toolkit/git-test" 700
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensions/ask-user-question"
 install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"
 install_link "$repo_dir/pi/extensions/codex-fast" "$pi_agent_dir/extensions/codex-fast"
-install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
 install_link "$repo_dir/pi/extensions/copy-code" "$pi_agent_dir/extensions/copy-code"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-push"
+install_link "$repo_dir/pi/extensions/legacy-session-filter" "$pi_agent_dir/extensions/legacy-session-filter"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
+install_link "$repo_dir/pi/extensions/permission-floor" "$pi_agent_dir/extensions/permission-floor"
 install_link "$repo_dir/pi/extensions/project-blueprint" "$pi_agent_dir/extensions/project-blueprint"
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
@@ -440,7 +482,6 @@ for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_
     rm "$legacy_status_format"
   fi
 done
-install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/deepsec" "$pi_agent_dir/skills/deepsec"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
@@ -454,34 +495,29 @@ install_pi_web_config
 
 printf '\ninstalling Ponytail for available agent hosts…\n'
 install_ponytail
-printf '\ninstalling agent safety boundaries…\n'
-install_agent_safety
 printf '\ninstalling Pi packages…\n'
 install_pi_packages
-configure_pi_settings
-
-# Activate only a verified, complete permission bundle. Retain every old bundle.
-if [[ -n ${permission_bundle:-} ]]; then
-  node "$repo_dir/shared/agent-safety/permission-bundle.cjs" verify "$permission_bundle"
-  target="$HOME/.local/bin/pi-yolo"
-  mkdir -p "$(dirname "$target")"
-  if [[ -L $target ]]; then
-    case $(readlink "$target") in "$HOME/.local/libexec/agent-toolkit/permission-bundles/"*/dispatch) ;; *) printf 'Refusing an unmanaged Pi launcher selector\n' >&2; exit 1 ;; esac
-  elif [[ -e $target ]]; then
-    [[ -f $target && -f $target.agent-toolkit.sha256 && $(shasum -a 256 "$target" | awk '{print $1}') == "$(<"$target.agent-toolkit.sha256")" ]] || { printf 'Refusing an unmanaged Pi launcher; human comparison required\n' >&2; exit 1; }
-  fi
-  if [[ -e $target || -L $target ]]; then
-    mkdir -p "$backup_root/.local/bin"
-    cp -P "$target" "$backup_root/.local/bin/pi-yolo"
-  fi
-  node "$repo_dir/shared/agent-safety/permission-bundle.cjs" activate "$permission_bundle" "$target"
-fi
+printf '\ninstalling agent safety boundaries…\n'
+install_agent_safety
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/codex-yolo" 700
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/claude-yolo" 700
+configure_pi_settings
+
+target="$HOME/.local/bin/pi-yolo"
+if [[ -L $target ]]; then
+  case $(readlink "$target") in
+    "$HOME/.local/libexec/agent-toolkit/permission-bundles/"*/dispatch)
+      mkdir -p "$backup_root/.local/bin"
+      cp -P "$target" "$backup_root/.local/bin/pi-yolo"
+      rm "$target"
+      ;;
+  esac
+fi
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$target" 700
 
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
   printf '\nInstallation complete. Restart the current pi-yolo session to load newly installed resources.\n'
 else
-  printf '\nInstallation complete. Existing sessions retain their bundle. Start fresh Pi sessions for the new contract.\n'
+  printf '\nInstallation complete. Start a fresh Pi session to load the updated permission package and policy.\n'
 fi
 printf 'On first Codex start, review and trust Ponytail hooks when prompted (or open /hooks).\n'

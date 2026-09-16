@@ -141,7 +141,10 @@ case $command in
     action= operands=0
     for ((j = i + 1; j < ${#args[@]}; j++)); do
       case ${args[j]} in
-        --get|--get-all|--get-regexp|--get-urlmatch|--list|-l) action=${args[j]} ;;
+        --get|--get-all|--get-regexp|--get-urlmatch|--list|-l)
+          [[ -z $action && $operands -eq 0 ]] || { printf 'git yolo guard: config writes are disabled\n' >&2; exit 126; }
+          action=${args[j]}
+          ;;
         --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes|--path) ;;
         -*) printf 'git yolo guard: config writes are disabled\n' >&2; exit 126 ;;
         *) if [[ -z $action && ( ${args[j]} == get || ${args[j]} == list ) ]]; then action=${args[j]}; else operands=$((operands + 1)); fi ;;
@@ -192,7 +195,7 @@ case $command in
   merge|cherry-pick|revert) operation=integration ;;
 esac
 if [[ $inspect_only == true && $operation != inspection ]]; then
-  printf 'git guard [development-roots-v1]: mutation is outside inspection authority; use a scoped checkpoint or bounded human authorization\n' >&2
+  printf 'git guard: mutation is outside inspection authority; use a bounded publication tool or human authorization\n' >&2
   exit 126
 fi
 if [[ $selected_only == true && $directory_selected == true && $operation != inspection ]]; then

@@ -2,29 +2,24 @@
 set -euo pipefail
 repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cd "$repo_dir"
-case ${1:---source} in
-  --source)
-    [[ -n ${2:-} ]] || { printf 'Provide a patched scratch package path. No installed package is read implicitly.\n' >&2; exit 2; }
-    bash -n install.sh
-    bash -n shared/agent-safety/agent-yolo
-    bash -n shared/agent-safety/git-yolo-guard
-    bash -n shared/agent-safety/pi-yolo-dispatch
-    node --check shared/agent-safety/permission-bundle.cjs
-    node --check shared/agent-safety/local-resources.cjs
-    node --experimental-strip-types --check pi/extensions/development-access/index.ts
-    node --experimental-strip-types --check pi/extensions/task-graph/index.ts
-    node shared/agent-safety/configure.cjs --self-test
-    node --test shared/agent-safety/development-policy.test.cjs shared/agent-safety/local-resources.test.cjs shared/agent-safety/resource-boundaries.test.cjs shared/agent-safety/git-operation-policy.test.cjs shared/agent-safety/launcher-syntax-contract.test.cjs shared/agent-safety/shared-launcher.test.cjs
-    node --experimental-strip-types --test pi/extensions/copy-code/tests/copy-code.test.ts pi/extensions/development-access/tests/development-access.test.ts pi/extensions/task-graph/tests/task-graph.test.ts pi/extensions/task-graph/tests/workspaces.test.ts pi/extensions/task-graph/tests/workspace-runtime.test.ts pi/extensions/task-graph/tests/runtime-regressions.test.ts pi/extensions/task-graph/tests/delivery.test.ts pi/extensions/task-graph/tests/archive.test.ts
-    node --experimental-transform-types shared/agent-safety/permission-api-reference.check.cjs "$2"
-    node shared/agent-safety/extension-loader.check.cjs "$2"
-    printf 'Source checks passed. Installed runtime and fresh sessions are NOT accepted by these checks.\n'
-    ;;
-  --bundle)
-    [[ -n ${2:-} ]] || { printf 'Provide the physical retained bundle path.\n' >&2; exit 2; }
-    node shared/agent-safety/permission-bundle.cjs verify "$2"
-    node --experimental-transform-types shared/agent-safety/permission-api-reference.check.cjs "$2/node_modules/@gotgenes/pi-permission-system"
-    printf 'Bundle bytes and parser checked. Native tools, live Orca and fresh-session acceptance remain separate.\n'
-    ;;
-  *) printf 'Usage: verify.sh --source <patched-package-path> | --bundle <physical-bundle-path>\n' >&2; exit 2 ;;
-esac
+
+[[ $# -eq 0 ]] || { printf 'Usage: ./verify.sh\n' >&2; exit 2; }
+for script in install.sh update.sh shared/agent-safety/agent-yolo shared/agent-safety/git-yolo-guard; do
+  bash -n "$script"
+done
+for script in shared/agent-safety/configure.cjs shared/agent-safety/pg-test.cjs; do
+  node --check "$script"
+done
+node -e 'JSON.parse(require("node:fs").readFileSync("shared/agent-safety/pi-permission-system.json", "utf8"))'
+node shared/agent-safety/configure.cjs --self-test
+node --test shared/agent-safety/*.test.cjs
+extension_tests=()
+for test_file in pi/extensions/*/tests/*.test.ts; do
+  if [[ $test_file == pi/extensions/project-blueprint/tests/project-update.test.ts && ! -f vendor/agent-project-blueprint/scripts/bootstrap-configure.mjs ]]; then
+    printf 'Skipping project update integration test: blueprint submodule is not initialized.\n'
+    continue
+  fi
+  extension_tests+=("$test_file")
+done
+node --experimental-strip-types --test "${extension_tests[@]}"
+printf 'Toolkit checks passed. Install from a trusted human terminal, then start a fresh Pi session.\n'

@@ -20,7 +20,6 @@ if(process.argv[2]==='execpolicy') console.log('{"decision":"forbidden"}');
 else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slice(2),path:process.env.PATH,account:process.env.CODEX_HOME,configCount:process.env.GIT_CONFIG_COUNT}));
 `
  const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, CODEX_HOME: path.join(home, '.codex'), CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CAPTURE: path.join(home, 'capture.json') }
- delete env.AGENT_TOOLKIT_PERMISSION_BUNDLE
  Object.assign(env, { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'credential.interactive', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: 'credential.guiPrompt', GIT_CONFIG_VALUE_1: 'false' })
  for (const host of ['codex', 'claude']) {
   fs.writeFileSync(path.join(bin, host), fake, { mode: 0o700 })

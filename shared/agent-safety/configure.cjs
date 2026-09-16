@@ -149,28 +149,31 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
   if (paths.some((value) => !pathModule.isAbsolute(value))) throw new Error("Pi safety paths must be absolute");
   if (paths.some((value) => /[*?]/.test(value))) throw new Error("Pi safety paths cannot contain permission glob characters");
 
-  const { physicalPath: canonical, buildDevelopmentPolicy } = require('./development-policy.cjs');
-  const toolkit = canonical(toolkitDir);
-  const agentDir = canonical(piAgentDir);
-  const webConfigDir = canonical(piWebConfigDir);
-  JSON.parse(text);
+  const settings = JSON.parse(text);
   const home = os.homedir();
-  const defaults = JSON.parse(fs.readFileSync(pathModule.join(__dirname, 'pi-permission-system.json'), 'utf8'));
-  const settings = buildDevelopmentPolicy(defaults, { home, reportRoot: pathModule.join(home, 'Code/.agent-toolkit-reports') }).policy;
+  const toolkit = pathModule.resolve(toolkitDir);
+  const agentDir = pathModule.resolve(piAgentDir);
+  const webConfigDir = pathModule.resolve(piWebConfigDir);
+  settings.yoloMode = false;
+  settings.permission.external_directory = { "*": "deny" };
+  for (const root of [pathModule.join(home, "Code"), pathModule.join(home, "orca/workspaces"), pathModule.join(home, "Code/.agent-toolkit-reports")]) {
+    settings.permission.external_directory[root] = "allow";
+    settings.permission.external_directory[pathModule.join(root, "*")] = "allow";
+  }
   settings.piInfrastructureReadPaths = [
     pathModule.join(toolkit, "codex/skills"),
     pathModule.join(toolkit, "pi/skills"),
-    canonical(pathModule.join(home, ".agents/skills")),
-    canonical(pathModule.join(home, ".claude/skills")),
-    canonical(pathModule.join(home, ".codex/skills")),
+    pathModule.join(home, ".agents/skills"),
+    pathModule.join(home, ".claude/skills"),
+    pathModule.join(home, ".codex/skills"),
   ];
-  for (const surface of ["write", "edit"]) settings.permission[surface] = { ...settings.permission.path, [agentDir]: "deny", [pathModule.join(agentDir, "*")]: "deny" };
-  settings.permission.bash[`*${agentDir}*`] = "deny";
-  settings.permission.path[pathModule.join(agentDir, "auth.json")] = "deny";
-  settings.permission.path[pathModule.join(agentDir, "auth-profiles")] = "deny";
-  settings.permission.path[pathModule.join(agentDir, "auth-profiles/*")] = "deny";
-  settings.permission.path[pathModule.join(agentDir, "codex-fast.json")] = "deny";
-  settings.permission.path[pathModule.join(webConfigDir, "web-search.json")] = "deny";
+  for (const protectedPath of [
+    pathModule.join(agentDir, "auth.json"),
+    pathModule.join(agentDir, "auth-profiles"),
+    pathModule.join(agentDir, "auth-profiles/*"),
+    pathModule.join(agentDir, "codex-fast.json"),
+    pathModule.join(webConfigDir, "web-search.json"),
+  ]) settings.permission.path[protectedPath] = "deny";
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
@@ -219,7 +222,8 @@ if (process.argv[2] === "--self-test") {
   assert.equal(claude.permissions.deny.includes("Bash(git push *-f*)"), false);
   assert.equal(claude.permissions.additionalDirectories.some((value) => value.endsWith("/Code")), true);
   assert.equal(claude.sandbox.filesystem.allowWrite.some((value) => value.endsWith("/orca/workspaces")), true);
-  const pi = JSON.parse(configurePi('{"piInfrastructureReadPaths":[],"permission":{"path":{}}}', "/toolkit", "/pi-agent", "/pi-config"));
+  const piDefaults = fs.readFileSync(pathModule.join(__dirname, "pi-permission-system.json"), "utf8");
+  const pi = JSON.parse(configurePi(piDefaults, "/toolkit", "/pi-agent", "/pi-config"));
   assert.deepEqual(pi.piInfrastructureReadPaths.slice(0, 2), [
     "/toolkit/codex/skills",
     "/toolkit/pi/skills",
@@ -229,18 +233,19 @@ if (process.argv[2] === "--self-test") {
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), false);
   assert.equal(pi.yoloMode, false);
   assert.equal(pi.permission.bash['*'], 'allow');
+  for (const command of ['{ *', '*()*', '!*', 'time *', 'coproc *', 'select *', 'if *', 'while *', 'until *', 'for *', 'case *', 'function *']) assert.equal(pi.permission.bash[command], 'deny');
   assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'Code', '*')], 'allow');
-  assert.equal(pi.permission.write["*.env"], "deny");
-  assert.equal(pi.permission.edit["*/.git/config"], "deny");
-  assert.equal(pi.permission.write["/pi-agent/*"], "deny");
-  assert.equal(pi.permission.edit["/pi-agent/*"], "deny");
-  assert.equal(pi.permission.bash["*/pi-agent*"], "deny");
+  assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'orca/workspaces', '*')], 'allow');
+  assert.equal(pi.permission.path["*.env"], "deny");
+  assert.equal(pi.permission.path["*/.git/config"], "deny");
+  assert.equal(pi.permission.path["*/.pi/extensions/pi-permission-system/config.json"], "deny");
+  assert.equal(pi.permission.path["*/.pi/agents*"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth-profiles"], "deny");
   assert.equal(pi.permission.path["/pi-agent/auth-profiles/*"], "deny");
   assert.equal(pi.permission.path["/pi-agent/codex-fast.json"], "deny");
   assert.equal(pi.permission.path["/pi-config/web-search.json"], "deny");
-  assert.throws(() => configurePi('{"permission":{"path":{}}}', "/tool?kit", "/pi-agent", "/pi-config"));
+  assert.throws(() => configurePi(piDefaults, "/tool?kit", "/pi-agent", "/pi-config"));
   assert.match(configureCodex('sandbox_mode = "danger-full-access"\napproval_policy = "never"\n\n[features]\nhooks = true\n'), /^sandbox_mode = "workspace-write"\napproval_policy = "on-request"/);
   assert.match(configureCodex("  sandbox_mode = 'read-only' # keep\n  approval_policy = 'untrusted' # keep\n"), /sandbox_mode = 'read-only' # keep\n  approval_policy = 'untrusted' # keep/);
   assert.match(configureCodex('[profiles.unsafe] # local\nsandbox_mode = "danger-full-access"\n'), /^approval_policy = "on-request"\nsandbox_mode = "workspace-write"/);

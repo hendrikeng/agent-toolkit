@@ -7,8 +7,7 @@ for root in "$HOME/Code" "$HOME/orca/workspaces"; do
 done
 
 enable_git_guard() {
-  guard=${AGENT_TOOLKIT_PERMISSION_BUNDLE:+$AGENT_TOOLKIT_PERMISSION_BUNDLE/git}
-  guard=${guard:-$HOME/.local/libexec/agent-toolkit/git}
+  guard=$HOME/.local/libexec/agent-toolkit/git
   marker=$guard.agent-toolkit.sha256
   [[ -x $guard && -f $marker ]] || { printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1; }
   [[ $(<"$marker") == "$(shasum -a 256 "$guard" | awk '{print $1}')" ]] || {
@@ -73,11 +72,6 @@ NODE
     PATH=$PATH exec claude --permission-mode bypassPermissions --settings "$claude_settings" "$@"
     ;;
   pi-yolo)
-    bundle=${AGENT_TOOLKIT_PERMISSION_BUNDLE:-}
-    [[ -n $bundle ]] || { printf 'Installation [development-roots-v1]: use the atomic permission-bundle launcher\n' >&2; exit 1; }
-    node "$bundle/permission-bundle.cjs" verify "$bundle"
-    required_pi=$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).piVersion' "$bundle/manifest.json")
-    [[ $(pi --version) == "$required_pi" ]] || { printf 'Installation [development-roots-v1]: Pi version changed; reviewed bundle installation required\n' >&2; exit 1; }
     source_agent_dir=${AGENT_TOOLKIT_PI_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}
     if [[ -n ${AGENT_TOOLKIT_PI_WEB_CONFIG_DIR:-} ]]; then
       source_web_config_dir=$AGENT_TOOLKIT_PI_WEB_CONFIG_DIR
@@ -88,8 +82,13 @@ NODE
     else
       source_web_config_dir=$HOME/.pi
     fi
-    policy=$bundle/policy.json
+    policy=$source_agent_dir/extensions/pi-permission-system/config.json
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    working_dir=$(pwd -P)
+    case $working_dir in
+      "$HOME/Code"|"$HOME/Code/"*|"$HOME/orca/workspaces"|"$HOME/orca/workspaces/"*) ;;
+      *) printf 'pi-yolo: start inside ~/Code or ~/orca/workspaces\n' >&2; exit 1 ;;
+    esac
 
     account_profile=
     pinned_account=false
@@ -234,33 +233,24 @@ NODE
       mkdir "$agent_dir/extensions/pi-permission-system"
     fi
     scratch_root=$HOME/Code/.agent-toolkit-scratch
-    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" "$scratch_root" <<'NODE'
+    mkdir -p "$scratch_root"
+    scratch_root=$(cd -P "$scratch_root" && pwd -P)
+    case $scratch_root in "$HOME/Code/"*) ;; *) printf 'pi-yolo: scratch path escaped ~/Code\n' >&2; exit 1 ;; esac
+    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$source_agent_dir" <<'NODE'
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *"]) {
+for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *", "{ *", "*()*", "if *", "while *", "for *", "case *"]) {
   if (config.permission?.bash?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy: ${pattern}`);
 }
-for (const pattern of ["*.env", "*.env.*", "*.pem", "*.key"]) {
-  config.permission.path[pattern] = "deny";
+for (const pattern of ["*/.pi/extensions/pi-permission-system/config.json", "*/.pi/agent/pi-permissions.jsonc", "*/.pi/agents*"]) {
+  if (config.permission?.path?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy path: ${pattern}`);
 }
-const managedAgentDir = fs.realpathSync(process.argv[5]);
-const graphEvidenceDirs = ["task-graphs", "task-graphs-retired", "task-graphs-archived", "task-graph-purges", "task-graph-locks", "task-graph-deliveries"].map(name => path.join(managedAgentDir, name));
-const bundle = process.argv[4];
-const access = require(path.join(bundle, "development-policy.cjs"));
-const roots = access.developmentRoots(os.homedir());
-access.assertDevelopmentPath(process.cwd(), roots);
-const scratchRoot = process.argv[6];
-fs.mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
-access.assertDevelopmentPath(scratchRoot, roots);
+const managedAgentDir = fs.realpathSync(process.argv[4]);
 const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
-for (const surface of ["write", "edit"]) config.permission[surface] = { ...config.permission.path, ...(typeof config.permission[surface] === "object" ? config.permission[surface] : {}), [runtimeAgentDir]: "deny", [path.join(runtimeAgentDir, "*")]: "deny" };
-config.permission.bash[`*${runtimeAgentDir}*`] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "auth.json")] = "deny";
 config.permission.path[path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json")] = "deny";
-config.permission.external_directory[runtimeAgentDir] = "allow";
-config.permission.external_directory[path.join(runtimeAgentDir, "*")] = "allow";
 const temporaryDir = fs.realpathSync(os.tmpdir());
 const reviewRoot = path.join(os.homedir(), "Code/.agent-toolkit-reports");
 fs.mkdirSync(reviewRoot, { recursive: true, mode: 0o700 });
@@ -272,7 +262,6 @@ catch (error) { if (error.code !== "EEXIST") throw error; }
 if (!fs.lstatSync(probe).isFile() || fs.lstatSync(probe).isSymbolicLink() || fs.readFileSync(probe, "utf8") !== probeText) throw new Error("Invalid review read-access probe");
 config.piInfrastructureReadPaths = [...new Set([
   ...(config.piInfrastructureReadPaths ?? []),
-  ...graphEvidenceDirs,
   fs.realpathSync(reviewRoot),
   path.join(runtimeAgentDir, "extensions"),
   path.join(runtimeAgentDir, "skills"),
@@ -281,40 +270,11 @@ config.piInfrastructureReadPaths = [...new Set([
   path.join(os.homedir(), ".agents/skills"),
   path.join(os.homedir(), ".claude/skills"),
   path.join(os.homedir(), ".codex/skills"),
-  path.join(managedAgentDir, "git"),
-  path.join(managedAgentDir, "npm/node_modules"),
-  // Orca and terminal clipboard integrations put pasted images here.
   path.join(temporaryDir, "orca-paste-*"),
   path.join(temporaryDir, "pi-clipboard-*"),
   path.join(temporaryDir, "codex-clipboard-*"),
 ])];
-// The accepted bundle supplies one policy. Never import checkout approvals or
-// rewrite human asks/denials at session startup.
-const settings = JSON.parse(fs.readFileSync(path.join(managedAgentDir, "settings.json"), "utf8"));
-settings.packages = (settings.packages ?? []).filter(item => !JSON.stringify(item).includes("pi-permission-system"));
-settings.packages.push(path.join(bundle, "node_modules/@gotgenes/pi-permission-system"));
-const runtimeSettings = path.join(runtimeAgentDir, "settings.json");
-if (fs.lstatSync(runtimeSettings).isSymbolicLink()) fs.unlinkSync(runtimeSettings);
-fs.writeFileSync(runtimeSettings, JSON.stringify(settings, null, 2));
-// Pi can resolve symlinked extensions from their session path, not their bundle
-// path. Keep dependency lookup pinned to this bundle in both cases.
-const runtimeModules = path.join(runtimeAgentDir, "node_modules");
-try {
-  if (!fs.lstatSync(runtimeModules).isSymbolicLink()) throw new Error("Unexpected runtime dependency destination");
-  fs.unlinkSync(runtimeModules);
-} catch (error) { if (error.code !== "ENOENT") throw error; }
-fs.symlinkSync(path.join(bundle, "node_modules"), runtimeModules);
-for (const name of ["development-access", "task-graph"]) {
-  const target = path.join(runtimeAgentDir, "extensions", name);
-  if (fs.existsSync(target)) {
-    if (!fs.lstatSync(target).isSymbolicLink()) throw new Error("Unexpected runtime extension destination");
-    fs.unlinkSync(target);
-  }
-  fs.symlinkSync(path.join(bundle, "extensions", name), target);
-}
-// Optional fixture helpers must not prevent ordinary Pi startup. If absent or
-// changed, deny their command surface rather than falling through to another PATH binary.
-for (const name of ["pg-test", "git-test"]) {
+for (const name of ["pg-test"]) {
   const helper = path.join(process.env.HOME, ".local/libexec/agent-toolkit", name);
   try {
     for (const file of [helper, `${helper}.agent-toolkit.sha256`]) {
@@ -327,8 +287,6 @@ for (const name of ["pg-test", "git-test"]) {
     for (const pattern of [name, `${name} *`, `*/${name}`, `*/${name} *`]) config.permission.bash[pattern] = "deny";
   }
 }
-// Legacy script approvals are intentionally not imported, even if files still exist.
-// Missing approvals therefore cannot abort launcher startup or authorize a new clone.
 const output = process.argv[3];
 const temporary = `${output}.${process.pid}`;
 fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
@@ -356,7 +314,6 @@ NODE
       AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir \
       AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir \
       AGENT_TOOLKIT_REVIEW_ROOT="$HOME/Code/.agent-toolkit-reports" \
-      AGENT_TOOLKIT_PERMISSION_BUNDLE="$bundle" \
       TMPDIR="$scratch_root" \
       PI_CODING_AGENT_DIR=$agent_dir \
       pi "${pi_args[@]}"
