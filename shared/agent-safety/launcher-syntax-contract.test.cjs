@@ -115,7 +115,7 @@ test('installer validates shell files before side effects and selects the comple
  assert.ok(activation > installer.indexOf('verify "$permission_bundle"'))
  assert.ok(activation > installer.indexOf('Refusing an unmanaged Pi launcher'))
  assert.match(installer, /settings\.outputPad \?\?= 0/)
- assert.match(installer, /settings\.markdown\.codeBlockIndent \?\?= ""/)
+ assert.match(installer, /settings\.markdown\.codeBlockIndent = "┃ "/)
  assert.match(installer, /extensions\/copy-code/)
  assert.doesNotMatch(installer, /install_link .*skills\/copyable-commands/)
  assert.doesNotMatch(installer, /install_pi_policy\(\)|repository-trust|permission-current/)
