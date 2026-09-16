@@ -196,7 +196,16 @@ try {
  assert(integrationHead, "The completed graph has no integration commit.")
  assert.equal(readFileSync(join(state.repositories[0].workspace.path, "a.txt"), "utf8"), "alpha\n")
  assert.equal(readFileSync(join(state.repositories[0].workspace.path, "b.txt"), "utf8"), "beta\n")
- const closed = JSON.parse(run(orca, ["terminal", "close", "--worktree", `id:${state.repositories[0].workspace.id}`, "--all", "--json"], source))
+ const integrationWorktree = `id:${state.repositories[0].workspace.id}`
+ const terminals = JSON.parse(run(orca, ["terminal", "list", "--worktree", integrationWorktree, "--json"], source))
+ assert.equal(terminals.ok, true, "Orca did not list the disposable integration terminal before delivery.")
+ for (const terminal of terminals.result.terminals) {
+  const sent = JSON.parse(run(orca, ["terminal", "send", "--terminal", terminal.handle, "--text", "exit", "--enter", "--json"], source))
+  assert.equal(sent.ok, true, "Orca did not ask the disposable integration terminal to exit.")
+  const waited = JSON.parse(run(orca, ["terminal", "wait", "--terminal", terminal.handle, "--for", "exit", "--timeout-ms", "30000", "--json"], source))
+  assert.equal(waited.ok, true, "The disposable integration terminal did not exit.")
+ }
+ const closed = JSON.parse(run(orca, ["terminal", "close", "--worktree", integrationWorktree, "--all", "--json"], source))
  assert.equal(closed.ok, true, "Orca did not close the disposable integration terminal before delivery.")
 
  await resumed.request("deliver", `/graph deliver ${state.runId}`)
