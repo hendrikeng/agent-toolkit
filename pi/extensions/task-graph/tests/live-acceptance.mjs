@@ -49,6 +49,9 @@ const parseFirstJson = text => {
 
 const toolkit = realpathSync(fileURLToPath(new URL("../../../../", import.meta.url))), toolkitHead = git(toolkit, "rev-parse", "HEAD")
 assert.equal(git(toolkit, "status", "--porcelain=v1", "--untracked-files=all"), "", "Commit the acceptance test and install that exact clean Toolkit commit before running it.")
+const initialRuns = JSON.parse(run(orca, ["orchestration", "run-list", "--json"], toolkit))
+assert.equal(initialRuns.ok, true)
+assert.deepEqual(initialRuns.result.runs.filter(run => !run.legacy), [], "Live acceptance requires isolated Orca orchestration state so it can clean up without deleting unrelated runs.")
 const root = realpathSync(mkdtempSync(join(realpathSync(join(homedir(), "Code")), "graph-live-acceptance-")))
 const source = join(root, "source"), evidence = join(root, "evidence"), graphState = join(evidence, "agent")
 mkdirSync(source); mkdirSync(graphState, { recursive: true })
@@ -224,16 +227,22 @@ try {
  assert.equal(taskList.result.tasks.length, 2)
  assert(taskList.result.tasks.every(task => task.status === "completed"), "The Orca task ledger is not complete.")
  const finalHead = git(source, "rev-parse", "HEAD")
+ resumed.send({ type: "abort" }); child.kill("SIGTERM"); await resumed.exit()
  const removedSetup = JSON.parse(run(orca, ["project", "setup-delete", "--setup", state.repositories[0].preparation.configuration.repo.id, "--json"], source))
  assert.equal(removedSetup.ok, true, "Orca did not remove the disposable repository registration.")
  const remainingWorktrees = JSON.parse(run(orca, ["worktree", "list", "--limit", "500", "--json"], toolkit))
  assert.equal(remainingWorktrees.ok, true)
  assert.equal(remainingWorktrees.result.worktrees.some(worktree => worktree.path === source), false, "Orca still lists the disposable source worktree.")
+ const runsBeforeReset = JSON.parse(run(orca, ["orchestration", "run-list", "--json"], toolkit))
+ assert.deepEqual(runsBeforeReset.result.runs.filter(run => !run.legacy).map(run => run.id), [state.runId], "Refusing to reset unrelated Orca orchestration runs.")
+ const reset = JSON.parse(run(orca, ["orchestration", "reset", "--all", "--json"], toolkit))
+ assert.equal(reset.ok, true, "Orca did not remove the disposable orchestration run.")
+ const runsAfterReset = JSON.parse(run(orca, ["orchestration", "run-list", "--json"], toolkit))
+ assert.deepEqual(runsAfterReset.result.runs.filter(run => !run.legacy), [], "Orca still lists the disposable orchestration run.")
 
- const report = { status: "passed", fixture: root, source, evidence, model, base, runId: state.runId, integrationHead, finalHead, restart: "SIGKILL after first integration, then exact-command resume", cleanup: "lane and integration worktrees removed; disposable repository unregistered", events: eventFiles, stderr: stderrFiles }
+ const report = { status: "passed", fixture: root, source, evidence, model, base, runId: state.runId, integrationHead, finalHead, restart: "SIGKILL after first integration, then exact-command resume", cleanup: "lane and integration worktrees removed; disposable repository and orchestration run removed", events: eventFiles, stderr: stderrFiles }
  writeFileSync(join(evidence, "result.json"), `${JSON.stringify(report, null, 2)}\n`)
  console.log(JSON.stringify(report, null, 2))
- resumed.send({ type: "abort" }); child.kill("SIGTERM")
 } catch (error) {
  const failure = { status: "failed", fixture: root, source, evidence, model, error: error instanceof Error ? error.stack : String(error), events: eventFiles, stderr: stderrFiles }
  writeFileSync(join(evidence, "failure.json"), `${JSON.stringify(failure, null, 2)}\n`)
