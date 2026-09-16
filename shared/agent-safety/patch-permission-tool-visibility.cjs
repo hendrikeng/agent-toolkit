@@ -36,9 +36,10 @@ const PATCHES = {
  ],
  'access-intent/bash/command-enumeration.ts': [
   ['import type { TSNode } from "#src/access-intent/bash/parser";', 'import type { TSNode } from "#src/access-intent/bash/parser";\nimport { resolveNodeText } from "#src/access-intent/bash/node-text";'],
-  ['  "redirected_statement",\n]);', '  "redirected_statement",\n  "if_statement",\n  "elif_clause",\n  "else_clause",\n]);'],
-  [' * Control-flow bodies and `{ … }` brace groups are emitted whole without', ' * `if` bodies are inspected command by command. Other control-flow bodies and `{ … }` brace groups are emitted whole without'],
-  ['  // Any other named statement (compound_statement `{ … }`, if/while/for/case,', '  // Any other named statement (compound_statement `{ … }`, while/for/case,'],
+  ['  "redirected_statement",\n]);', '  "redirected_statement",\n  "if_statement",\n  "elif_clause",\n  "else_clause",\n  "do_group",\n]);'],
+  [' * Control-flow bodies and `{ … }` brace groups are emitted whole without', ' * `if` and `for` bodies are inspected command by command. Other control-flow bodies and `{ … }` brace groups are emitted whole without'],
+  ['  // Any other named statement (compound_statement `{ … }`, if/while/for/case,', '  // Any other named statement (compound_statement `{ … }`, while/case,'],
+  ['  if (node.type === "subshell") {', '  if (node.type === "for_statement") {\n    for (let i = 0; i < node.childCount; i++) {\n      const child = node.child(i);\n      if (child?.type === "do_group") descendCommandChildren(child, context, out);\n      else if (child) collectSubstitutionCommands(child, out);\n    }\n    return;\n  }\n\n  if (node.type === "subshell") {'],
   ['    // A command\'s text already contains any substitution; descend its subtree',
    '    const words = node.namedChildren.filter(child => child.type !== "variable_assignment").map(child => resolveNodeText(child.type === "command_name" ? child.child(0) ?? child : child));\n    words[0] = basename(words[0] ?? "").toLowerCase();\n    out.push(makeUnit(words.join(" "), context, classifyWrapperCommand(node)));\n    // A command\'s text already contains any substitution; descend its subtree'],
   ['  out.push(makeUnit(node.text, context));\n}', '  out.push(makeUnit(node.text, context, "opaque-payload"));\n}'],

@@ -88,12 +88,16 @@ test('permission manager patch remains repeatable after removing project policy 
  assert.equal(patchFile('permission-manager.ts', patched), patched)
 })
 
-test('permission patch inspects each command in if statements', () => {
+test('permission patch inspects each command in if and for statements', () => {
  const source = PATCHES['access-intent/bash/command-enumeration.ts'].map(([before]) => before).join('\n')
  const patched = patchFile('access-intent/bash/command-enumeration.ts', source)
  assert.match(patched, /"if_statement"/)
  assert.match(patched, /"elif_clause"/)
  assert.match(patched, /"else_clause"/)
+ assert.match(patched, /"do_group"/)
+ assert.match(patched, /node\.type === "for_statement"/)
+ assert.doesNotMatch(patched, /node\.type === "c_style_for_statement"/)
+ assert.match(patched, /else if \(child\) collectSubstitutionCommands\(child, out\)/)
  assert.equal(patchFile('access-intent/bash/command-enumeration.ts', patched), patched)
 })
 
