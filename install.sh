@@ -213,7 +213,7 @@ install_pi_web_config() {
   printf 'configured %s from safe defaults (existing API keys preserved)\n' "$target"
 }
 
-configure_status_format() {
+configure_pi_settings() {
   local settings_path=$pi_agent_dir/settings.json
   local target=$pi_agent_dir/integrations/status-format
   node - "$settings_path" "$target" "$repo_dir/shared/pi-web-access/node_modules/proper-lockfile" <<'NODE'
@@ -237,6 +237,9 @@ for (let attempt = 1; attempt <= 10; attempt++) {
 try {
   const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
   settings.extensions = [...new Set([...(settings.extensions ?? []).filter((value) => value !== target), target])];
+  settings.outputPad ??= 0;
+  settings.markdown ??= {};
+  settings.markdown.codeBlockIndent ??= "";
   fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 } finally {
   release();
@@ -395,15 +398,19 @@ for legacy_handoff in "$HOME/.codex/skills/handoff" "$pi_agent_dir/skills/handof
     exit 1
   fi
 done
+for retired_copy_skill in "$HOME/.codex/skills/copyable-commands" "$HOME/.claude/skills/copyable-commands" "$pi_agent_dir/skills/copyable-commands"; do
+  if [[ -L $retired_copy_skill && $(readlink "$retired_copy_skill") == "$repo_dir/pi/skills/copyable-commands" ]]; then
+    rm "$retired_copy_skill"
+    printf 'retired %s\n' "$retired_copy_skill"
+  fi
+done
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
-install_link "$repo_dir/pi/skills/copyable-commands" "$HOME/.codex/skills/copyable-commands"
 install_link "$repo_dir/pi/skills/explore-design" "$HOME/.codex/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.codex/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
-install_link "$repo_dir/pi/skills/copyable-commands" "$HOME/.claude/skills/copyable-commands"
 install_link "$repo_dir/pi/skills/explore-design" "$HOME/.claude/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.claude/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
@@ -419,6 +426,7 @@ install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensio
 install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"
 install_link "$repo_dir/pi/extensions/codex-fast" "$pi_agent_dir/extensions/codex-fast"
 install_link "$repo_dir/pi/extensions/codex-goal" "$pi_agent_dir/extensions/codex-goal"
+install_link "$repo_dir/pi/extensions/copy-code" "$pi_agent_dir/extensions/copy-code"
 install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-push"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
@@ -434,7 +442,6 @@ for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_
 done
 install_link "$repo_dir/pi/extensions/skills-update" "$pi_agent_dir/extensions/skills-update"
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
-install_link "$repo_dir/pi/skills/copyable-commands" "$pi_agent_dir/skills/copyable-commands"
 install_link "$repo_dir/pi/skills/deepsec" "$pi_agent_dir/skills/deepsec"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
 install_link "$repo_dir/pi/skills/explore-design" "$pi_agent_dir/skills/explore-design" true
@@ -451,7 +458,7 @@ printf '\ninstalling agent safety boundaries…\n'
 install_agent_safety
 printf '\ninstalling Pi packages…\n'
 install_pi_packages
-configure_status_format
+configure_pi_settings
 
 # Activate only a verified, complete permission bundle. Retain every old bundle.
 if [[ -n ${permission_bundle:-} ]]; then
