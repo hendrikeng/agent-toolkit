@@ -22,6 +22,7 @@ assert(model?.includes("/"), "Pass --model provider/model or run from a Pi shell
 const timeoutMs = Number(option("--timeout-ms") ?? 1_800_000)
 assert(Number.isSafeInteger(timeoutMs) && timeoutMs >= 60_000, "--timeout-ms must be an integer of at least 60000.")
 const orca = process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : process.platform === "linux" ? "orca-ide" : "orca")
+const piYolo = join(homedir(), ".local", "bin", "pi-yolo")
 
 const run = (command, args, cwd, env = process.env) => {
  const result = spawnSync(command, args, { cwd, env, encoding: "utf8" })
@@ -102,7 +103,7 @@ function startRpc(phase, interruptAfterFirst = false) {
  eventFiles.push(eventsPath); stderrFiles.push(stderrPath)
  const events = [], waiters = []
  let stdoutBuffer = "", stderr = "", interrupted = false, runtimeVerified = false, fatal
- child = spawn("pi-yolo", ["--mode", "rpc", "--no-session", "--approve", "--model", model, "--thinking", "medium"], { cwd: source, env: { ...process.env, AGENT_TOOLKIT_GRAPH_STATE_DIR: graphState, PI_SKIP_VERSION_CHECK: "1" }, stdio: ["pipe", "pipe", "pipe"] })
+ child = spawn(piYolo, ["--mode", "rpc", "--no-session", "--approve", "--model", model, "--thinking", "medium"], { cwd: source, env: { ...process.env, AGENT_TOOLKIT_GRAPH_STATE_DIR: graphState, PI_SKIP_VERSION_CHECK: "1" }, stdio: ["pipe", "pipe", "pipe"] })
  const send = value => child.stdin.write(`${JSON.stringify(value)}\n`)
  const fail = error => {
   fatal ??= error instanceof Error ? error : new Error(String(error))
