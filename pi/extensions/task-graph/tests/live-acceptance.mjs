@@ -167,6 +167,8 @@ let initial, resumed
 try {
  initial = startRpc("initial", true)
  await initial.request("execute", `/graph execute ${objective}`)
+ const firstOutcome = await initial.waitFor(event => event.type === "agent_settled" || event.type === "tool_execution_end" && event.toolName === "complete_task_graph_task" && event.args?.task_id === "first" && !event.isError, "first task completion")
+ assert.notEqual(firstOutcome.type, "agent_settled", "The first coordinator settled before the first task completed.")
  const firstExit = await initial.exit()
  assert.equal(initial.interrupted, true, `The first coordinator exited before the first task completed: ${JSON.stringify(firstExit)}`)
  const interrupted = graphRecord().value
