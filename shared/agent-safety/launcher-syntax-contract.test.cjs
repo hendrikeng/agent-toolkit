@@ -88,6 +88,14 @@ test('permission manager patch remains repeatable after removing project policy 
  assert.equal(patchFile('permission-manager.ts', patched), patched)
 })
 
+test('permission patch inspects each command in if statements', () => {
+ const source = PATCHES['access-intent/bash/command-enumeration.ts'].map(([before]) => before).join('\n')
+ const patched = patchFile('access-intent/bash/command-enumeration.ts', source)
+ assert.match(patched, /"if_statement"/)
+ assert.match(patched, /"elif_clause"/)
+ assert.match(patched, /"else_clause"/)
+ assert.equal(patchFile('access-intent/bash/command-enumeration.ts', patched), patched)
+})
 
 test('Git allows native local commands while blocking aliases, extensions, credentials, and destructive forms', () => {
  const env = { ...process.env }

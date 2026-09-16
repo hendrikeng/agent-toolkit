@@ -67,6 +67,9 @@ async function main() {
       const facts = await service.inspectDevelopmentShell('git rev-parse HEAD && git status && git log -5 --oneline && git diff --stat && git rev-parse -q --verify MERGE_HEAD', cwd)
       assert.equal(facts.commands.length, 5)
       assert.equal(facts.effects, false)
+      const conditional = await service.inspectDevelopmentShell(`if git -C ${cwd} rev-parse --git-dir >/dev/null 2>&1; then printf "present\\n"; else printf "missing\\n"; fi`, cwd)
+      assert.deepEqual(conditional.commands.map(args => args[0]), ['git', 'printf', 'printf'])
+      assert.equal(conditional.effects, true)
       assert.equal((await service.inspectDevelopmentShell('CI=1 node check.cjs | head -5', cwd)).commands.length, 2)
       assert.equal((await service.inspectDevelopmentShell('git status > report.txt', cwd)).effects, true)
       fs.mkdirSync(path.join(cwd, 'sub'))
@@ -100,8 +103,8 @@ async function main() {
         const resolver = { resolve(intent) { const rule = evaluate('bash', intent.input.command, selectedRules, posixPathFlavor); return { state: rule.action, matchedPattern: rule.pattern, origin: rule.origin } } }
         return resolveBashCommandCheck(command, program.commands(), undefined, resolver).state
       }
-      for (const command of ['git rev-parse HEAD && git status && git log -5 --oneline && git diff --stat && git rev-parse -q --verify MERGE_HEAD', 'npm ci', 'pnpm exec vitest run', 'python3 -m pytest', 'node --import tsx scripts/check.ts', 'CI=1 node check.cjs | head -5', 'gh pr view 12', 'sh scripts/check.sh', 'bash -n scripts/check.sh']) assert.equal(await check(command), 'allow', command)
-      for (const command of ['git push', 'git clean -fd', 'rm file', 'printf ok; rm file', 'npm publish', 'npm install -g pkg', 'docker compose up', 'postgres', 'initdb', 'pg_ctl', 'psql', 'gh pr create', "'gh' pr create", 'g"h" pr create', 'GH pr create', '/opt/homebrew/bin/gh pr create', 'gh api graphql -f query=mutation', 'env gh pr create', 'command gh pr create', 'find . -exec gh pr create ;', 'printf "%s" "$(gh pr create)"', "bash -c 'git status'"]) {
+      for (const command of ['git rev-parse HEAD && git status && git log -5 --oneline && git diff --stat && git rev-parse -q --verify MERGE_HEAD', 'if git rev-parse --git-dir; then printf present; else printf missing; fi', 'npm ci', 'pnpm exec vitest run', 'python3 -m pytest', 'node --import tsx scripts/check.ts', 'CI=1 node check.cjs | head -5', 'gh pr view 12', 'sh scripts/check.sh', 'bash -n scripts/check.sh']) assert.equal(await check(command), 'allow', command)
+      for (const command of ['git push', 'git clean -fd', 'rm file', 'printf ok; rm file', 'if git status; then rm file; fi', 'npm publish', 'npm install -g pkg', 'docker compose up', 'postgres', 'initdb', 'pg_ctl', 'psql', 'gh pr create', "'gh' pr create", 'g"h" pr create', 'GH pr create', '/opt/homebrew/bin/gh pr create', 'gh api graphql -f query=mutation', 'env gh pr create', 'command gh pr create', 'find . -exec gh pr create ;', 'printf "%s" "$(gh pr create)"', "bash -c 'git status'", "if git status; then bash -c 'rm file'; fi"]) {
         const decision = await check(command)
         if (decision === 'ask') await assert.rejects(service.inspectDevelopmentShell(command, cwd), /Unsupported/, command)
         else assert.equal(decision, 'deny', command)
