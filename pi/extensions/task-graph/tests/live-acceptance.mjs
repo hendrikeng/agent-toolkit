@@ -49,9 +49,8 @@ const parseFirstJson = text => {
 const toolkit = realpathSync(fileURLToPath(new URL("../../../../", import.meta.url))), toolkitHead = git(toolkit, "rev-parse", "HEAD")
 assert.equal(git(toolkit, "status", "--porcelain=v1", "--untracked-files=all"), "", "Commit the acceptance test and install that exact clean Toolkit commit before running it.")
 const root = realpathSync(mkdtempSync(join(realpathSync(join(homedir(), "Code")), "graph-live-acceptance-")))
-const source = join(root, "source"), evidence = join(root, "evidence")
-const agentDir = realpathSync(process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"))
-mkdirSync(source); mkdirSync(evidence, { recursive: true })
+const source = join(root, "source"), evidence = join(root, "evidence"), graphState = join(evidence, "agent")
+mkdirSync(source); mkdirSync(graphState, { recursive: true })
 writeFileSync(join(source, "a.txt"), "base\n")
 writeFileSync(join(source, "b.txt"), "base\n")
 writeFileSync(join(source, "check-first.cjs"), "const assert=require('node:assert/strict'),fs=require('node:fs');assert.equal(fs.readFileSync('a.txt','utf8'),'alpha\\n')\n")
@@ -74,7 +73,7 @@ const objective = [
  "After approval, prepare the workspace, complete first, complete second, and finish the graph. Do not deliver or archive it.",
 ].join(" ")
 
-const recordDirectory = join(agentDir, "task-graphs")
+const recordDirectory = join(graphState, "task-graphs")
 const originalRecords = new Set(existsSync(recordDirectory) ? readdirSync(recordDirectory) : [])
 const eventFiles = [], stderrFiles = []
 let child
@@ -103,7 +102,7 @@ function startRpc(phase, interruptAfterFirst = false) {
  eventFiles.push(eventsPath); stderrFiles.push(stderrPath)
  const events = [], waiters = []
  let stdoutBuffer = "", stderr = "", interrupted = false, runtimeVerified = false, fatal
- child = spawn("pi-yolo", ["--mode", "rpc", "--no-session", "--approve", "--model", model, "--thinking", "medium"], { cwd: source, env: { ...process.env, PI_SKIP_VERSION_CHECK: "1" }, stdio: ["pipe", "pipe", "pipe"] })
+ child = spawn("pi-yolo", ["--mode", "rpc", "--no-session", "--approve", "--model", model, "--thinking", "medium"], { cwd: source, env: { ...process.env, AGENT_TOOLKIT_GRAPH_STATE_DIR: graphState, PI_SKIP_VERSION_CHECK: "1" }, stdio: ["pipe", "pipe", "pipe"] })
  const send = value => child.stdin.write(`${JSON.stringify(value)}\n`)
  const fail = error => {
   fatal ??= error instanceof Error ? error : new Error(String(error))
@@ -206,7 +205,7 @@ try {
 
  await resumed.request("archive", `/graph archive ${state.runId}`)
  assert.equal(existsSync(completed.path), false, "Archive left the completed record active.")
- const archived = join(agentDir, "task-graphs-archived", "v1", basename(completed.path, ".json"))
+ const archived = join(graphState, "task-graphs-archived", "v1", basename(completed.path, ".json"))
  assert(existsSync(archived), "Archive evidence is missing.")
  const taskList = JSON.parse(run(orca, ["orchestration", "task-list", "--run", state.runId, "--json"], source))
  assert.equal(taskList.ok, true)

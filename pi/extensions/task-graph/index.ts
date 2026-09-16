@@ -9,7 +9,7 @@ import { inspectShell, runBash } from "../development-access/index.ts"
 import { StringEnum } from "@earendil-works/pi-ai"
 import { Type, type TProperties } from "typebox"
 import { Loader } from "@earendil-works/pi-tui"
-import { acquireLease, assertNoLegacyGraph, digest, gitEnvironment, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
+import { acquireLease, assertNoLegacyGraph, digest, gitEnvironment, graphDevelopmentPath, graphGit, LEGACY_GRAPH, repositoryIdentity, repositoryRoot, taskGraphPrompt, type Orca, type TaskGraphPlan } from "./task-graph-core.ts"
 import { archiveCompletedGraph, inspectGraphArchive, inspectGraphArchivePurge, purgeGraphArchive } from "./archive.ts"
 import { deliverGraph, prepareGraphDelivery, readGraphDeliveryReceipt } from "./delivery.ts"
 import { captureGraphWorkspaces, checkpointGraphChanges, createGraphWorkspace, findUnstartedGraphRetirement, graphDeliveryInventory, graphDirtyPaths, graphFile, graphMergeHead, graphPlanLocation, graphRepositoryMap, graphTaskSpec, graphWritePath, importGraphInputs, inspectGraphGarbage, integrateGraphWorker, matchesGraphTaskSpec, prepareGraphLane, readGraphAdmission, readGraphRecord, removeGraphWorkspace, retirementSourceReserved, retireUnstartedGraph, saveGraphRecord, sourceSeal, verifyGraphChanges, verifyGraphWorkspace, verifyPlanCloseout, verifyPlanTaskCloseout, type GraphRecord } from "./workspaces.ts"
@@ -166,7 +166,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   return () => { if (active) { active = false; loader?.stop(); ctx.ui.setWidget("task-graph-command", undefined) } }
  }
  const sendGraphPrompt = (prompt: string, message: string, ctx: any, stopLoader: () => void) => { stopLoader(); graphWorking = true; ctx.ui.setWorkingMessage(message); pi.sendUserMessage(prompt) }
- const agentDir = () => process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir()
+ const agentDir = () => process.env.AGENT_TOOLKIT_GRAPH_STATE_DIR ? graphDevelopmentPath(process.env.AGENT_TOOLKIT_GRAPH_STATE_DIR) : process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? getAgentDir()
  const graphEnvironmentOriginals = new Map<string, string | undefined>()
  const clearGraphEnvironment = () => {
   for (const [key, value] of graphEnvironmentOriginals) value === undefined ? delete process.env[key] : process.env[key] = value
@@ -615,7 +615,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
   }
   if (!worker.launch) {
    const title = `pi-graph-${state.key.slice(0, 8)}-${task.id}-${worker.attempt}`
-   const assignments: Record<string, string | undefined> = { AGENT_TOOLKIT_GRAPH_RECORD: file, AGENT_TOOLKIT_GRAPH_TASK: task.id, AGENT_TOOLKIT_GRAPH_REPOSITORIES: JSON.stringify(Object.fromEntries(Object.entries(currentRepositoryMap(state)).filter(([source]) => taskSources(state, task).has(source)))), AGENT_TOOLKIT_PI_AGENT_DIR: process.env.AGENT_TOOLKIT_PI_AGENT_DIR, AGENT_TOOLKIT_CODEX_ACCOUNT: process.env.AGENT_TOOLKIT_CODEX_ACCOUNT, AGENT_TOOLKIT_CODEX_PROFILE_HOME: process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME }
+   const assignments: Record<string, string | undefined> = { AGENT_TOOLKIT_GRAPH_RECORD: file, AGENT_TOOLKIT_GRAPH_TASK: task.id, AGENT_TOOLKIT_GRAPH_REPOSITORIES: JSON.stringify(Object.fromEntries(Object.entries(currentRepositoryMap(state)).filter(([source]) => taskSources(state, task).has(source)))), AGENT_TOOLKIT_GRAPH_STATE_DIR: process.env.AGENT_TOOLKIT_GRAPH_STATE_DIR, AGENT_TOOLKIT_PI_AGENT_DIR: process.env.AGENT_TOOLKIT_PI_AGENT_DIR, AGENT_TOOLKIT_CODEX_ACCOUNT: process.env.AGENT_TOOLKIT_CODEX_ACCOUNT, AGENT_TOOLKIT_CODEX_PROFILE_HOME: process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME }
    const command = `env ${Object.entries(assignments).filter(([, value]) => value).map(([key, value]) => `${key}=${quote(value!)}`).join(" ")} pi-yolo --model ${quote(state.workerModel)} --thinking medium`
    worker.launch = { title, command }; persist()
   }
