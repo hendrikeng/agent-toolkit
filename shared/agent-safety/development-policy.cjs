@@ -18,7 +18,7 @@ function physicalPath(value) {
     try {
       fs.lstatSync(current)
     } catch (error) {
-      if (error.code === 'ENOENT') continue
+      if (error.code === 'ENOENT' || error.code === 'ENAMETOOLONG') continue
       throw error
     }
     // A dangling link is an error, not permission for a future destination.

@@ -22,6 +22,12 @@ test('physical roots cover future non-Git directories and reject symlink/travers
   assert.throws(() => developmentRoots(`${home}/Code/escape/..`), /physical directories/)
 })
 
+test('path checks tolerate non-path command arguments longer than a filesystem name', () => {
+  const argument = 'x'.repeat(300)
+  assert.equal(physicalPath(path.join(home, 'Code', argument)), path.join(home, 'Code', argument))
+  assert.throws(() => assertDevelopmentPath(path.join(home, 'outside', argument), roots), /outside accepted development roots/)
+})
+
 test('default root policy keeps only narrow secret, destructive, publication and administration blocks', () => {
   const defaults = JSON.parse(fs.readFileSync(path.join(__dirname, 'pi-permission-system.json'), 'utf8'))
   const result = buildDevelopmentPolicy(defaults, { home, reportRoot: `${home}/.pi/agent/review-results` }).policy.permission
