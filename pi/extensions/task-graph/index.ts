@@ -296,7 +296,7 @@ export default function taskGraphExtension(pi: ExtensionAPI): void {
       if (saved.runId === runId) matches.push(path)
      }
      if (matches.length !== 1) throw new Error(matches.length ? "Multiple graph records use that Run ID; preserve them for inspection." : "No completed graph has that Run ID.")
-     approved = prepareGraphDelivery(matches[0], records)
+     approved = prepareGraphDelivery(matches[0], records, receiptFile)
     }
     if (!ctx.hasUI || !await ctx.ui.confirm(resuming ? "Resume graph delivery?" : "Deliver completed graph?", `${JSON.stringify(approved, null, 2)}\nFast-forward only the listed local target branches. Do not push. After each commit is reachable from its target, remove only the listed clean settled integration worktrees through Orca. Preserve every record, commit, and retained worktree.`)) return
     const result = deliverGraph(receiptFile, approved, orcaJson)

@@ -72,8 +72,8 @@ test("delivery inventory accepts only the explicitly expected live receipt lease
 test("delivery completes while the command holds its receipt lease", () => {
  const f = fixture(), current = f.make("run_current", "current"), deliveries = join(f.directory, "task-graph-deliveries/v1"), receiptFile = join(deliveries, "run_current.json")
  mkdirSync(deliveries, { recursive: true })
- const approved = prepareGraphDelivery(current.file, f.records), unlock = acquireLease(receiptFile)
- try { assert.equal(deliverGraph(receiptFile, approved, f.orca).status, "delivered") }
+ const unlock = acquireLease(receiptFile)
+ try { const approved = prepareGraphDelivery(current.file, f.records, receiptFile); assert.equal(deliverGraph(receiptFile, approved, f.orca).status, "delivered") }
  finally { unlock() }
  assert.equal(graphGit(f.source, "rev-parse", "HEAD"), current.head)
 })

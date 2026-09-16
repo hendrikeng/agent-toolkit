@@ -66,7 +66,7 @@ function target(record: GraphRecord, repo: GraphRecord["repositories"][number]) 
  return { source: repo.source, identity: repo.identity, branch, from, head, workspace: { id: repo.workspace.id!, path: repo.workspace.path!, branch: repo.workspace.branch! }, status: "pending" as const }
 }
 
-export function prepareGraphDelivery(recordFile: string, recordsDirectory: string): GraphDeliveryReceipt {
+export function prepareGraphDelivery(recordFile: string, recordsDirectory: string, receiptFile?: string): GraphDeliveryReceipt {
  const record = readGraphRecord(recordFile)
  if (!record.runId || !settled(record)) throw new Error("Deliver only a completed non-pending settled Run.")
  const targets = record.repositories.map(repo => target(record, repo)).filter(item => item !== undefined)
@@ -74,7 +74,7 @@ export function prepareGraphDelivery(recordFile: string, recordsDirectory: strin
  const targetBySource = new Map(targets.map(item => [item.source, item]))
  const cleanup: GraphDeliveryReceipt["cleanup"] = [], retained: GraphDeliveryReceipt["retained"] = []
  const records: Array<{ path: string; record: GraphRecord }> = []
- const active = activeWorkspacePaths(recordsDirectory)
+ const active = activeWorkspacePaths(recordsDirectory, record.runId, receiptFile)
  for (const name of existsSync(recordsDirectory) ? readdirSync(recordsDirectory).filter(name => name.endsWith(".json")) : []) {
   const path = resolve(recordsDirectory, name)
   try { records.push({ path, record: readGraphRecord(path) }) } catch {}
