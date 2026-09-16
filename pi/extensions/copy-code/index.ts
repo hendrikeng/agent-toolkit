@@ -1,5 +1,5 @@
 import { copyToClipboard, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent"
-import { copyableBlocks, lastAssistantText, type CopyableBlock } from "./copy-code-core.ts"
+import { copyableBlocks, lastAssistantText, styleCodeBlocks, type CopyableBlock } from "./copy-code-core.ts"
 
 function preview(block: CopyableBlock, index: number): string {
 	const first = block.text.split("\n", 1)[0]
@@ -29,6 +29,7 @@ async function copyBlock(ctx: ExtensionContext, argument = ""): Promise<void> {
 }
 
 export default function copyCodeExtension(pi: ExtensionAPI): void {
+	pi.registerMarkdownTransformer((markdown, { messageType }) => messageType === "assistant" ? styleCodeBlocks(markdown) : markdown)
 	pi.registerCommand("copy-code", {
 		description: "Copy a fenced block without rendered padding or line wraps",
 		handler: (args, ctx) => copyBlock(ctx, args),

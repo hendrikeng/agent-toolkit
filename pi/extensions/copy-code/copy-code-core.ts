@@ -1,38 +1,90 @@
 export type CopyableBlock = { language: string; text: string }
 
-function unquote(line: string, limit = Infinity): { depth: number; text: string } {
-	let depth = 0, text = line
-	while (depth < limit) {
-		const marker = /^ {0,3}>[ \t]?/.exec(text)
-		if (!marker) break
-		text = text.slice(marker[0].length)
-		depth++
+type Fence = { containers: ("quote" | number)[]; indent: number; language: string; closing: RegExp }
+
+function openingFence(line: string): Fence | undefined {
+	const containers: ("quote" | number)[] = []
+	let source = line
+	while (true) {
+		const quote = /^ {0,3}>[ \t]?/.exec(source)
+		if (quote) {
+			containers.push("quote")
+			source = source.slice(quote[0].length)
+			continue
+		}
+		const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(source)
+		if (!list) break
+		containers.push(list[0].length)
+		source = source.slice(list[0].length)
 	}
-	return { depth, text }
+	const opening = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(source)
+	if (!opening) return
+	const indent = opening[1].length, maxClosingIndent = Math.max(0, indent - 3) + 3
+	return {
+		containers,
+		indent,
+		language: opening[3].trim().split(/\s+/, 1)[0].toLowerCase(),
+		closing: new RegExp(`^[ \\t]{0,${maxClosingIndent}}${opening[2][0]}{${opening[2].length},}[ \\t]*$`),
+	}
+}
+
+function unwrapContainers(line: string, containers: Fence["containers"]): string | undefined {
+	let text = line
+	for (const container of containers) {
+		if (container === "quote") {
+			const quote = /^ {0,3}>[ \t]?/.exec(text)
+			if (!quote) return
+			text = text.slice(quote[0].length)
+		} else {
+			const leading = text.match(/^[ \t]*/)![0].length
+			text = text.slice(Math.min(container, leading))
+		}
+	}
+	return text
+}
+
+export function styleCodeBlocks(markdown: string): string {
+	const lines = markdown.split(/\r?\n/)
+	let fence: Fence | undefined
+	for (let index = 0; index < lines.length; index++) {
+		if (!fence) {
+			fence = openingFence(lines[index])
+			if (fence) lines[index] = ""
+			continue
+		}
+		const text = unwrapContainers(lines[index], fence.containers)
+		if (text === undefined) {
+			fence = undefined
+			index--
+			continue
+		}
+		if (fence.closing.test(text)) {
+			fence = undefined
+			lines[index] = ""
+			continue
+		}
+		const content = text.replace(new RegExp(`^[ \\t]{0,${fence.indent}}`), "").replace(/[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "\\$&")
+		lines[index] = `\x1b[2;3m${content}\x1b[22;23m`
+	}
+	return lines.join("\n")
 }
 
 export function copyableBlocks(markdown: string): CopyableBlock[] {
 	const blocks: CopyableBlock[] = [], lines = markdown.split(/\r?\n/)
 	for (let index = 0; index < lines.length; index++) {
-		const container = unquote(lines[index])
-		let source = container.text, listIndent = 0, list
-		while ((list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(source))) {
-			listIndent += list[0].length
-			source = source.slice(list[0].length)
-		}
-		const opening = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(source)
-		if (!opening) continue
-		const indent = opening[1].length, marker = opening[2][0], length = opening[2].length
-		const maxClosingIndent = Math.max(0, indent - 3) + 3
-		const language = opening[3].trim().split(/\s+/, 1)[0].toLowerCase(), content: string[] = []
+		const fence = openingFence(lines[index])
+		if (!fence) continue
+		const content: string[] = []
 		for (index++; index < lines.length; index++) {
-			const line = unquote(lines[index], container.depth)
-			if (line.depth < container.depth) break
-			const leading = line.text.match(/^[ \t]*/)![0].length, text = line.text.slice(Math.min(listIndent, leading))
-			if (new RegExp(`^[ \\t]{0,${maxClosingIndent}}${marker}{${length},}[ \\t]*$`).test(text)) break
-			content.push(text.replace(new RegExp(`^[ \\t]{0,${indent}}`), ""))
+			const text = unwrapContainers(lines[index], fence.containers)
+			if (text === undefined) {
+				index--
+				break
+			}
+			if (fence.closing.test(text)) break
+			content.push(text.replace(new RegExp(`^[ \\t]{0,${fence.indent}}`), ""))
 		}
-		blocks.push({ language, text: content.join("\n") })
+		blocks.push({ language: fence.language, text: content.join("\n") })
 	}
 	return blocks
 }

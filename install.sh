@@ -239,7 +239,7 @@ try {
   settings.extensions = [...new Set([...(settings.extensions ?? []).filter((value) => value !== target), target])];
   settings.outputPad ??= 0;
   settings.markdown ??= {};
-  if (settings.markdown.codeBlockIndent == null || settings.markdown.codeBlockIndent === "") settings.markdown.codeBlockIndent = "┃ ";
+  if (settings.markdown.codeBlockIndent == null || settings.markdown.codeBlockIndent === "┃ ") settings.markdown.codeBlockIndent = "";
   fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 } finally {
   release();
