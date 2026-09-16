@@ -20,12 +20,13 @@ if(process.argv[2]==='execpolicy') console.log('{"decision":"forbidden"}');
 else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slice(2),path:process.env.PATH,account:process.env.CODEX_HOME,configCount:process.env.GIT_CONFIG_COUNT}));
 `
  const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, CODEX_HOME: path.join(home, '.codex'), CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CAPTURE: path.join(home, 'capture.json') }
- delete env.AGENT_TOOLKIT_PERMISSION_BUNDLE
+ const launcherFixture = fs.readFileSync(path.join(__dirname, 'agent-yolo'), 'utf8').replace(`system_home=$(node -p 'require("node:os").userInfo().homedir')`, 'system_home=$HOME')
+ assert.match(launcherFixture, /system_home=\$HOME/)
  Object.assign(env, { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'credential.interactive', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: 'credential.guiPrompt', GIT_CONFIG_VALUE_1: 'false' })
  for (const host of ['codex', 'claude']) {
   fs.writeFileSync(path.join(bin, host), fake, { mode: 0o700 })
   const launcher = path.join(bin, `${host}-yolo`)
-  fs.copyFileSync(path.join(__dirname, 'agent-yolo'), launcher); fs.chmodSync(launcher, 0o700)
+  fs.writeFileSync(launcher, launcherFixture, { mode: 0o700 })
   const result = spawnSync(launcher, ['--model', 'fixture'], { cwd: home, env, encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
   const capture = JSON.parse(fs.readFileSync(env.CAPTURE))

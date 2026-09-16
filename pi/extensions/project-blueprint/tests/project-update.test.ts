@@ -19,8 +19,12 @@ hook.deregister()
 const blueprintRoot = await realpath(new URL("../../../../vendor/agent-project-blueprint", import.meta.url))
 const { configureContent } = await import("../../../../vendor/agent-project-blueprint/scripts/bootstrap-configure.mjs")
 const managedPath = "docs/agent-hardening/TOOL_POLICY.md"
+const historicalRevision = "b87feacb824ced6ebf80c8bcf9fbe41c127a2b56"
+const hasHistoricalRevision = spawnSync("git", ["-C", blueprintRoot, "cat-file", "-e", `${historicalRevision}^{commit}`]).status === 0
 
-for (const installation of ["configured", "legacy", "historical", "historical-pruned"]) test(`${installation} update requires approval, preserves decisions and local edits, and configures a guarded sync`, async () => {
+for (const installation of ["configured", "legacy", "historical", "historical-pruned"]) test(`${installation} update requires approval, preserves decisions and local edits, and configures a guarded sync`, {
+	skip: installation.startsWith("historical") && !hasHistoricalRevision,
+}, async () => {
 	const legacy = installation !== "configured"
 	const root = await realpath(await mkdtemp(join(tmpdir(), "project-update-")))
 	const target = join(root, "app")
@@ -33,7 +37,7 @@ for (const installation of ["configured", "legacy", "historical", "historical-pr
 		let installationRoot = blueprintRoot
 		if (installation.startsWith("historical")) {
 			installationRoot = join(root, "installed-blueprint")
-			const clone = spawnSync("git", ["clone", "--local", "--shared", "--revision=b87feacb824ced6ebf80c8bcf9fbe41c127a2b56", blueprintRoot, installationRoot], { encoding: "utf8" })
+			const clone = spawnSync("git", ["clone", "--local", "--shared", `--revision=${historicalRevision}`, blueprintRoot, installationRoot], { encoding: "utf8" })
 			assert.equal(clone.status, 0, clone.stderr)
 			// This real historical revision has no questionnaire or configure script.
 			await assert.rejects(readFile(join(installationRoot, "distribution/bootstrap-questionnaire.json")), { code: "ENOENT" })

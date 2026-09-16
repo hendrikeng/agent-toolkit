@@ -7,7 +7,6 @@ const { join } = require('node:path')
 const launcher = readFileSync(join(__dirname, 'agent-yolo'), 'utf8')
 const guardPath = join(__dirname, 'git-yolo-guard')
 const installer = readFileSync(join(__dirname, '../../install.sh'), 'utf8')
-const { PATCHES, patchFile } = require('./patch-permission-tool-visibility.cjs')
 function checkHeredocs(source) {
  const blocks = [...source.matchAll(/<<'([A-Z_]+)'\n([\s\S]*?)\n\1\b/g)]
  assert.ok(blocks.length)
@@ -38,10 +37,13 @@ test('pi-yolo defaults to Sol at high thinking while preserving explicit overrid
  const args = values => spawnSync('/bin/bash', ['-uc', `${block}\nprintf '%s\\n' "\${pi_args[@]}"`, 'launcher-test', ...values], { encoding: 'utf8' })
  const defaults = args([])
  assert.equal(defaults.status, 0, defaults.stderr)
- assert.deepEqual(defaults.stdout.trim().split('\n'), ['--model', 'openai-codex/gpt-5.6-sol', '--thinking', 'high'])
+ assert.deepEqual(defaults.stdout.trim().split('\n'), ['--no-approve', '--model', 'openai-codex/gpt-5.6-sol', '--thinking', 'high'])
  const explicit = args(['--model', 'google/gemini', '--thinking', 'high'])
  assert.equal(explicit.status, 0, explicit.stderr)
- assert.deepEqual(explicit.stdout.trim().split('\n'), ['--model', 'google/gemini', '--thinking', 'high'])
+ assert.deepEqual(explicit.stdout.trim().split('\n'), ['--no-approve', '--model', 'google/gemini', '--thinking', 'high'])
+ const trustOverride = args(['--approve'])
+ assert.equal(trustOverride.status, 2)
+ assert.match(trustOverride.stderr, /project trust overrides are disabled/)
  assert.match(launcher, /pi "\$\{pi_args\[@\]\}"/)
 })
 
@@ -50,55 +52,21 @@ test('pi-yolo exposes installed skill roots without exposing whole agent directo
  assert.doesNotMatch(launcher, /piInfrastructureReadPaths[^]*path\.join\(os\.homedir\(\), "\.agents"\)/)
 })
 
-test('pi-yolo permits only native reads of graph evidence', () => {
- const { runInNewContext } = require('node:vm')
- const start = launcher.indexOf('const managedAgentDir =')
- const block = launcher.slice(start, launcher.indexOf('const bundle =', start))
- const context = {
-  fs: { realpathSync: value => value }, path: require('node:path'),
-  process: { argv: [null, null, null, null, null, '/managed-agent'] }, graphEvidenceDirs: null,
- }
- runInNewContext(`${block}\nthis.graphEvidenceDirs = graphEvidenceDirs`, context)
- assert.deepEqual([...context.graphEvidenceDirs], ['task-graphs', 'task-graphs-retired', 'task-graphs-archived', 'task-graph-purges', 'task-graph-locks', 'task-graph-deliveries'].map(name => `/managed-agent/${name}`))
- assert.match(launcher, /piInfrastructureReadPaths = \[\.\.\.new Set\(\[[^]*\.\.\.graphEvidenceDirs,/)
- assert.doesNotMatch(block, /permission\.(?:external_directory|write|edit|bash)/)
-})
-
-test('pi-yolo keeps scalar write defaults valid when adding runtime guards', () => {
- const { runInNewContext } = require('node:vm')
- const config = JSON.parse(readFileSync(join(__dirname, 'pi-permission-system.json'), 'utf8'))
- const guard = launcher.split('\n').find(line => line.startsWith('for (const surface of ["write", "edit"]) config.permission[surface]'))
- runInNewContext(guard, { config, path: require('node:path'), runtimeAgentDir: '/runtime-agent' })
- for (const surface of ['write', 'edit']) {
-  assert.equal(config.permission[surface]['/runtime-agent'], 'deny')
-  assert.equal(config.permission[surface]['/runtime-agent/*'], 'deny')
-  assert.equal(config.permission[surface][0], undefined)
- }
-})
-
-test('pi-yolo keeps subprocess temporary files inside the development root', () => {
- assert.match(launcher, /scratch_root=\$HOME\/Code\/\.agent-toolkit-scratch/)
- assert.match(launcher, /access\.assertDevelopmentPath\(scratchRoot, roots\)/)
- assert.match(launcher, /TMPDIR="\$scratch_root"/)
-})
-
-test('permission manager patch remains repeatable after removing project policy imports', () => {
- const source = PATCHES['permission-manager.ts'].map(([before]) => before).join('\n')
- const patched = patchFile('permission-manager.ts', source)
- assert.equal(patchFile('permission-manager.ts', patched), patched)
-})
-
-test('permission patch inspects each command in if and for statements', () => {
- const source = PATCHES['access-intent/bash/command-enumeration.ts'].map(([before]) => before).join('\n')
- const patched = patchFile('access-intent/bash/command-enumeration.ts', source)
- assert.match(patched, /"if_statement"/)
- assert.match(patched, /"elif_clause"/)
- assert.match(patched, /"else_clause"/)
- assert.match(patched, /"do_group"/)
- assert.match(patched, /node\.type === "for_statement"/)
- assert.doesNotMatch(patched, /node\.type === "c_style_for_statement"/)
- assert.match(patched, /else if \(child\) collectSubstitutionCommands\(child, out\)/)
- assert.equal(patchFile('access-intent/bash/command-enumeration.ts', patched), patched)
+test('pi-yolo keeps its policy, workspace and temporary files inside installed development roots', () => {
+ assert.match(launcher, /system_home=\$\(node -p .*userInfo\(\)\.homedir/)
+ assert.match(launcher, /source_agent_dir=\$system_home\/\.pi\/agent/)
+ assert.match(launcher, /guard=\$system_home\/\.local\/libexec\/agent-toolkit\/git/)
+ assert.doesNotMatch(launcher, /source_agent_dir=\$\{AGENT_TOOLKIT_PI_AGENT_DIR/)
+ assert.match(launcher, /working_dir=\$\(pwd -P\)/)
+ assert.match(launcher, /"\$system_home\/Code"\|"\$system_home\/Code\/"\*\|"\$system_home\/orca\/workspaces"/)
+ assert.match(launcher, /host_tmp=\$\(node -p .*\.tmpdir\(\)/)
+ assert.match(launcher, /fs\.realpathSync\(process\.argv\[6\]\)/)
+ assert.match(launcher, /agent_dir=\$\(mktemp -d "\$host_tmp\/agent-toolkit-pi-session/)
+ assert.match(launcher, /scratch_root=\$system_home\/Code\/\.agent-toolkit-scratch/)
+ assert.match(launcher, /case \$scratch_root in "\$system_home\/Code\/"\*/)
+ assert.match(launcher, /TMPDIR=\$scratch_root/)
+ assert.match(launcher, /path\.join\(runtimeAgentDir, "extensions\/pi-permission-system\/\*"\)/)
+ assert.match(launcher, /path\.join\(managedAgentDir, "extensions\/pi-permission-system\/\*"\)/)
 })
 
 test('Git allows native local commands while blocking aliases, extensions, credentials, and destructive forms', () => {
@@ -111,17 +79,21 @@ test('Git allows native local commands while blocking aliases, extensions, crede
  for (const args of [['push'], ['merge', '--abort'], ['cherry-pick', '--abort'], ['cherry-pick', '--quit'], ['cherry-pick', '--skip'], ['revert', '--abort'], ['revert', '--quit'], ['revert', '--skip'], ['http-push', 'origin', 'https://example.invalid/repo'], ['reset', 'HEAD~1'], ['am', '--abort'], ['am', '--skip'], ['fast-import'], ['repack', '-Ad', '--unpack-unreachable=now'], ['apply', '--unsafe-paths', 'change.patch'], ['mv', '-f', 'a', 'b'], ['remote', 'remove', 'origin'], ['remote', '-v', 'remove', 'origin'], ['remote', '--verbose', 'set-url', 'origin', 'elsewhere'], ['remote', 'set-url', 'origin', 'elsewhere'], ['maintenance', 'run'], ['maintenance', 'register'], ['maintenance', 'start'], ['stash', 'pop'], ['stash', 'branch', 'recover'], ['credential', 'fill'], ['lfs', 'push'], ['difftool'], ['submodule', 'foreach', 'rm -rf .'], ['bisect', 'run', 'sh'], ['clean', '-fd'], ['reset', '--har'], ['checkout', 'topic'], ['checkout', '--', 'file'], ['switch', '-C', 'topic'], ['switch', '--orphan', 'topic'], ['switch', '-fC', 'topic'], ['switch', '--force-c', 'topic'], ['branch', '-D', 'topic'], ['branch', '-m', 'old', 'new'], ['branch', '--mov', 'old', 'new'], ['branch', '--edit-description', 'main'], ['branch', '-u', 'origin/main'], ['branch', '-M', 'topic'], ['branch', '-fd', 'topic'], ['tag', '--f', 'v1'], ['tag', '--delete=v1'], ['symbolic-ref', '-d', 'refs/heads/topic'], ['symbolic-ref', 'refs/heads/main', 'refs/heads/other'], ['notes', 'add', '-f', '-m', '', 'HEAD'], ['notes', 'edit', 'HEAD'], ['notes', 'remove'], ['notes', '--ref', 'review', 'remove', 'HEAD'], ['notes', '--ref=review', 'prune'], ['checkout-index', '-f', '--', 'file'], ['read-tree', '--reset', '-u', 'HEAD'], ['sparse-checkout', 'set', 'src'], ['worktree', 'remove', 'path'], ['worktree', 'move', 'path', 'elsewhere/not'], ['worktree', 'add', '-fB', 'main', 'path', 'HEAD~1']]) assert.equal(check(args).status, 126, args.join(' '))
 })
 
-test('installer validates shell files before side effects and selects the complete bundle atomically', () => {
+test('installer validates shell files before side effects and installs the stock permission package', () => {
  const gate = installer.indexOf('/bin/bash -n "$script"')
  assert.ok(gate > 0 && gate < installer.indexOf('timestamp='))
- const activation = installer.indexOf('activate "$permission_bundle" "$target"')
- assert.ok(activation > installer.lastIndexOf('\ninstall_pi_packages\n'))
- assert.ok(activation > installer.indexOf('verify "$permission_bundle"'))
- assert.ok(activation > installer.indexOf('Refusing an unmanaged Pi launcher'))
+ assert.match(installer, /install_pi_package "npm:@gotgenes\/pi-permission-system@\$version"/)
+ assert.match(installer, /install_managed_copy .*agent-yolo.*"\$target" 700/)
  assert.match(installer, /settings\.outputPad \?\?= 0/)
- assert.match(installer, /settings\.markdown\.codeBlockIndent = ""/)
+ assert.match(installer, /settings\.markdown\.codeBlockIndent === "┃ "/)
+ assert.match(installer, /lockfile\.lockSync\(settingsPath/)
+ assert.match(installer, /fs\.realpathSync\(settingsPath\)/)
  assert.match(installer, /extensions\/copy-code/)
+ assert.match(installer, /extensions\/legacy-session-filter/)
+ assert.doesNotMatch(installer, /extensions\/permission-floor/)
+ assert.match(installer, /legacy_task_graph=.*extensions\/task-graph/)
+ assert.match(installer, /legacy_git_test=.*agent-toolkit\/git-test/)
  assert.doesNotMatch(installer, /install_link .*skills\/copyable-commands/)
- assert.doesNotMatch(installer, /install_pi_policy\(\)|repository-trust|permission-current/)
- assert.doesNotMatch(launcher, /ENFORCE_REPOSITORY_TRUST|approvedExecution|trustedRepositories/)
+ assert.doesNotMatch(installer, /permission-bundle\.cjs|patch-permission|development-access/)
+ assert.doesNotMatch(launcher, /AGENT_TOOLKIT_PERMISSION_BUNDLE|development-access|trustedRepositories/)
 })

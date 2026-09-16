@@ -6,17 +6,9 @@ When Pi runs in Orca, use the Orca CLI and its embedded browser for browser inte
 Use the GitHub CLI inspection commands and the bounded pull-request tools for GitHub pull requests and Actions. Do not open a browser for these tasks unless the user explicitly asks for it.
 Pass static browser values as direct quoted arguments. Never hide them behind shell variables, command substitution, or `printf` escapes; the permission parser correctly treats those wrappers as opaque. For example, use `orca fill ... --value '/runtime'` directly.
 
-## Task graphs
-
-`/graph` runs independent ready tasks through `pi-yolo` workers. It creates one integration worktree per writing repository, then assigns writing tasks to a bounded set of exclusive lanes. It reuses a lane only after its previous commit is integrated and the lane is clean. Read-only workers use an existing checkout.
-Planning permits documentation only and ends without implementation. Execution requires a separate `/graph execute` approval with explicit foundation commits and a worktree budget. That approval covers worker launches, declared setup in worker and integration worktrees, worker and combined integration validation, in-scope repair retries, task progression, bounded test resources, internal integration, and verified clean-lane removal at closeout.
-Use the graph's scoped tools for task starts, checkpoints, integration, and closeout. Never let two writing workers use one worktree at the same time. Complete and integrate dependencies before starting dependent tasks. Keep source checkouts, indexes, dirty lanes, and interrupted work unchanged. Remove only clean integrated lanes.
-Repeat the exact graph command to resume its version-4 record without duplicate workers or worktrees. Older approvals remain unchanged evidence and receive no expanded authority. Never recapture later source edits or recreate a missing resource without its recorded identity.
-Legacy graph records are evidence, not an execution path. Do not migrate, retire, delete, complete, or restart them. Completed and unrelated historical records do not block admission; an unfinished record blocks only repositories it identifies as owned. State retirement needs separate scope, verification, and authorization.
-
 ## Agent delegation
 
-Use `pi-yolo` for all spawned task workers and full handoffs, including ordinary tasks outside `/graph`. Use the current Pi provider/model with an explicit `--model provider/model` and `--thinking medium`; use high only when the user explicitly requests it, never automatically on retries.
+Use `pi-yolo` for all spawned task workers and full handoffs. Use the current Pi provider/model with an explicit `--model provider/model` and `--thinking medium`; use high only when the user explicitly requests it, never automatically on retries.
 
 In Orca, launch workers through `terminal create --command 'pi-yolo --model provider/model --thinking medium'` in the target worktree, then deliver the task using the version-matched handoff or orchestration guide. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent`/`worker-start` launchers that do not guarantee `pi-yolo`. If the wrapper cannot launch, report the blocker rather than falling back to another agent.
 
@@ -26,15 +18,13 @@ Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at h
 
 A hard permission denial is not an approval prompt. Chat approval does not update the runtime policy. Do not retry an unchanged denied command, ask for ineffective chat approval, or claim that restarting the same launcher will fix it. For ordinary scratch work, use the authorized scratch directory. If the task requires the denied location itself, report the exact missing permission; do not change policy from inside the session or work around the restriction with another tool.
 
-## Development-root execution
+## Development access
 
-These instructions describe the explicitly installed `development-roots-v1` bundle. Source edits and `/reload` do not activate it. Earlier sessions retain their existing permissions. Never infer active authority from these instructions alone.
+Pi uses the pinned stock permission extension and one managed global policy. Source edits and `/reload` do not update that installation. Run `./install.sh` from a trusted human terminal, then start a fresh session.
 
-After human acceptance, ordinary local builds, tests, lint, scripts, interpreters, and dependencies can run within physical `~/Code` and `~/orca/workspaces` roots. This includes future non-Git directories and sibling worktrees. Do not create repository-trust approvals or per-script exceptions. Symlink aliases do not grant authority outside the roots.
-Graph approval adds active-task ownership without replacing native shell policy. Use absolute workspace paths and select the exact repository for shell calls. Keep native asks and denials authoritative.
-Dependencies and hooks run as the local account. These workflow guards are not an OS sandbox. Root acceptance does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
-Use the declared local-resource tools for new task-owned resources. Resume by recorded identity. Only an authoritative loss permits a linked replacement. Uncertain state requires inspection, not recreation. Do not delete retained resources. Older PostgreSQL and Git helper notes below describe separately bounded legacy capabilities, not an expansion of root authority.
-Before service or database tests, inspect target selection, credentials, resource ownership, and cleanup. Stop if those boundaries are unclear. Git-history or database-administration fixtures need a separately bounded capability over newly created, identity-checked disposable resources. Do not weaken database guards to pass a test.
+Ordinary development is allowed under `~/Code` and `~/orca/workspaces`. Start each Orca worker in the worktree it owns instead of routing shell commands across repositories. Native permission denials remain authoritative.
+Dependencies and hooks run as the local account. The permission extension is a decision layer, not an operating-system sandbox. It does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
+Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if those boundaries are unclear. Do not weaken guards to pass a test.
 
 ## Disposable PostgreSQL tests
 
@@ -48,18 +38,10 @@ pg-test stop <id>
 ```
 
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
-For a graph that validates a fresh TRACN API install, declare one PostgreSQL resource with `profile: "maintenance-owner"`.
-That graph profile creates a new `_test` database owner with exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`.
-It provides the same private URL through `DATABASE_URL`, `TEST_DATABASE_URL`, and `RESOURCE_<ID>_URL`. It grants no runtime identity this authority.
 The default helper uses private scratch and an unprivileged database role. `start-admin` creates a separate new cluster with a non-superuser role that can create test databases and roles. It cannot upgrade or target an existing database. Neither profile grants superuser, replication, RLS bypass, or server-file/program privileges.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
 Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.
-
-## Disposable Git-history tests
-
-After full reviewed installation, use `git-test create` to obtain a fresh fixture ID and repository path. Only `git-test run <id> <operation> <arguments>` can provide its bounded checkout, lightweight tag, commit-tree, and update-ref operations. Existing repositories, publishing, signing, and cleanup are not supported. Ordinary Git remains guarded.
-The helper checks exact directory identities, unchanged configuration, and unshared Git metadata before each operation. Do not forge fixture records, adapt it to an existing checkout, or use system Git after an ordinary guard denial. Keep all fixture files for diagnostics.
 
 ## Review artifacts
 

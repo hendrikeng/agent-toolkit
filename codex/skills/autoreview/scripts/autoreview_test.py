@@ -58,20 +58,17 @@ class PiReviewOutputTests(unittest.TestCase):
             self.skipTest("Toolkit launcher is not present in this standalone skill checkout")
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
-            managed, runtime, bundle, repo = (base / name for name in ("managed", "runtime", "bundle", "repo"))
-            policy = bundle / "policy.json"
+            managed, runtime, repo = (base / name for name in ("managed", "runtime", "repo"))
+            policy = managed / "extensions/pi-permission-system/config.json"
             output = runtime / "extensions/pi-permission-system/config.json"
-            for directory in [policy.parent, output.parent, managed / "extensions", bundle / "extensions", bundle / "node_modules", base / "Code", base / "orca/workspaces", repo]:
+            for directory in [policy.parent, output.parent, managed / "skills", runtime / "skills", base / "Code", base / "orca/workspaces", repo]:
                 directory.mkdir(parents=True)
-            for name in ["development-access", "task-graph"]:
-                (bundle / "extensions" / name).mkdir()
-            (managed / "settings.json").write_text("{}")
             policy.write_text((safety / "pi-permission-system.json").read_text())
-            (bundle / "development-policy.cjs").write_bytes((safety / "development-policy.cjs").read_bytes())
             launcher = (safety / "agent-yolo").read_text()
-            marker = 'node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$bundle" "$source_agent_dir" <<\'NODE\'\n'
+            marker = 'node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$source_agent_dir" <<\'NODE\'\n'
             script = launcher.split(marker, 1)[1].split("\nNODE", 1)[0]
-            subprocess.run(["node", "-", str(policy), str(output), str(bundle), str(managed)], input=script, text=True, check=True, capture_output=True, env={**os.environ, "HOME": str(base)})
+            result = subprocess.run(["node", "-", str(policy), str(output), str(managed)], input=script, text=True, capture_output=True, cwd=base / "Code", env={**os.environ, "HOME": str(base)})
+            self.assertEqual(result.returncode, 0, result.stderr)
             root = base / "Code/.agent-toolkit-reports"
             alias = base.parent / f"{base.name}-alias"
             alias.symlink_to(base, target_is_directory=True)

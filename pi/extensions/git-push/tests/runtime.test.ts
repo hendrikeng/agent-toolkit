@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { registerHooks } from "node:module"
 import test from "node:test"
+import { unsafeGitEnvironmentVariable } from "../git-push-core.ts"
 
 const hook = registerHooks({ resolve(specifier, context, next) {
 	if (specifier === "typebox" && context.parentURL?.endsWith("/git-push/index.ts")) return { url: "data:text/javascript,export const Type=new Proxy({}, {get:()=>()=>({})});", shortCircuit: true }
@@ -10,7 +11,13 @@ const hook = registerHooks({ resolve(specifier, context, next) {
 const { default: extension } = await import("../index.ts")
 test.after(() => hook.deregister())
 
-test("natural-language tools push a new branch and create a template-based pull request", async () => {
+test("natural-language tools push a new branch and create a template-based pull request", async (t) => {
+	const removedEnvironment = new Map<string, string>()
+	for (let name; (name = unsafeGitEnvironmentVariable(process.env));) {
+		removedEnvironment.set(name, process.env[name]!)
+		delete process.env[name]
+	}
+	t.after(() => { for (const [name, value] of removedEnvironment) process.env[name] = value })
 	const tools = new Map<string, any>(), commands = new Map<string, any>()
 	const calls: Array<{ binary: string; args: string[] }> = [], prompts: string[] = [], inspectedRuns: string[] = []
 	const commit = "b".repeat(40), upstream = "a".repeat(40)

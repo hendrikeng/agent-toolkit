@@ -10,7 +10,7 @@ if (($#)); then
   exit 2
 fi
 if [[ ! -t 0 || ! -t 1 ]]; then
-  printf 'update.sh requires an interactive terminal. In Pi, use /skills-update.\n' >&2
+  printf 'update.sh requires an interactive human terminal.\n' >&2
   exit 2
 fi
 
