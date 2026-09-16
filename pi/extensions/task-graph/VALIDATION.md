@@ -73,6 +73,36 @@ The graph supports one trusted local user and does not support a shared graph di
 These tests do not prove installed permissions or live Orca behavior.
 A new installed session must complete the acceptance checks.
 
+## Live installed acceptance
+
+Run the live acceptance test only from a fresh installed session with Orca open.
+The test uses the selected model and starts real `pi-yolo` workers.
+The `--approve` flag approves model use and changes to one new disposable local repository.
+
+```sh
+node pi/extensions/task-graph/tests/live-acceptance.mjs --approve
+```
+
+Outside a Pi shell, add `--model` with the exact `provider/model` value.
+
+The test performs these operations:
+
+1. It requires a clean Toolkit checkout at its exact commit.
+2. It creates and registers a new Git repository under `~/Code`.
+3. It compares the installed graph runtime with the Toolkit commit.
+4. It approves one graph with two dependent writing tasks.
+5. It uses real Orca worktrees, terminals, Tasks, Dispatches, and `pi-yolo` workers.
+6. It stops the coordinator after the first task integration.
+7. It resumes the exact graph command in a new coordinator process.
+8. It completes the second task without duplicate work.
+9. It delivers the integration commit to the local source branch.
+10. It archives the completed graph.
+11. It writes JSONL events, errors, and a result file under the reported fixture path.
+
+The test retains the fixture and evidence after success or failure.
+It does not push, publish, deploy, or use an existing repository.
+Do not add this test to `verify.sh` because it uses live models and Orca state.
+
 ## Historical evidence
 
 The [historical archive](../../../docs/permission-rewrite-history/graph-validation-v2.md.txt) describes the old implementation.
