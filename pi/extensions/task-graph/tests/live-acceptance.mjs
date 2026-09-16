@@ -196,6 +196,8 @@ try {
  assert(integrationHead, "The completed graph has no integration commit.")
  assert.equal(readFileSync(join(state.repositories[0].workspace.path, "a.txt"), "utf8"), "alpha\n")
  assert.equal(readFileSync(join(state.repositories[0].workspace.path, "b.txt"), "utf8"), "beta\n")
+ const closed = JSON.parse(run(orca, ["terminal", "close", "--worktree", `id:${state.repositories[0].workspace.id}`, "--all", "--json"], source))
+ assert.equal(closed.ok, true, "Orca did not close the disposable integration terminal before delivery.")
 
  await resumed.request("deliver", `/graph deliver ${state.runId}`)
  assert.equal(git(source, "rev-parse", "HEAD"), integrationHead)
