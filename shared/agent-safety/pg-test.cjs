@@ -94,8 +94,8 @@ async function main(args) {
  fs.chmodSync(root, 0o700)
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync('/tmp'), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
- const role = administrative ? 'toolkit_fixture_admin' : 'toolkit_test'
- const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'fixture-admin' : 'restricted' }
+ const role = administrative ? 'toolkit_maintenance_owner' : 'toolkit_test'
+ const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'maintenance-owner' : 'restricted' }
  save(root, state)
  let operation = 'PostgreSQL version check'
  try {
@@ -115,11 +115,11 @@ async function main(args) {
   const password = randomBytes(24).toString('hex')
   const client = ['-X', '--no-password', '-h', socket, '-p', String(state.port), '-U', 'toolkit_admin', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1']
   operation = 'database bootstrap'
-  run(bin, 'psql', client, root, `CREATE ROLE ${role} LOGIN NOSUPERUSER ${administrative ? 'CREATEDB CREATEROLE' : 'NOCREATEDB NOCREATEROLE'} NOREPLICATION NOBYPASSRLS PASSWORD '${password}';\n`)
+  run(bin, 'psql', client, root, `CREATE ROLE ${role} LOGIN NOSUPERUSER ${administrative ? 'NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS' : 'NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'} PASSWORD '${password}';\n`)
   run(bin, 'psql', client, root, `CREATE DATABASE toolkit_test OWNER ${role};\n`)
   run(bin, 'psql', client, root, 'ALTER ROLE toolkit_admin NOLOGIN;\n')
-  // Fixture administrators can create password-authenticated test roles and databases,
-  // but never gain superuser or server-file/program access through this helper.
+  // Maintenance owners can create password-authenticated test roles,
+  // but never gain database-creation, superuser, or server-file/program access through this helper.
   fs.writeFileSync(file(data, 'pg_hba.conf'), `local all all reject\nhost ${administrative ? 'all all' : 'toolkit_test toolkit_test'} 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n`)
   operation = 'pg_ctl reload'
   run(bin, 'pg_ctl', ['-D', data, 'reload'], root)

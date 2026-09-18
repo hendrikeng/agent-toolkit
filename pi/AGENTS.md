@@ -46,7 +46,7 @@ pg-test stop <id>
 ```
 
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
-The default helper uses private scratch and an unprivileged database role. `start-admin` creates a separate new cluster with a non-superuser role that can create test databases and roles. It cannot upgrade or target an existing database. Neither profile grants superuser, replication, RLS bypass, or server-file/program privileges.
+The default helper uses private scratch and an unprivileged database role. `start-admin` creates a separate new cluster with a maintenance owner. That owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. It cannot upgrade or target an existing database. Neither profile grants superuser, replication, or server-file/program roles.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
 Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.
