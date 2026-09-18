@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { registerHooks } from "node:module"
 import test from "node:test"
-import { unsafeGitEnvironmentVariable } from "../git-push-core.ts"
 
 const hook = registerHooks({ resolve(specifier, context, next) {
 	if (specifier === "typebox" && context.parentURL?.endsWith("/git-push/index.ts")) return { url: "data:text/javascript,export const Type=new Proxy({}, {get:()=>()=>({})});", shortCircuit: true }
@@ -12,12 +11,12 @@ const { default: extension } = await import("../index.ts")
 test.after(() => hook.deregister())
 
 test("natural-language tools push a new branch and create a template-based pull request", async (t) => {
-	const removedEnvironment = new Map<string, string>()
-	for (let name; (name = unsafeGitEnvironmentVariable(process.env));) {
-		removedEnvironment.set(name, process.env[name]!)
-		delete process.env[name]
-	}
-	t.after(() => { for (const [name, value] of removedEnvironment) process.env[name] = value })
+	const oldAskpass = process.env.SSH_ASKPASS
+	process.env.SSH_ASKPASS = "/Applications/Orca.app/askpass"
+	t.after(() => {
+		if (oldAskpass === undefined) delete process.env.SSH_ASKPASS
+		else process.env.SSH_ASKPASS = oldAskpass
+	})
 	const tools = new Map<string, any>(), commands = new Map<string, any>()
 	const calls: Array<{ binary: string; args: string[] }> = [], prompts: string[] = [], inspectedRuns: string[] = []
 	const commit = "b".repeat(40), upstream = "a".repeat(40)
@@ -31,8 +30,13 @@ test("natural-language tools push a new branch and create a template-based pull 
 		sendUserMessage: (prompt: string) => prompts.push(prompt),
 		exec: async (binary: string, args: string[]) => {
 			calls.push({ binary, args })
-			const argv = args.includes("-C") ? args.slice(args.indexOf("-C") + 2) : args
-			if (binary.endsWith("/gh")) {
+			assert.equal(binary, "/usr/bin/env")
+			let commandIndex = 0
+			while (args[commandIndex] === "-u") commandIndex += 2
+			assert.ok(args.slice(0, commandIndex).includes("SSH_ASKPASS"))
+			const command = args[commandIndex], commandArgs = args.slice(commandIndex + 1)
+			const argv = commandArgs.includes("-C") ? commandArgs.slice(commandArgs.indexOf("-C") + 2) : commandArgs
+			if (command.endsWith("/gh")) {
 				if (argv[1] === "list") {
 					if (argv.includes("--base")) {
 						assert.ok(["github.com/fixture/repo", "github.com/upstream/repo"].includes(argv[argv.indexOf("--repo") + 1]))
@@ -142,8 +146,8 @@ test("natural-language tools push a new branch and create a template-based pull 
 	try {
 		process.env.GIT_CONFIG_COUNT = "1"
 		const before = calls.length
-		await assert.rejects(tools.get("push_current_branch").execute("push", {}, undefined, undefined, ctx), /Unset GIT_CONFIG_COUNT/)
-		assert.equal(calls.length, before)
+		await tools.get("inspect_pull_request").execute("inspect", { number: 1 }, undefined, undefined, ctx)
+		assert.ok(calls.slice(before).every(call => call.args.includes("GIT_CONFIG_COUNT")))
 	} finally {
 		if (old === undefined) delete process.env.GIT_CONFIG_COUNT
 		else process.env.GIT_CONFIG_COUNT = old

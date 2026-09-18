@@ -246,7 +246,7 @@ if (process.argv[2] === "--self-test") {
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), false);
   assert.equal(pi.yoloMode, false);
   assert.equal(pi.permission.bash['*'], 'allow');
-  for (const command of ['pi', 'pi *', 'pi-yolo*', '*/pi', '*/pi *', '*/pi-yolo*', '{ *', '*()*', '!*', 'time *', 'coproc *', 'select *', 'if *', 'while *', 'until *', 'for *', 'case *', 'function *']) assert.equal(pi.permission.bash[command], 'deny');
+  for (const command of ['python -*c*', 'python * -*c*', 'python3 -*c*', 'python3 * -*c*', 'python3.* -*c*', 'python3.* * -*c*', '*/python -*c*', '*/python * -*c*', '*/python3 -*c*', '*/python3 * -*c*', '*/python3.* -*c*', '*/python3.* * -*c*', 'node -e*', 'node -p*', 'node -pe*', 'node -ep*', 'node --eval*', 'node --print*', 'node * -e*', 'node * -p*', 'node * --eval*', 'node * --print*', '*/node -e*', '*/node -p*', '*/node -pe*', '*/node -ep*', '*/node --eval*', '*/node --print*', '*/node * -e*', '*/node * -p*', '*/node * --eval*', '*/node * --print*', 'bash -*c*', 'sh -*c*', 'dash -*c*', 'zsh -*c*', 'ksh -*c*', '*/bash -*c*', '*/sh -*c*', '*/dash -*c*', '*/zsh -*c*', '*/ksh -*c*', 'eval *', 'pi', 'pi *', 'pi-yolo*', '*/pi', '*/pi *', '*/pi-yolo*', '{ *', '*()*', '!*', 'time *', 'coproc *', 'select *', 'if *', 'while *', 'until *', 'for *', 'case *', 'function *']) assert.equal(pi.permission.bash[command], 'deny');
   assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'Code', '*')], 'allow');
   assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'orca/workspaces', '*')], 'allow');
   assert.equal(pi.permission.path["*.env"], "deny");

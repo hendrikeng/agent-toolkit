@@ -4,10 +4,10 @@ import {
 	configuredPushTarget,
 	defaultPushTarget,
 	escapeControlCharacters,
+	gitEnvironmentVariablesToUnset,
 	githubRepository,
 	isSupportedSshPushUrl,
 	stripFinalLineEnding,
-	unsafeGitEnvironmentVariable,
 } from "../git-push-core.ts"
 
 test("accepts only a configured remote branch target", () => {
@@ -57,9 +57,15 @@ test("allows only built-in SSH push transports", () => {
 	assert.equal(isSupportedSshPushUrl("/tmp/repo.git"), false)
 })
 
-test("rejects inherited executable Git configuration", () => {
-	assert.equal(unsafeGitEnvironmentVariable({ PATH: "/usr/bin" }), undefined)
-	assert.equal(unsafeGitEnvironmentVariable({ GIT_SSH_COMMAND: "wrapper" }), "GIT_SSH_COMMAND")
-	assert.equal(unsafeGitEnvironmentVariable({ GIT_CONFIG_KEY_0: "core.sshCommand" }), "GIT_CONFIG_KEY_0")
-	assert.equal(unsafeGitEnvironmentVariable({ GIT_DIR: "/tmp/other.git" }), "GIT_DIR")
+test("identifies inherited executable Git configuration for removal", () => {
+	assert.deepEqual(gitEnvironmentVariablesToUnset({ PATH: "/usr/bin" }), [])
+	assert.deepEqual(
+		gitEnvironmentVariablesToUnset({
+			SSH_ASKPASS: "/Applications/Orca.app/askpass",
+			GIT_SSH_COMMAND: "wrapper",
+			GIT_CONFIG_KEY_0: "core.sshCommand",
+			GIT_DIR: "/tmp/other.git",
+		}),
+		["GIT_CONFIG_KEY_0", "GIT_DIR", "GIT_SSH_COMMAND", "SSH_ASKPASS"],
+	)
 })

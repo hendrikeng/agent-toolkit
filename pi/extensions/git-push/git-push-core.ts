@@ -27,12 +27,10 @@ const EXECUTABLE_GIT_ENV = new Set([
 	"SSH_ASKPASS",
 ])
 
-export function unsafeGitEnvironmentVariable(env: NodeJS.ProcessEnv): string | undefined {
-	return Object.keys(env).find(
-		(key) =>
-			env[key] !== undefined &&
-			(EXECUTABLE_GIT_ENV.has(key) || /^GIT_CONFIG_/.test(key)),
-	)
+export function gitEnvironmentVariablesToUnset(env: NodeJS.ProcessEnv): string[] {
+	return Object.keys(env)
+		.filter((key) => env[key] !== undefined && (EXECUTABLE_GIT_ENV.has(key) || /^GIT_CONFIG_/.test(key)))
+		.sort()
 }
 
 export function isSupportedSshPushUrl(value: string): boolean {

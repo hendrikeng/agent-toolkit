@@ -15,10 +15,10 @@ import {
 	configuredPushTarget,
 	defaultPushTarget,
 	escapeControlCharacters,
+	gitEnvironmentVariablesToUnset,
 	githubRepository,
 	isSupportedSshPushUrl,
 	stripFinalLineEnding,
-	unsafeGitEnvironmentVariable,
 } from "./git-push-core.ts"
 
 const PUSH_PROMPT =
@@ -27,6 +27,7 @@ const PR_PROMPT =
 	"Create a pull request for the current branch. Follow the AGENTS.md risk-gated closeout exactly. Read the applicable repository pull request template, fill every relevant section, and call create_pull_request with the completed body."
 const REAL_GIT_CANDIDATES = ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"]
 const REAL_GH_CANDIDATES = ["/usr/bin/gh", "/usr/local/bin/gh", "/opt/homebrew/bin/gh"]
+const ENV = "/usr/bin/env"
 const GITHUB_REPOSITORY_PATTERN = "^github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
 const SAFE_GIT_ARGS = [
 	"--no-replace-objects",
@@ -53,8 +54,13 @@ function executable(candidates: readonly string[], name: string): string {
 }
 
 export default function gitPushExtension(pi: ExtensionAPI) {
+	function sanitizedExec(command: string, args: string[], timeout: number, signal?: AbortSignal) {
+		const unset = gitEnvironmentVariablesToUnset(process.env).flatMap(name => ["-u", name])
+		return pi.exec(ENV, [...unset, command, ...args], { timeout, signal })
+	}
+
 	async function git(cwd: string, args: string[], timeout = 30_000, signal?: AbortSignal): Promise<string> {
-		const result = await pi.exec(executable(REAL_GIT_CANDIDATES, "Git"), [...SAFE_GIT_ARGS, "-C", cwd, ...args], { timeout, signal })
+		const result = await sanitizedExec(executable(REAL_GIT_CANDIDATES, "Git"), [...SAFE_GIT_ARGS, "-C", cwd, ...args], timeout, signal)
 		if (result.killed) throw new Error(`git ${args[0]} timed out`)
 		if (result.code !== 0) {
 			throw new Error(escapeControlCharacters((result.stderr || result.stdout).trim()) || `git ${args[0]} failed`)
@@ -63,7 +69,7 @@ export default function gitPushExtension(pi: ExtensionAPI) {
 	}
 
 	async function optionalGit(cwd: string, args: string[], signal?: AbortSignal): Promise<string | undefined> {
-		const result = await pi.exec(executable(REAL_GIT_CANDIDATES, "Git"), [...SAFE_GIT_ARGS, "-C", cwd, ...args], { timeout: 30_000, signal })
+		const result = await sanitizedExec(executable(REAL_GIT_CANDIDATES, "Git"), [...SAFE_GIT_ARGS, "-C", cwd, ...args], 30_000, signal)
 		if (result.killed) throw new Error(`git ${args[0]} timed out`)
 		if (result.code === 1) return undefined
 		if (result.code !== 0) {
@@ -73,7 +79,7 @@ export default function gitPushExtension(pi: ExtensionAPI) {
 	}
 
 	async function gh(args: string[], signal?: AbortSignal): Promise<string> {
-		const result = await pi.exec(executable(REAL_GH_CANDIDATES, "GitHub CLI"), args, { timeout: 120_000, signal })
+		const result = await sanitizedExec(executable(REAL_GH_CANDIDATES, "GitHub CLI"), args, 120_000, signal)
 		if (result.killed) throw new Error("gh timed out")
 		if (result.code !== 0) throw new Error(escapeControlCharacters((result.stderr || result.stdout).trim()) || "gh failed")
 		return stripFinalLineEnding(result.stdout)
@@ -120,8 +126,6 @@ export default function gitPushExtension(pi: ExtensionAPI) {
 	}
 
 	async function currentRepository(cwd: string, signal?: AbortSignal) {
-		const unsafeEnvironment = unsafeGitEnvironmentVariable(process.env)
-		if (unsafeEnvironment) throw new Error(`Unset ${unsafeEnvironment} before publishing`)
 		const repo = await git(cwd, ["rev-parse", "--show-toplevel"], 30_000, signal)
 		if (await git(repo, ["status", "--porcelain", "--untracked-files=all"], 30_000, signal)) {
 			throw new Error("Commit or discard local changes before publishing")
@@ -132,8 +136,6 @@ export default function gitPushExtension(pi: ExtensionAPI) {
 	}
 
 	async function githubContext(cwd: string, signal?: AbortSignal) {
-		const unsafeEnvironment = unsafeGitEnvironmentVariable(process.env)
-		if (unsafeEnvironment) throw new Error(`Unset ${unsafeEnvironment} before GitHub inspection`)
 		const repo = await git(cwd, ["rev-parse", "--show-toplevel"], 30_000, signal)
 		const branch = await git(repo, ["branch", "--show-current"], 30_000, signal)
 		const remotes = (await git(repo, ["remote"], 30_000, signal)).split("\n").filter(Boolean)

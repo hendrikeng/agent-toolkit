@@ -237,7 +237,7 @@ NODE
 const fs = require("node:fs");
 const path = require("node:path");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *", "pi", "pi *", "pi-yolo*", "*/pi", "*/pi *", "*/pi-yolo*", "{ *", "*()*", "if *", "while *", "for *", "case *"]) {
+for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *", "python -*c*", "python * -*c*", "python3 -*c*", "python3 * -*c*", "python3.* -*c*", "python3.* * -*c*", "*/python -*c*", "*/python * -*c*", "*/python3 -*c*", "*/python3 * -*c*", "*/python3.* -*c*", "*/python3.* * -*c*", "node -e*", "node -p*", "node -pe*", "node -ep*", "node --eval*", "node --print*", "node * -e*", "node * -p*", "node * --eval*", "node * --print*", "*/node -e*", "*/node -p*", "*/node -pe*", "*/node -ep*", "*/node --eval*", "*/node --print*", "*/node * -e*", "*/node * -p*", "*/node * --eval*", "*/node * --print*", "bash -*c*", "sh -*c*", "dash -*c*", "zsh -*c*", "ksh -*c*", "*/bash -*c*", "*/sh -*c*", "*/dash -*c*", "*/zsh -*c*", "*/ksh -*c*", "eval *", "pi", "pi *", "pi-yolo*", "*/pi", "*/pi *", "*/pi-yolo*", "{ *", "*()*", "if *", "while *", "for *", "case *"]) {
   if (config.permission?.bash?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy: ${pattern}`);
 }
 for (const pattern of ["*/.pi/settings.json", "*/.pi/extensions", "*/.pi/extensions/*", "*/.pi/agent/pi-permissions.jsonc", "*/.pi/agents*"]) {
@@ -279,14 +279,16 @@ config.piInfrastructureReadPaths = [...new Set([
   path.join(temporaryDir, "codex-clipboard-*"),
 ])];
 for (const name of ["pg-test"]) {
-  const helper = path.join(home, ".local/bin", name);
   try {
-    for (const file of [helper, `${helper}.agent-toolkit.sha256`]) {
-      const stat = fs.lstatSync(file);
-      if (!stat.isFile() || stat.isSymbolicLink()) throw Error("Unmanaged fixture helper");
+    for (const directory of [".local/bin", ".local/libexec/agent-toolkit"]) {
+      const helper = path.join(home, directory, name);
+      for (const file of [helper, `${helper}.agent-toolkit.sha256`]) {
+        const stat = fs.lstatSync(file);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw Error("Unmanaged fixture helper");
+      }
+      fs.accessSync(helper, fs.constants.X_OK);
+      if (fs.readFileSync(`${helper}.agent-toolkit.sha256`, "utf8").trim() !== require("node:crypto").createHash("sha256").update(fs.readFileSync(helper)).digest("hex")) throw Error("Changed fixture helper");
     }
-    fs.accessSync(helper, fs.constants.X_OK);
-    if (fs.readFileSync(`${helper}.agent-toolkit.sha256`, "utf8").trim() !== require("node:crypto").createHash("sha256").update(fs.readFileSync(helper)).digest("hex")) throw Error("Changed fixture helper");
   } catch {
     for (const pattern of [name, `${name} *`, `*/${name}`, `*/${name} *`]) config.permission.bash[pattern] = "deny";
   }

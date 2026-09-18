@@ -22,6 +22,10 @@ Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at h
 
 A hard permission denial is not an approval prompt. Chat approval does not update the runtime policy. Do not retry an unchanged denied command, ask for ineffective chat approval, or claim that restarting the same launcher will fix it. For ordinary scratch work, use the authorized scratch directory. If the task requires the denied location itself, report the exact missing permission; do not change policy from inside the session or work around the restriction with another tool.
 
+## Prompt-free shell commands
+
+Permission prompts block unattended orchestration. Never put programs in opaque inline interpreter arguments such as `python -c`, `python3 -c`, `node -e`, `node -p`, `bash -c`, `sh -c`, or `eval`. Do not use command-running indirection such as `xargs`, `find -exec`, or `env` when a direct command works. Use the native read, search, and edit tools first. For multi-line local analysis, write a short script under the authorized scratch directory with the native write tool, then run the interpreter on that script path.
+
 ## Development access
 
 Pi uses the pinned stock permission extension and one managed global policy. Source edits and `/reload` do not update that installation. Run `./install.sh` from a trusted human terminal, then start a fresh session.

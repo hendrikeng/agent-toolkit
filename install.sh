@@ -461,17 +461,8 @@ if [[ -e $legacy_git_test || -L $legacy_git_test || -e $legacy_git_test_marker |
   fi
 fi
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/bin/pg-test" 700
-legacy_pg_test="$HOME/.local/libexec/agent-toolkit/pg-test"
-legacy_pg_test_marker="$legacy_pg_test.agent-toolkit.sha256"
-if [[ -e $legacy_pg_test || -L $legacy_pg_test || -e $legacy_pg_test_marker || -L $legacy_pg_test_marker ]]; then
-  if [[ -f $legacy_pg_test && ! -L $legacy_pg_test && -f $legacy_pg_test_marker && ! -L $legacy_pg_test_marker && $(shasum -a 256 "$legacy_pg_test" | awk '{print $1}') == "$(<"$legacy_pg_test_marker")" ]]; then
-    rm "$legacy_pg_test" "$legacy_pg_test_marker"
-    printf 'retired %s\n' "$legacy_pg_test"
-  else
-    printf 'refusing to retire changed PostgreSQL fixture helper at %s\n' "$legacy_pg_test" >&2
-    exit 1
-  fi
-fi
+# ponytail: keep the legacy copy while deployed permission-bundle launchers still validate this path.
+install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensions/ask-user-question"
