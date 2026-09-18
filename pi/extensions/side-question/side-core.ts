@@ -22,3 +22,7 @@ export function sideAnswerWheelDirection(data: string): -1 | 0 | 1 {
 export function nextSideAnswerScrollTop(current: number, delta: number, contentHeight: number, viewportHeight: number): number {
 	return Math.max(0, Math.min(Math.max(0, contentHeight - viewportHeight), current + delta))
 }
+
+export function nextSideSelectionRow(row: number, scrollDelta: number, contentHeight: number): number {
+	return Math.max(0, Math.min(Math.max(0, contentHeight - 1), row + scrollDelta))
+}

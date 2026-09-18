@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
 	nextSideAnswerScrollTop,
+	nextSideSelectionRow,
 	sideAnswerWheelDirection,
 	SIDE_BOUNDARY_PROMPT,
 	SIDE_SYSTEM_PROMPT,
@@ -22,4 +23,6 @@ test("scrolls side answers with SGR mouse-wheel input", () => {
 	assert.equal(nextSideAnswerScrollTop(5, 3, 20, 10), 8)
 	assert.equal(nextSideAnswerScrollTop(8, 5, 20, 10), 10)
 	assert.equal(nextSideAnswerScrollTop(2, -5, 20, 10), 0)
+	assert.equal(nextSideSelectionRow(7, 3, 20), 10)
+	assert.equal(nextSideSelectionRow(2, -5, 20), 0)
 })

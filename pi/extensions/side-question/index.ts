@@ -32,6 +32,7 @@ import {
 } from "@earendil-works/pi-tui"
 import {
 	nextSideAnswerScrollTop,
+	nextSideSelectionRow,
 	sideAnswerWheelDirection,
 	SIDE_BOUNDARY_PROMPT,
 	SIDE_SYSTEM_PROMPT,
@@ -153,6 +154,9 @@ class SideAnswerView implements Component, Focusable {
 	private scrollBy(lines: number): void {
 		const next = nextSideAnswerScrollTop(this.scrollTop, lines, this.contentHeight, this.viewportHeight)
 		if (next === this.scrollTop) return
+		if (this.selecting && this.selectionFocus) {
+			this.selectionFocus.row = nextSideSelectionRow(this.selectionFocus.row, next - this.scrollTop, this.contentHeight)
+		}
 		this.scrollTop = next
 		this.tui.requestRender()
 	}
