@@ -279,7 +279,7 @@ config.piInfrastructureReadPaths = [...new Set([
   path.join(temporaryDir, "codex-clipboard-*"),
 ])];
 for (const name of ["pg-test"]) {
-  const helper = path.join(home, ".local/libexec/agent-toolkit", name);
+  const helper = path.join(home, ".local/bin", name);
   try {
     for (const file of [helper, `${helper}.agent-toolkit.sha256`]) {
       const stat = fs.lstatSync(file);
