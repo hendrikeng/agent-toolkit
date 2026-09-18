@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { copyableBlocks, lastAssistantText, styleCodeBlocks } from "../copy-code-core.ts"
+import { copyableBlocks, lastAssistantText } from "../copy-code-core.ts"
 
 test("copyable blocks remove Markdown fence indentation and preserve source text", () => {
 	assert.deepEqual(copyableBlocks("Before\n ```sh\n cd /tmp/example\n ./install.sh\n ```\nAfter"), [{ language: "sh", text: "cd /tmp/example\n./install.sh" }])
@@ -11,25 +11,6 @@ test("copyable blocks remove Markdown fence indentation and preserve source text
 	assert.deepEqual(copyableBlocks("- item\n    ```sh\n    echo nested\n    ```"), [{ language: "sh", text: "echo nested" }])
 	assert.deepEqual(copyableBlocks("- > ```sh\n  > echo mixed\n  > ```"), [{ language: "sh", text: "echo mixed" }])
 	assert.deepEqual(copyableBlocks("````md\n    ````\nafter\n````"), [{ language: "md", text: "    ````\nafter" }])
-})
-
-test("code block styling hides fences, strips containers, and escapes code for Markdown rendering", () => {
-	assert.equal(
-		styleCodeBlocks("Before\n```bash\necho '$*'\n```\nAfter"),
-		"Before\n\n\x1b[2;3mecho \\'\\$\\*\\'\x1b[22;23m\n\nAfter",
-	)
-	assert.equal(
-		styleCodeBlocks("> ```sh\n> echo '**literal**'\n> ```"),
-		"\n\x1b[2;3mecho \\'\\*\\*literal\\*\\*\\'\x1b[22;23m\n",
-	)
-	assert.equal(
-		styleCodeBlocks("- ```sh\n  find .\n  ```"),
-		"\n\x1b[2;3mfind \\.\x1b[22;23m\n",
-	)
-	assert.equal(
-		styleCodeBlocks("- > ```sh\n  > echo mixed\n  > ```"),
-		"\n\x1b[2;3mecho mixed\x1b[22;23m\n",
-	)
 })
 
 test("last assistant text ignores user messages and thinking blocks", () => {

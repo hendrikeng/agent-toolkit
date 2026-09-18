@@ -43,32 +43,6 @@ function unwrapContainers(line: string, containers: Fence["containers"]): string
 	return text
 }
 
-export function styleCodeBlocks(markdown: string): string {
-	const lines = markdown.split(/\r?\n/)
-	let fence: Fence | undefined
-	for (let index = 0; index < lines.length; index++) {
-		if (!fence) {
-			fence = openingFence(lines[index])
-			if (fence) lines[index] = ""
-			continue
-		}
-		const text = unwrapContainers(lines[index], fence.containers)
-		if (text === undefined) {
-			fence = undefined
-			index--
-			continue
-		}
-		if (fence.closing.test(text)) {
-			fence = undefined
-			lines[index] = ""
-			continue
-		}
-		const content = text.replace(new RegExp(`^[ \\t]{0,${fence.indent}}`), "").replace(/[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "\\$&")
-		lines[index] = `\x1b[2;3m${content}\x1b[22;23m`
-	}
-	return lines.join("\n")
-}
-
 export function copyableBlocks(markdown: string): CopyableBlock[] {
 	const blocks: CopyableBlock[] = [], lines = markdown.split(/\r?\n/)
 	for (let index = 0; index < lines.length; index++) {
