@@ -86,7 +86,7 @@ pg-test stop <id>
 
 Use the returned connection URL only for the test process. The helper creates a private temporary cluster and a non-superuser role.
 
-`start` creates a restricted database owner. `start-admin` creates a maintenance owner with `NOCREATEDB`, `CREATEROLE`, and `BYPASSRLS`. Neither profile grants superuser, replication, or server-file and server-program roles.
+`start` creates a restricted `toolkit_test` database owner. `start-admin` creates the same fixture owner with `CREATEROLE` and `BYPASSRLS`. These attributes let migrations create fixture roles. The helper does not create a separate maintenance role. Neither profile grants superuser or database-creation privileges.
 
 The helper accepts no raw SQL, database path, server option, or existing database target. It retains files and logs after stop or failure.
 

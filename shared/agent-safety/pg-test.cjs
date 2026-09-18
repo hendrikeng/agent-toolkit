@@ -94,8 +94,8 @@ async function main(args) {
  fs.chmodSync(root, 0o700)
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync('/tmp'), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
- const role = administrative ? 'toolkit_maintenance_owner' : 'toolkit_test'
- const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'maintenance-owner' : 'restricted' }
+ const role = 'toolkit_test'
+ const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'admin' : 'restricted' }
  save(root, state)
  let operation = 'PostgreSQL version check'
  try {
@@ -115,11 +115,10 @@ async function main(args) {
   const password = randomBytes(24).toString('hex')
   const client = ['-X', '--no-password', '-h', socket, '-p', String(state.port), '-U', 'toolkit_admin', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1']
   operation = 'database bootstrap'
-  run(bin, 'psql', client, root, `CREATE ROLE ${role} LOGIN NOSUPERUSER ${administrative ? 'NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS' : 'NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'} PASSWORD '${password}';\n`)
+  run(bin, 'psql', client, root, `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB ${administrative ? 'CREATEROLE NOREPLICATION BYPASSRLS' : 'NOCREATEROLE NOREPLICATION NOBYPASSRLS'} PASSWORD '${password}';\n`)
   run(bin, 'psql', client, root, `CREATE DATABASE toolkit_test OWNER ${role};\n`)
   run(bin, 'psql', client, root, 'ALTER ROLE toolkit_admin NOLOGIN;\n')
-  // Maintenance owners can create password-authenticated test roles,
-  // but never gain database-creation, superuser, or server-file/program access through this helper.
+  // The admin profile gives the fixture owner only the extra attributes required to create migration roles.
   fs.writeFileSync(file(data, 'pg_hba.conf'), `local all all reject\nhost ${administrative ? 'all all' : 'toolkit_test toolkit_test'} 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n`)
   operation = 'pg_ctl reload'
   run(bin, 'pg_ctl', ['-D', data, 'reload'], root)
