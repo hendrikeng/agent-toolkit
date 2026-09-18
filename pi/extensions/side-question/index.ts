@@ -33,6 +33,7 @@ import {
 import {
 	nextSideAnswerScrollTop,
 	nextSideSelectionRow,
+	sideAnswerDragScrollDirection,
 	sideAnswerWheelDirection,
 	SIDE_BOUNDARY_PROMPT,
 	SIDE_SYSTEM_PROMPT,
@@ -73,6 +74,8 @@ class SideAnswerView implements Component, Focusable {
 	private selectionAnchor?: SelectionPoint
 	private selectionFocus?: SelectionPoint
 	private selecting = false
+	private selectionAutoScrollDirection: -1 | 0 | 1 = 0
+	private selectionAutoScrollTimer?: ReturnType<typeof setInterval>
 	private busy = false
 	private disposed = false
 	private content: string
@@ -114,6 +117,7 @@ class SideAnswerView implements Component, Focusable {
 		if (!question || this.busy) return
 		this.busy = true
 		this.activity = "working…"
+		this.stopSelectionAutoScroll()
 		this.selecting = false
 		this.selectionAnchor = undefined
 		this.selectionFocus = undefined
@@ -171,6 +175,27 @@ class SideAnswerView implements Component, Focusable {
 		return { row, col: Math.max(0, Math.min(width, x)) }
 	}
 
+	private updateSelectionAutoScroll(y: number): void {
+		this.selectionAutoScrollDirection = sideAnswerDragScrollDirection(y - this.panelTop - 1, this.viewportHeight)
+		if (this.selectionAutoScrollDirection === 0) {
+			this.stopSelectionAutoScroll()
+			return
+		}
+		if (this.selectionAutoScrollTimer) return
+		this.selectionAutoScrollTimer = setInterval(() => {
+			const previous = this.scrollTop
+			this.scrollBy(this.selectionAutoScrollDirection)
+			if (this.scrollTop === previous) this.stopSelectionAutoScroll()
+		}, 50)
+		this.selectionAutoScrollTimer.unref()
+	}
+
+	private stopSelectionAutoScroll(): void {
+		if (this.selectionAutoScrollTimer) clearInterval(this.selectionAutoScrollTimer)
+		this.selectionAutoScrollTimer = undefined
+		this.selectionAutoScrollDirection = 0
+	}
+
 	private graphemeRange(point: SelectionPoint): { start: number; end: number } | undefined {
 		const line = stripTerminalSequences(this.contentLines[point.row] ?? "")
 		let start = 0
@@ -223,6 +248,7 @@ class SideAnswerView implements Component, Focusable {
 		const y = Number(match[3]) - 1
 		if (match[4] === "m") {
 			if (this.selecting) {
+				this.stopSelectionAutoScroll()
 				this.selecting = false
 				this.selectionFocus = this.selectionPoint(x, y, true)
 				void this.copySelection().catch(() => {
@@ -236,6 +262,7 @@ class SideAnswerView implements Component, Focusable {
 		if ((button & 32) !== 0) {
 			if (this.selecting) {
 				this.selectionFocus = this.selectionPoint(x, y, true)
+				this.updateSelectionAutoScroll(y)
 				this.tui.requestRender()
 			}
 			return true
@@ -243,6 +270,7 @@ class SideAnswerView implements Component, Focusable {
 		if ((button & 3) === 0) {
 			const point = this.selectionPoint(x, y, false)
 			if (!point) return true
+			this.stopSelectionAutoScroll()
 			this.selecting = true
 			this.selectionAnchor = point
 			this.selectionFocus = point
@@ -314,6 +342,7 @@ class SideAnswerView implements Component, Focusable {
 
 	dispose(): void {
 		this.disposed = true
+		this.stopSelectionAutoScroll()
 		if (!this.mouseTrackingActive) return
 		this.mouseTrackingActive = false
 		this.tui.terminal.write("\x1b[?1006l\x1b[?1002l\x1b[?1000l")

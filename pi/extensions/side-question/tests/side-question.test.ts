@@ -3,6 +3,7 @@ import test from "node:test"
 import {
 	nextSideAnswerScrollTop,
 	nextSideSelectionRow,
+	sideAnswerDragScrollDirection,
 	sideAnswerWheelDirection,
 	SIDE_BOUNDARY_PROMPT,
 	SIDE_SYSTEM_PROMPT,
@@ -16,7 +17,7 @@ test("keeps inherited work separate while permitting explicit small fixes", () =
 	assert.match(SIDE_SYSTEM_PROMPT, /keep it minimal and local/)
 })
 
-test("scrolls side answers with SGR mouse-wheel input", () => {
+test("scrolls side answers and extends dragged selections", () => {
 	assert.equal(sideAnswerWheelDirection("\x1b[<64;10;5M"), -1)
 	assert.equal(sideAnswerWheelDirection("\x1b[<65;10;5M"), 1)
 	assert.equal(sideAnswerWheelDirection("\x1b[A"), 0)
@@ -25,4 +26,7 @@ test("scrolls side answers with SGR mouse-wheel input", () => {
 	assert.equal(nextSideAnswerScrollTop(2, -5, 20, 10), 0)
 	assert.equal(nextSideSelectionRow(7, 3, 20), 10)
 	assert.equal(nextSideSelectionRow(2, -5, 20), 0)
+	assert.equal(sideAnswerDragScrollDirection(0, 10), -1)
+	assert.equal(sideAnswerDragScrollDirection(5, 10), 0)
+	assert.equal(sideAnswerDragScrollDirection(9, 10), 1)
 })

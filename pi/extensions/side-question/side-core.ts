@@ -26,3 +26,7 @@ export function nextSideAnswerScrollTop(current: number, delta: number, contentH
 export function nextSideSelectionRow(row: number, scrollDelta: number, contentHeight: number): number {
 	return Math.max(0, Math.min(Math.max(0, contentHeight - 1), row + scrollDelta))
 }
+
+export function sideAnswerDragScrollDirection(pointerRow: number, viewportHeight: number): -1 | 0 | 1 {
+	return pointerRow <= 0 ? -1 : pointerRow >= viewportHeight - 1 ? 1 : 0
+}
