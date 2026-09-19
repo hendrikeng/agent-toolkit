@@ -232,7 +232,7 @@ class SideAnswerView implements Component, Focusable {
 			const end = row === selection.end.row ? Math.min(visibleWidth(line), selection.end.col + 1) : visibleWidth(line)
 			lines.push(sliceByColumn(line, start, Math.max(0, end - start), true).trimEnd())
 		}
-		const text = lines.join("\n")
+		const text = lines.join("\n").replace(/^│(?: |$)/gm, "")
 		if (!text) return
 		await copyToClipboard(text)
 		this.copyStatus = "copied"

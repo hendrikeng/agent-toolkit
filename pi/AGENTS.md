@@ -57,6 +57,10 @@ In `pi-yolo`, put review and Security handoff results in a unique subdirectory o
 
 The `autoreview` helper provides unique default report and status paths under this root. Prefer those defaults. Keep additional wrapper logs under the same root using normally authorized operations. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
 
+## Response formatting
+
+Do not wrap ordinary replies, drafts, or generated text in Markdown blockquotes. Use blockquotes only when the user explicitly requests them or when quoting source text.
+
 ## Documentation prose
 
 Before you create or edit documentation prose in Markdown files other than `AGENTS.md`, `SKILL.md`, and prompt files, read the installed Simple English skill at `$PI_CODING_AGENT_DIR/extensions/simple-english/SKILL.md` (default `~/.pi/agent/extensions/simple-english/SKILL.md`) completely and follow it in pragmatic mode. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, or source code.
