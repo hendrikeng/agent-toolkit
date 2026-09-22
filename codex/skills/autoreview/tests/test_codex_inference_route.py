@@ -93,7 +93,7 @@ class CodexInferenceRouteTests(unittest.TestCase):
         text += '\n[mcp_servers.unrelated]\ncommand = "must-not-execute"\n'
         (self.home / "config.toml").write_text(text, encoding="utf-8")
 
-    def run_review(self, *, prepare_auth=None, during_run=None, scan=None):
+    def run_review(self, *, prepare_auth=None, during_run=None):
         observed = {}
 
         def fake_run(command, cwd, **kwargs):
@@ -126,12 +126,9 @@ class CodexInferenceRouteTests(unittest.TestCase):
             "ensure_codex_isolation_supported": mock.Mock(return_value="synthetic-codex"),
             "resolve_command": mock.Mock(return_value="synthetic-codex"),
             "run_with_heartbeat": fake_run,
-            "scan_outgoing_review_pack": mock.Mock(),
         }
         if prepare_auth is not None:
             replacements["prepare_codex_runtime_auth"] = prepare_auth
-        if scan is not None:
-            replacements["scan_outgoing_review_pack"] = scan
         with mock.patch.dict(self.helper["run_codex"].__globals__, replacements):
             observed["report"] = self.helper["run_codex"](self.args, self.repo, "synthetic review")
         return observed
@@ -214,16 +211,16 @@ class CodexInferenceRouteTests(unittest.TestCase):
             self.assertEqual(observed["catalogue"], original)
             self.assert_auth_command(observed, self.runtime_helper)
             launchers.append(observed["auth_command"])
-            if selected == self.args.model:
+            if selected == "gpt-5.6-sol":
                 # A retry keeps the prepared route even if operator files change.
                 self.catalogue.write_bytes(b"changed after primary send")
                 (self.home / "config.toml").write_text('model_provider = "another-route"')
                 return subprocess.CompletedProcess(
-                    command, 1, "", f"The model {self.args.model} does not exist or you do not have access to it.",
+                    command, 1, "", "The model gpt-5.6-sol does not exist or you do not have access to it.",
                 )
 
-        self.run_review(during_run=respond, scan=lambda *_: events.append("scan"))
-        self.assertEqual(events, [self.args.model, "scan", self.args.fallback_model])
+        self.run_review(during_run=respond)
+        self.assertEqual(events, ["gpt-5.6-sol", "gpt-5.6-terra"])
         self.assertEqual(launchers[0], launchers[1])
 
     def test_primary_only_catalogue_does_not_block_successful_primary(self):
@@ -232,7 +229,7 @@ class CodexInferenceRouteTests(unittest.TestCase):
         attempts = []
         self.run_review(during_run=lambda observed: attempts.append(observed["command"]))
         self.assertEqual(len(attempts), 1)
-        self.assertEqual(attempts[0][attempts[0].index("--model") + 1], self.args.model)
+        self.assertEqual(attempts[0][attempts[0].index("--model") + 1], "gpt-5.6-sol")
         self.assertEqual(self.available(), (True, None))
 
     def test_default_keeps_legacy_auth_only_behavior_with_unrelated_routes(self):

@@ -22,7 +22,7 @@ On release work, fix only release blockers. After two unsuccessful fix cycles,
 reassess the scope before making more changes. Rerun the affected tests and
 review after an accepted fix, not to obtain a nicer verdict.
 
-This copy retains Astra/medium and a P2 threshold. See [NOTICE.md](NOTICE.md)
+This copy retains a P2 threshold and Toolkit's review rules. See [NOTICE.md](NOTICE.md)
 for the upstream revision and local differences.
 
 ## Run
@@ -72,7 +72,7 @@ PR base or `origin/main`. Clean main has no implicit review target.
 
 Registered nested linked checkouts from the same repository are outside the
 current review scope. Their presence or edits do not make the parent dirty;
-ordinary adjacent files remain included and scanned. Worktree boundaries are
+ordinary adjacent files remain included in the review. Worktree boundaries are
 revalidated without changing Git ignore rules.
 
 For a complete PR candidate **including dirty rewrites**, use local mode with
@@ -93,12 +93,31 @@ whitespace. An empty present
 source uses line 1, column 1, and an empty excerpt; empty physical lines also
 use an empty excerpt at column 1. Source identity remains mandatory.
 
+Local selection honors `core.autocrlf` from external operator Git configuration,
+with repository-local values and attributes retaining precedence. Only its
+validated scalar value reaches diff/status; other global and system Git
+configuration stays disabled. Repository-owned or relative global-config
+overrides are not imported, and reviewed source bytes are not rewritten.
+
+Local collection disables effective Git clean/process commands and requires
+conversion to succeed. Unused drivers, unchanged filtered neighbors, staged-only
+changes, and deletions can still be reviewed without executing converters.
+If Git needs executable conversion to assemble the diff, collection fails before
+any reviewer starts. Use explicit branch or commit mode for committed content in
+that case. Built-in line-ending normalization remains enabled; raw bytes never
+stand in for a required executable conversion.
+PR-base discovery uses trusted external Git and a scoped GitHub CLI environment,
+preserving external authentication/configuration and proxy settings while excluding
+inherited Git routing, `GH_REPO` redirection, and checkout-owned executables.
+
 ## Context and severity
 
 Use `--prompt` for task-specific guidance, or `--prompt-file` and `--dataset` for
 repository-relative context files. Context does not expand the selected Git
 target. The reviewer cannot read unchanged repository files from its empty
 sandbox; supply relevant source or dependency evidence when the diff is insufficient.
+`--prompt-file` also accepts an absolute path inside the repository; the same
+sensitive-path, symlink, and mutation checks apply. `--dataset` stays repo-relative.
 
 The Toolkit default threshold is **P2**: accept P0, P1, and P2 findings.
 P3 findings remain in the audit output. Use `--max-priority` or
@@ -112,7 +131,7 @@ parent-relative patch; otherwise leave the attribution unknown.
 
 ## Engines
 
-Codex is the default: `gpt-5.6-sol`, high reasoning, with a `gpt-5.6-terra` retry
+Codex is the default: `gpt-6-sol`, high reasoning, with a `gpt-5.6-sol` retry
 only for an account-access failure. Honor explicit engine and model choices. Do not
 switch because a review is slow or rate-limited.
 
@@ -175,11 +194,22 @@ split context overrides are unsupported when projection is selected.
 
 The helper owns reviewer isolation, sanitized authentication, process cleanup,
 Git scope, and structured result validation. Keep those controls enabled.
-TruffleHog must scan the complete frozen input for partitioned reviews and each
-exact outgoing pack before it is sent; missing or failed scanning stops the run.
-Source-controlled ignore tags cannot suppress this gate. Scanner refusals never
-echo input headings or finding payloads; remove credentials locally and rerun.
-Never reproduce credentials in findings or work around an isolation failure.
+Before repository detection or target selection, Git must pass `--version`
+within 10 seconds. Failure exits `2` with an `incomplete` diagnostic; it never
+means `scoped-clean`. Set `AUTOREVIEW_GIT` to a trusted external Git executable
+to override helper-owned Git invocations. On macOS with a broken selected Xcode,
+use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` for the invocation.
+
+Every reviewer pass must inspect its bundle for real credentials and report
+suspected credentials as P0 findings without reproducing their values. Harmless
+placeholders and test fixtures are not credentials. AutoReview does not require
+or invoke an external secret scanner. Never work around an isolation failure.
+
+### Intentional scanner-free policy
+
+Keep approved secret scanning outside AutoReview. Reviewer findings happen after
+transmission. Reintroducing a scanner requires an explicit maintainer decision.
+See [#240](https://github.com/openclaw/agent-skills/pull/240) for the rationale.
 
 On macOS, reviewer tools cannot access the shared `/tmp` and `/var/tmp` trees
 (including their `/private` aliases). Codex preflight rejects those temporary
@@ -191,7 +221,8 @@ Tools installed in shared scratch or requiring writes there will be denied too.
 Review files have no size/count cap and are never truncated. Large diffs and
 datasets are partitioned automatically. Intact instructions and required mixed
 source context must still fit the per-pass prompt budget. A failed pass does not
-produce a partial clean verdict.
+produce a partial clean verdict. Each pass is an independent assignment. Its
+private completion field must confirm a finished assessment.
 
 Do not edit inputs during a review: the helper verifies captured sources before
 sending and publishing results. Long reviews are normal; advancing heartbeats
@@ -209,7 +240,7 @@ platform, even when the filesystem would permit distinct files.
 | ---- | ------------------------------------------------------------------------------- |
 | `0`  | `scoped-clean`, or a correct verdict with only filtered lower-priority findings |
 | `1`  | Accepted findings, an incorrect provider verdict, or a failed review attempt    |
-| `2`  | Incomplete scope/attribution, or a missing required finding                     |
+| `2`  | Unfinished assessment, incomplete scope/attribution, or a missing required finding                     |
 
 Treat `scoped-clean` as clean only for the selected target and requested priority.
 `filtered` is not clean; resolve `incomplete` before claiming completion.
@@ -243,7 +274,7 @@ The sidecar contains no provider logs, prompts, findings, or model identifiers.
 Existing bounded, display-safe diagnostics remain on stderr; command-auth
 diagnostic suppression remains in force. Use a fresh status path per invocation:
 after argument and output-path validation, a previous sidecar is removed before
-target selection. Dry runs, preflight/scan refusals, pre-launch isolation failures, source mutations,
+target selection. Dry runs, preflight refusals, pre-launch isolation failures, source mutations,
 interruptions, and output failures produce no new status. Absence means no
 outcome was published, never a clean review. No retry policy is added.
 

@@ -40,6 +40,10 @@ case ${1:-} in
   --agent-toolkit-inspect) check_only=true; inspect_only=true; shift ;;
 esac
 args=("$@")
+if [[ ${#args[@]} -eq 1 && ${args[0]} == --version ]]; then
+  [[ $check_only == true ]] && exit 0
+  exec "$real_git" --version
+fi
 i=0
 while ((i < ${#args[@]})); do
   case ${args[i]} in

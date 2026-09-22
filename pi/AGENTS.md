@@ -16,7 +16,7 @@ Use `pi-yolo` for all spawned task workers and full handoffs. Use the current Pi
 
 In Orca, launch workers through `terminal create --command 'pi-yolo --model provider/model --thinking medium'` in the target worktree, then deliver the task using the version-matched handoff or orchestration guide. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent`/`worker-start` launchers that do not guarantee `pi-yolo`. If the wrapper cannot launch, report the blocker rather than falling back to another agent.
 
-Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at high thinking and retries `gpt-5.6-terra` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
+Review exception: `autoreview` uses its Codex CLI engine with `gpt-6-sol` at high thinking and retries `gpt-5.6-sol` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
 ## Permission denials
 

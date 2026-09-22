@@ -7,6 +7,14 @@ const test = require('node:test')
 // Fixtures own their Git configuration; inherited launcher settings are not test inputs.
 const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
 
+test('allows the upstream review Git version preflight without other global options', () => {
+  const guard = join(__dirname, 'git-yolo-guard')
+  const run = (...args) => spawnSync(guard, args, { encoding: 'utf8', env: fixtureEnv })
+  assert.match(run('--version').stdout, /^git version /)
+  assert.equal(run('--version').status, 0)
+  assert.equal(run('--version', 'status').status, 126)
+})
+
 test('allows explicit config reads and GitHub CLI repository resolution without config writes', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'git-guard-config-'))
   const guard = join(__dirname, 'git-yolo-guard')

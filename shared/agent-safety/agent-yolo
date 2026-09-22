@@ -316,7 +316,7 @@ NODE
       esac
     done
     pi_args=(--no-approve)
-    [[ $has_model == true ]] || pi_args+=(--model openai-codex/gpt-5.6-sol)
+    [[ $has_model == true ]] || pi_args+=(--model openai-codex/gpt-6-sol)
     [[ $has_thinking == true ]] || pi_args+=(--thinking high)
     pi_args+=("$@")
     PATH=$PATH \

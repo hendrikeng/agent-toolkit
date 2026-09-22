@@ -37,7 +37,7 @@ test('pi-yolo defaults to Sol at high thinking while preserving explicit overrid
  const args = values => spawnSync('/bin/bash', ['-uc', `${block}\nprintf '%s\\n' "\${pi_args[@]}"`, 'launcher-test', ...values], { encoding: 'utf8' })
  const defaults = args([])
  assert.equal(defaults.status, 0, defaults.stderr)
- assert.deepEqual(defaults.stdout.trim().split('\n'), ['--no-approve', '--model', 'openai-codex/gpt-5.6-sol', '--thinking', 'high'])
+ assert.deepEqual(defaults.stdout.trim().split('\n'), ['--no-approve', '--model', 'openai-codex/gpt-6-sol', '--thinking', 'high'])
  const explicit = args(['--model', 'google/gemini', '--thinking', 'high'])
  assert.equal(explicit.status, 0, explicit.stderr)
  assert.deepEqual(explicit.stdout.trim().split('\n'), ['--no-approve', '--model', 'google/gemini', '--thinking', 'high'])

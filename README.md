@@ -8,7 +8,6 @@ Agent Toolkit installs shared skills, Pi extensions, safety policy, and launcher
 - Git
 - At least one supported agent CLI
 - Orca for supervised worker orchestration
-- TruffleHog on `PATH` for autoreview
 
 ## Install
 
@@ -104,7 +103,7 @@ Switch the session policy when needed:
 
 `auto` applies the risk gates from `pi/AGENTS.md`. `off` disables automatic AI review for the session. It does not block an explicit review request.
 
-Autoreview remains the full hardened reviewer. It validates its Git target, scans frozen input with TruffleHog, isolates the reviewer, validates structured output, and writes reports under `AGENT_TOOLKIT_REVIEW_ROOT`.
+AutoReview validates its Git target, isolates the reviewer, validates structured output, and writes reports under `AGENT_TOOLKIT_REVIEW_ROOT`. It does not scan for secrets before it sends the review bundle to the model.
 
 ## Accounts
 
