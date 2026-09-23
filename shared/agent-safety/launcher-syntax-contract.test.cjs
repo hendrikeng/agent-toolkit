@@ -75,7 +75,8 @@ test('Git allows native local commands while blocking aliases, extensions, crede
  const check = args => spawnSync(guardPath, ['--agent-toolkit-check', ...args], { env, encoding: 'utf8' })
  assert.equal(spawnSync('/bin/bash', ['-n', guardPath]).status, 0)
  assert.match(readFileSync(guardPath, 'utf8'), /--no-external-commands --no-aliases/)
- for (const args of [['status'], ['switch', 'topic'], ['tag', 'v1'], ['worktree', 'repair']]) assert.equal(check(args).status, 0, args.join(' '))
+ for (const args of [['status'], ['switch', 'topic'], ['tag', 'v1'], ['worktree', 'repair'], ['config', '--type=bool-or-str', '--get', 'core.autocrlf'], ['-c', 'diff.suppressBlankEmpty=false', 'config', '--type=bool-or-str', '--get', 'core.autocrlf']]) assert.equal(check(args).status, 0, args.join(' '))
+ assert.equal(check(['config', '--type=bool-or-str', 'core.autocrlf', 'true']).status, 126)
  for (const args of [['push'], ['merge', '--abort'], ['cherry-pick', '--abort'], ['cherry-pick', '--quit'], ['cherry-pick', '--skip'], ['revert', '--abort'], ['revert', '--quit'], ['revert', '--skip'], ['http-push', 'origin', 'https://example.invalid/repo'], ['reset', 'HEAD~1'], ['am', '--abort'], ['am', '--skip'], ['fast-import'], ['repack', '-Ad', '--unpack-unreachable=now'], ['apply', '--unsafe-paths', 'change.patch'], ['mv', '-f', 'a', 'b'], ['remote', 'remove', 'origin'], ['remote', '-v', 'remove', 'origin'], ['remote', '--verbose', 'set-url', 'origin', 'elsewhere'], ['remote', 'set-url', 'origin', 'elsewhere'], ['maintenance', 'run'], ['maintenance', 'register'], ['maintenance', 'start'], ['stash', 'pop'], ['stash', 'branch', 'recover'], ['credential', 'fill'], ['lfs', 'push'], ['difftool'], ['submodule', 'foreach', 'rm -rf .'], ['bisect', 'run', 'sh'], ['clean', '-fd'], ['reset', '--har'], ['checkout', 'topic'], ['checkout', '--', 'file'], ['switch', '-C', 'topic'], ['switch', '--orphan', 'topic'], ['switch', '-fC', 'topic'], ['switch', '--force-c', 'topic'], ['branch', '-D', 'topic'], ['branch', '-m', 'old', 'new'], ['branch', '--mov', 'old', 'new'], ['branch', '--edit-description', 'main'], ['branch', '-u', 'origin/main'], ['branch', '-M', 'topic'], ['branch', '-fd', 'topic'], ['tag', '--f', 'v1'], ['tag', '--delete=v1'], ['symbolic-ref', '-d', 'refs/heads/topic'], ['symbolic-ref', 'refs/heads/main', 'refs/heads/other'], ['notes', 'add', '-f', '-m', '', 'HEAD'], ['notes', 'edit', 'HEAD'], ['notes', 'remove'], ['notes', '--ref', 'review', 'remove', 'HEAD'], ['notes', '--ref=review', 'prune'], ['checkout-index', '-f', '--', 'file'], ['read-tree', '--reset', '-u', 'HEAD'], ['sparse-checkout', 'set', 'src'], ['worktree', 'remove', 'path'], ['worktree', 'move', 'path', 'elsewhere/not'], ['worktree', 'add', '-fB', 'main', 'path', 'HEAD~1']]) assert.equal(check(args).status, 126, args.join(' '))
 })
 
@@ -84,6 +85,7 @@ test('installer validates shell files before side effects and installs the stock
  assert.ok(gate > 0 && gate < installer.indexOf('timestamp='))
  assert.match(installer, /install_pi_package "npm:@gotgenes\/pi-permission-system@\$version"/)
  assert.match(installer, /install_managed_copy .*agent-yolo.*"\$target" 700/)
+ assert.match(installer, /install_managed_copy .*repo-delete\.cjs.*"\$HOME\/\.local\/bin\/repo-delete" 700/)
  assert.match(installer, /install_managed_copy .*pg-test\.cjs.*"\$HOME\/\.local\/bin\/pg-test" 700/)
  assert.match(installer, /install_managed_copy .*pg-test\.cjs.*"\$HOME\/\.local\/libexec\/agent-toolkit\/pg-test" 700/)
  assert.match(installer, /case \$\(realpath "\$target"\) in/)

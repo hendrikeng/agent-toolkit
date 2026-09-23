@@ -149,7 +149,7 @@ case $command in
           [[ -z $action && $operands -eq 0 ]] || { printf 'git yolo guard: config writes are disabled\n' >&2; exit 126; }
           action=${args[j]}
           ;;
-        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes|--path) ;;
+        --local|--global|--system|--worktree|--null|-z|--name-only|--show-origin|--show-scope|--includes|--no-includes|--path|--type=bool-or-str) ;;
         -*) printf 'git yolo guard: config writes are disabled\n' >&2; exit 126 ;;
         *) if [[ -z $action && ( ${args[j]} == get || ${args[j]} == list ) ]]; then action=${args[j]}; else operands=$((operands + 1)); fi ;;
       esac

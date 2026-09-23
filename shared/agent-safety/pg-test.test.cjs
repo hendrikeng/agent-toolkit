@@ -111,6 +111,19 @@ test('admin fixture uses the normal fixture owner without exposing superuser or 
  await f.main(['stop', restricted.id])
 })
 
+test('migration fixture permits role creation without BYPASSRLS or access to an existing database', async () => {
+ const f = fixture()
+ for (const args of [['start-migration', 'existing'], ['start-migration', '--superuser']]) await assert.rejects(f.main(args), /Usage/)
+ const started = await f.main(['start-migration'])
+ assert.equal(started.profile, 'migration')
+ assert.match(started.database_url, /^postgresql:\/\/toolkit_test:[a-f0-9]{48}@127\.0\.0\.1:\d+\/toolkit_test$/)
+ const queries = f.calls.filter(call => path.basename(call.file) === 'psql' && call.options.cwd === started.path)
+ assert.match(queries[0].options.input, /^CREATE ROLE toolkit_test LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '[a-f0-9]{48}';\n$/)
+ assert.equal(queries[1].options.input, 'CREATE DATABASE toolkit_test OWNER toolkit_test;\n')
+ assert.equal(fs.readFileSync(path.join(started.path, 'data/pg_hba.conf'), 'utf8'), 'local all all reject\nhost all all 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n')
+ assert.equal((await f.main(['stop', started.id])).status, 'stopped')
+})
+
 test('failed setup preserves a controllable incomplete cluster without retrying or deleting it', async () => {
  const f = fixture()
  f.failure = 'psql'

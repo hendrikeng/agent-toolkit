@@ -25,7 +25,7 @@ else
 fi
 
 [[ $# -eq 0 ]] || { printf 'Usage: ./install.sh\n' >&2; exit 2; }
-printf 'Installing development access for %s/Code and %s/orca/workspaces. Secrets, deletion, publication, deployment and existing database administration remain restricted.\n' "$HOME" "$HOME"
+printf 'Installing development access for %s/Code and %s/orca/workspaces. Secrets, unbounded deletion, publication, deployment and existing database administration remain restricted.\n' "$HOME" "$HOME"
 
 initialize_blueprint_submodule() {
   local git_bin=
@@ -460,6 +460,7 @@ if [[ -e $legacy_git_test || -L $legacy_git_test || -e $legacy_git_test_marker |
     exit 1
   fi
 fi
+install_managed_copy "$repo_dir/shared/agent-safety/repo-delete.cjs" "$HOME/.local/bin/repo-delete" 700
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/bin/pg-test" 700
 # ponytail: keep the legacy copy while deployed permission-bundle launchers still validate this path.
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700

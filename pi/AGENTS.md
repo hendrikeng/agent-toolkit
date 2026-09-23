@@ -33,6 +33,7 @@ Pi uses the pinned stock permission extension and one managed global policy. Sou
 Ordinary development is allowed under `~/Code` and `~/orca/workspaces`. Start each Orca worker in the worktree it owns instead of routing shell commands across repositories. Native permission denials remain authoritative.
 Dependencies and hooks run as the local account. The permission extension is a decision layer, not an operating-system sandbox. It does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
 Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if those boundaries are unclear. Do not weaken guards to pass a test.
+For reviewed, unchanged tracked files in an owned worktree, use `repo-delete -- path/to/file` after a full installation and fresh session. It rejects directories, symlinks, hidden paths, untracked or modified files, and paths outside the worktree. It requires raw worktree bytes to match the committed blob, so clean CRLF or filtered files may need human deletion. Do not use it as a workaround for a denial in the current session.
 
 ## Disposable PostgreSQL tests
 
@@ -40,13 +41,14 @@ After a full toolkit installation and a fresh `pi-yolo` session, use the managed
 
 ```sh
 pg-test start
+pg-test start-migration
 pg-test start-admin
 pg-test status <id>
 pg-test stop <id>
 ```
 
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
-The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-admin` creates a separate new cluster with the same fixture owner. That owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
+The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-migration` creates a separate new cluster whose owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS`. `start-admin` creates a separate new cluster whose owner has `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
 Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.

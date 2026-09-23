@@ -75,8 +75,8 @@ function freePort() {
 const quote = value => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "''")}'`
 async function main(args) {
  const [action, id] = args
- const starting = action === 'start' || action === 'start-admin'
- if (!['start', 'start-admin', 'status', 'stop'].includes(action) || args.length !== (starting ? 1 : 2) || !starting && !/^pg17-[A-Za-z0-9]{6}$/.test(id)) throw Error('Usage: pg-test start | pg-test start-admin | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
+ const starting = action === 'start' || action === 'start-admin' || action === 'start-migration'
+ if (!['start', 'start-admin', 'start-migration', 'status', 'stop'].includes(action) || args.length !== (starting ? 1 : 2) || !starting && !/^pg17-[A-Za-z0-9]{6}$/.test(id)) throw Error('Usage: pg-test start | pg-test start-admin | pg-test start-migration | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
  const fixtures = fixtureRoot()
  if (!starting) {
   const root = directory(path.join(fixtures, id))
@@ -94,8 +94,9 @@ async function main(args) {
  fs.chmodSync(root, 0o700)
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync('/tmp'), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
+ const migration = action === 'start-migration'
  const role = 'toolkit_test'
- const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'admin' : 'restricted' }
+ const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'admin' : migration ? 'migration' : 'restricted' }
  save(root, state)
  let operation = 'PostgreSQL version check'
  try {
@@ -115,11 +116,11 @@ async function main(args) {
   const password = randomBytes(24).toString('hex')
   const client = ['-X', '--no-password', '-h', socket, '-p', String(state.port), '-U', 'toolkit_admin', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1']
   operation = 'database bootstrap'
-  run(bin, 'psql', client, root, `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB ${administrative ? 'CREATEROLE NOREPLICATION BYPASSRLS' : 'NOCREATEROLE NOREPLICATION NOBYPASSRLS'} PASSWORD '${password}';\n`)
+  run(bin, 'psql', client, root, `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB ${administrative ? 'CREATEROLE NOREPLICATION BYPASSRLS' : migration ? 'CREATEROLE NOREPLICATION NOBYPASSRLS' : 'NOCREATEROLE NOREPLICATION NOBYPASSRLS'} PASSWORD '${password}';\n`)
   run(bin, 'psql', client, root, `CREATE DATABASE toolkit_test OWNER ${role};\n`)
   run(bin, 'psql', client, root, 'ALTER ROLE toolkit_admin NOLOGIN;\n')
   // The admin profile gives the fixture owner only the extra attributes required to create migration roles.
-  fs.writeFileSync(file(data, 'pg_hba.conf'), `local all all reject\nhost ${administrative ? 'all all' : 'toolkit_test toolkit_test'} 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n`)
+  fs.writeFileSync(file(data, 'pg_hba.conf'), `local all all reject\nhost ${administrative || migration ? 'all all' : 'toolkit_test toolkit_test'} 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n`)
   operation = 'pg_ctl reload'
   run(bin, 'pg_ctl', ['-D', data, 'reload'], root)
   state.ready = true

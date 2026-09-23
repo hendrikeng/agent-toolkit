@@ -293,6 +293,18 @@ for (const name of ["pg-test"]) {
     for (const pattern of [name, `${name} *`, `*/${name}`, `*/${name} *`]) config.permission.bash[pattern] = "deny";
   }
 }
+try {
+  const helper = path.join(home, ".local/bin/repo-delete");
+  const marker = `${helper}.agent-toolkit.sha256`;
+  for (const file of [helper, marker]) {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw Error("Unmanaged deletion helper");
+  }
+  fs.accessSync(helper, fs.constants.X_OK);
+  if (fs.readFileSync(marker, "utf8").trim() !== require("node:crypto").createHash("sha256").update(fs.readFileSync(helper)).digest("hex")) throw Error("Changed deletion helper");
+} catch {
+  for (const pattern of ["repo-delete", "repo-delete *", "*/repo-delete", "*/repo-delete *"]) config.permission.bash[pattern] = "deny";
+}
 const output = process.argv[3];
 const temporary = `${output}.${process.pid}`;
 fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
