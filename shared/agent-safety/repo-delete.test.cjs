@@ -64,6 +64,24 @@ test('only unchanged tracked regular files inside an owned worktree can be delet
     finally { fs.readFileSync = originalRead }
     assert.ok(fs.existsSync(first))
     fs.writeFileSync(first, 'first.ts')
+    const originalRename = fs.renameSync
+    fs.renameSync = function (source, destination) {
+      if (source === first) fs.writeFileSync(first, 'replacement')
+      return originalRename.call(this, source, destination)
+    }
+    try { assert.throws(() => deleteFiles(['first.ts'], repo, [base]), /File changed before deletion/) }
+    finally { fs.renameSync = originalRename }
+    assert.equal(fs.readFileSync(first, 'utf8'), 'replacement')
+    fs.writeFileSync(first, 'first.ts')
+    fs.renameSync = function (source, destination) {
+      const result = originalRename.call(this, source, destination)
+      if (source === first) fs.writeFileSync(first, 'new occupant')
+      return result
+    }
+    try { deleteFiles(['first.ts'], repo, [base]) }
+    finally { fs.renameSync = originalRename }
+    assert.equal(fs.readFileSync(first, 'utf8'), 'new occupant')
+    fs.writeFileSync(first, 'first.ts')
     deleteFiles(['first.ts', 'src/nested.ts'], repo, [base])
     assert.equal(fs.existsSync(path.join(repo, 'first.ts')), false)
     assert.equal(fs.existsSync(path.join(repo, 'src/nested.ts')), false)

@@ -38,10 +38,32 @@ function deleteFiles(paths, cwd = process.cwd(), roots = [path.join(os.homedir()
   })
   if (new Set(targets.map(({ target }) => target)).size !== targets.length) throw Error('Duplicate file path')
   for (const { target, stat, blob } of targets) {
-    const current = fs.lstatSync(target)
-    // ponytail: recheck just before unlink; concurrent replacement after this check still needs OS-level isolation.
-    if (!current.isFile() || fs.realpathSync(target) !== target || current.dev !== stat.dev || current.ino !== stat.ino || current.mode !== stat.mode || !blob.equals(fs.readFileSync(target))) throw Error(`File changed before deletion: ${target}`)
-    fs.unlinkSync(target)
+    // ponytail: quarantine protects the pathname, not writers holding an open descriptor; coordinate those before deletion.
+    const quarantine = fs.mkdtempSync(path.join(path.dirname(target), '.repo-delete-'))
+    const held = path.join(quarantine, 'file')
+    let moved = false
+    try {
+      fs.renameSync(target, held)
+      moved = true
+      const current = fs.lstatSync(held)
+      if (!current.isFile() || current.dev !== stat.dev || current.ino !== stat.ino || current.mode !== stat.mode || !blob.equals(fs.readFileSync(held))) throw Error(`File changed before deletion: ${target}`)
+      fs.unlinkSync(held)
+      moved = false
+    } catch (error) {
+      if (moved) {
+        try {
+          if (fs.lstatSync(held).isFile()) {
+            fs.linkSync(held, target) // Exclusive: never replace a new occupant of the original path.
+            fs.unlinkSync(held)
+            moved = false
+          }
+        } catch { /* Keep the unexpected file for manual recovery. */ }
+      }
+      if (moved) throw Error(`${error.message}; file preserved at ${held}`)
+      throw error
+    } finally {
+      if (!moved) fs.rmdirSync(quarantine)
+    }
   }
 }
 

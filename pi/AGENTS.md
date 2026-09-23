@@ -33,7 +33,7 @@ Pi uses the pinned stock permission extension and one managed global policy. Sou
 Ordinary development is allowed under `~/Code` and `~/orca/workspaces`. Start each Orca worker in the worktree it owns instead of routing shell commands across repositories. Native permission denials remain authoritative.
 Dependencies and hooks run as the local account. The permission extension is a decision layer, not an operating-system sandbox. It does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
 Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if those boundaries are unclear. Do not weaken guards to pass a test.
-For reviewed, unchanged tracked files in an owned worktree, use `repo-delete -- path/to/file` after a full installation and fresh session. It rejects directories, symlinks, hidden paths, untracked or modified files, and paths outside the worktree. It requires raw worktree bytes to match the committed blob, so clean CRLF or filtered files may need human deletion. Do not use it as a workaround for a denial in the current session.
+For reviewed, unchanged tracked files in an owned worktree, use `repo-delete -- path/to/file` after a full installation and fresh session. It rejects directories, symlinks, hidden paths, untracked or modified files, and paths outside the worktree. It requires raw worktree bytes to match the committed blob, so clean CRLF or filtered files may need human deletion. Do not use it on files with concurrent writers: a write through an already-open descriptor can race with deletion. Do not use it as a workaround for a denial in the current session.
 
 ## Disposable PostgreSQL tests
 
