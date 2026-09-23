@@ -176,6 +176,7 @@ function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
   settings.piInfrastructureReadPaths = [
     pathModule.join(toolkit, "codex/skills"),
     pathModule.join(toolkit, "pi/skills"),
+    pathModule.join(agentDir, "git/github.com/DietrichGebert/ponytail/skills"),
     pathModule.join(home, ".agents/skills"),
     pathModule.join(home, ".claude/skills"),
     pathModule.join(home, ".codex/skills"),
@@ -241,6 +242,7 @@ if (process.argv[2] === "--self-test") {
     "/toolkit/codex/skills",
     "/toolkit/pi/skills",
   ]);
+  assert.equal(pi.piInfrastructureReadPaths.includes("/pi-agent/git/github.com/DietrichGebert/ponytail/skills"), true);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/.agents/skills")), true);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/Code")), false);
   assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), false);
