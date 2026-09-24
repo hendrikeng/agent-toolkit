@@ -48,7 +48,7 @@ pg-test stop <id>
 ```
 
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
-The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-migration` creates a separate new cluster whose owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS`. `start-admin` creates a separate new cluster whose owner has `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
+The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-migration` creates a separate new cluster whose owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS`. `start-admin` creates a separate new cluster whose owner has `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. Use `start-admin` for repositories whose test reset guard requires `BYPASSRLS`; `start-migration` will be rejected there. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
 Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.
