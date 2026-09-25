@@ -228,7 +228,7 @@ class AutoreviewPriorityTests(unittest.TestCase):
             reviewer = AUTOREVIEW.reviewer_args(args)[0]
         self.assertEqual(args.max_priority, "P2")
         self.assertEqual((reviewer.model, reviewer.thinking, reviewer.fallback_model),
-                         ("gpt-6-sol", "high", "gpt-5.6-sol"))
+                         ("gpt-5.6-sol", "high", "gpt-5.6-terra"))
 
     def test_explicit_review_settings_override_toolkit_defaults(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(sys, "argv", [

@@ -9,7 +9,7 @@ The upstream maintenance instructions are not included. Toolkit maintains this a
 
 ## Local differences
 
-- Codex defaults to `gpt-6-sol` with high reasoning. Account-access failures can retry once with `gpt-5.6-sol`.
+- Codex defaults to `gpt-5.6-sol` with high reasoning. Account-access failures can retry once with `gpt-5.6-terra`.
 - The default threshold is P2, not P0. P3 findings remain in the audit output.
 - The skill retains Toolkit's risk gates and scope limits.
 - Default-value tests cover these settings.

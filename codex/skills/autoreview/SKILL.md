@@ -131,7 +131,7 @@ parent-relative patch; otherwise leave the attribution unknown.
 
 ## Engines
 
-Codex is the default: `gpt-6-sol`, high reasoning, with a `gpt-5.6-sol` retry
+Codex is the default: `gpt-5.6-sol`, high reasoning, with a `gpt-5.6-terra` retry
 only for an account-access failure. Honor explicit engine and model choices. Do not
 switch because a review is slow or rate-limited.
 
