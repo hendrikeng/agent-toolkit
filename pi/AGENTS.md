@@ -67,6 +67,10 @@ Do not wrap ordinary replies, drafts, or generated text in Markdown blockquotes.
 
 Before you create or edit documentation prose in Markdown files other than `AGENTS.md`, `SKILL.md`, and prompt files, read the installed Simple English skill at `$PI_CODING_AGENT_DIR/extensions/simple-english/SKILL.md` (default `~/.pi/agent/extensions/simple-english/SKILL.md`) completely and follow it in pragmatic mode. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, or source code.
 
+## Test quality
+
+Load and follow the `test-audit` skill whenever you write, change, review, or audit tests. This guidance does not trigger an independent AI review.
+
 ## Risk-gated review closeout
 
 Do not run `autoreview` or `ponytail-review` merely because code was edited or a task is ending.

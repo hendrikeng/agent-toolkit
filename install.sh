@@ -421,6 +421,16 @@ for retired_copy_skill in "$HOME/.codex/skills/copyable-commands" "$HOME/.claude
     printf 'retired %s\n' "$retired_copy_skill"
   fi
 done
+for retired_design_skill in "$HOME/.codex/skills/explore-design" "$HOME/.claude/skills/explore-design" "$pi_agent_dir/skills/explore-design"; do
+  if [[ -L $retired_design_skill ]]; then
+    case $(readlink "$retired_design_skill") in
+      */pi/skills/explore-design)
+        rm "$retired_design_skill"
+        printf 'retired %s\n' "$retired_design_skill"
+        ;;
+    esac
+  fi
+done
 legacy_task_graph="$pi_agent_dir/extensions/task-graph"
 if [[ -L $legacy_task_graph ]]; then
   case $(readlink "$legacy_task_graph") in
@@ -436,17 +446,17 @@ for retired_extension in codex-goal skills-update; do
   fi
 done
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
-install_link "$repo_dir/pi/skills/explore-design" "$HOME/.codex/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.codex/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
+install_link "$repo_dir/pi/skills/test-audit" "$HOME/.codex/skills/test-audit"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
-install_link "$repo_dir/pi/skills/explore-design" "$HOME/.claude/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.claude/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.claude/skills/python"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
+install_link "$repo_dir/pi/skills/test-audit" "$HOME/.claude/skills/test-audit"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
 install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
 legacy_git_test="$HOME/.local/libexec/agent-toolkit/git-test"
@@ -487,10 +497,10 @@ done
 install_link "$repo_dir/pi/extensions/web-access-gate" "$pi_agent_dir/extensions/web-access-gate"
 install_link "$repo_dir/pi/skills/deepsec" "$pi_agent_dir/skills/deepsec"
 install_link "$repo_dir/pi/skills/react-doctor" "$pi_agent_dir/skills/react-doctor"
-install_link "$repo_dir/pi/skills/explore-design" "$pi_agent_dir/skills/explore-design" true
 install_link "$repo_dir/pi/skills/fastapi" "$pi_agent_dir/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$pi_agent_dir/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$pi_agent_dir/skills/python"
+install_link "$repo_dir/pi/skills/test-audit" "$pi_agent_dir/skills/test-audit"
 install_link "$repo_dir/pi/skills/vue" "$pi_agent_dir/skills/vue"
 install_link "$repo_dir/shared/ponytail/config.json" "$config_root/ponytail/config.json"
 install_pi_web_config

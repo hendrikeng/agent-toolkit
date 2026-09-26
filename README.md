@@ -42,6 +42,7 @@ Source edits and `/reload` do not update the installed permission package or pol
 | Tool | Purpose |
 |---|---|
 | `autoreview` | Run an explicit or risk-gated independent review. |
+| Test Audit | Gate new tests and audit low-value or duplicate tests. |
 | Ponytail | Prefer the smallest correct implementation. |
 | `/project` | Audit, adopt, update, or create a project from the pinned blueprint. |
 | `/account` | Select a Pi and Codex account. |
@@ -54,7 +55,9 @@ Source edits and `/reload` do not update the installed permission package or pol
 | Web access | Load web tools only when external information is needed. |
 | Figma MCP | Load local Figma Desktop tools only for Figma tasks. |
 
-The toolkit also includes guidance for design exploration, FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
+The toolkit also includes guidance for FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
+
+Test Audit applies while an agent writes, changes, reviews, or audits tests. It does not trigger an independent AI review.
 
 ## Permission model
 
