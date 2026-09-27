@@ -446,15 +446,20 @@ for retired_extension in codex-goal skills-update; do
   fi
 done
 install_link "$repo_dir/codex/skills/autoreview" "$HOME/.codex/skills/autoreview"
+install_link "$repo_dir/pi/skills/deepsec" "$HOME/.codex/skills/deepsec"
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.codex/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.codex/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.codex/skills/python"
+install_link "$repo_dir/pi/skills/react-doctor" "$HOME/.codex/skills/react-doctor"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.codex/skills/simple-english"
 install_link "$repo_dir/pi/skills/test-audit" "$HOME/.codex/skills/test-audit"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.codex/skills/vue"
+install_link "$repo_dir/codex/skills/autoreview" "$HOME/.claude/skills/autoreview"
+install_link "$repo_dir/pi/skills/deepsec" "$HOME/.claude/skills/deepsec"
 install_link "$repo_dir/pi/skills/fastapi" "$HOME/.claude/skills/fastapi"
 install_link "$repo_dir/pi/skills/fastify" "$HOME/.claude/skills/fastify"
 install_link "$repo_dir/pi/skills/python" "$HOME/.claude/skills/python"
+install_link "$repo_dir/pi/skills/react-doctor" "$HOME/.claude/skills/react-doctor"
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
 install_link "$repo_dir/pi/skills/test-audit" "$HOME/.claude/skills/test-audit"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
@@ -475,7 +480,8 @@ install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/b
 # ponytail: keep the legacy copy while deployed permission-bundle launchers still validate this path.
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
-install_link "$repo_dir/pi/AGENTS.md" "$pi_agent_dir/AGENTS.md"
+install_managed_copy "$repo_dir/pi/AGENTS.md" "$HOME/.local/libexec/agent-toolkit/AGENTS.md" 600
+install_link "$HOME/.local/libexec/agent-toolkit/AGENTS.md" "$pi_agent_dir/AGENTS.md"
 install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensions/ask-user-question"
 install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"
 install_link "$repo_dir/pi/extensions/codex-fast" "$pi_agent_dir/extensions/codex-fast"
@@ -528,8 +534,8 @@ fi
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$target" 700
 
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
-  printf '\nInstallation complete. Restart the current pi-yolo session to load newly installed resources.\n'
+  printf '\nInstallation complete. Restart the current pi-yolo session and any Codex or Claude sessions to load newly installed resources.\n'
 else
-  printf '\nInstallation complete. Start a fresh Pi session to load the updated permission package and policy.\n'
+  printf '\nInstallation complete. Start fresh managed agent sessions to load the updated rules, skills, and policy.\n'
 fi
 printf 'On first Codex start, review and trust Ponytail hooks when prompted (or open /hooks).\n'

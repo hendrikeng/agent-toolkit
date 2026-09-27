@@ -1,6 +1,6 @@
 ---
 name: deepsec
-description: Run the pinned Vercel DeepSec vulnerability scanner manually for a read-only setup plan, workspace scaffold, free pattern scan, scoped AI review, or findings report. Invoke only with /skill:deepsec; hidden from automatic model invocation because AI scans can cost thousands of dollars and run agents with shell access.
+description: Run the pinned Vercel DeepSec vulnerability scanner manually for a read-only setup plan, workspace scaffold, free pattern scan, scoped AI review, or findings report. Invoke only when the user explicitly requests DeepSec; hidden from automatic model invocation because AI scans can cost thousands of dollars and run agents with shell access.
 disable-model-invocation: true
 license: Apache-2.0
 ---
@@ -15,12 +15,12 @@ The default wrapper path scaffolds a workspace configured for the locally logged
 
 ## Safe first steps
 
-From the repository to inspect:
+From the repository to inspect, resolve `<skill-directory>` to the directory that contains this `SKILL.md`:
 
 ```bash
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" plan
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" scaffold
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" install
+"<skill-directory>/scripts/deepsec" plan
+"<skill-directory>/scripts/deepsec" scaffold
+"<skill-directory>/scripts/deepsec" install
 ```
 
 `plan` is a local, read-only explanation. `scaffold` creates `.deepsec/` and configures local Codex authentication; it does not install dependencies, authenticate, scan, invoke AI, or contact Vercel. `install` downloads the pinned workspace dependencies without running package lifecycle scripts.
@@ -30,10 +30,10 @@ From the repository to inspect:
 After `scaffold` and `install`, complete `.deepsec/data/<project>/INFO.md` using its `SETUP.md`, then run local commands:
 
 ```bash
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" scan
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" status
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" report
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" export --format md-dir --out ./findings
+"<skill-directory>/scripts/deepsec" scan
+"<skill-directory>/scripts/deepsec" status
+"<skill-directory>/scripts/deepsec" report
+"<skill-directory>/scripts/deepsec" export --format md-dir --out ./findings
 ```
 
 `scan` is local pattern matching and does not invoke AI. Reports remain under `.deepsec/` unless an explicit output path is supplied.
@@ -54,7 +54,7 @@ The upstream one-shot initialization additionally requires explicit Vercel appro
 
 ```bash
 DEEPSEC_ALLOW_AI=1 DEEPSEC_ALLOW_VERCEL=1 \
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" \
+"<skill-directory>/scripts/deepsec" \
   init --max-cost-usd 25 --max-duration 30m --model-profile budget
 ```
 
@@ -62,7 +62,7 @@ For a focused working-tree review, bound the file count and concurrency:
 
 ```bash
 DEEPSEC_ALLOW_AI=1 \
-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skills/deepsec/scripts/deepsec" \
+"<skill-directory>/scripts/deepsec" \
   process --diff-working --limit 10 --concurrency 1 --batch-size 1
 ```
 

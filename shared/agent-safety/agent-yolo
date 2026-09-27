@@ -7,6 +7,16 @@ for root in "$system_home/Code" "$system_home/orca/workspaces"; do
   [[ ! -d $root ]] || trusted_roots+=("$root")
 done
 
+verify_agent_rules() {
+  agent_rules=$system_home/.local/libexec/agent-toolkit/AGENTS.md
+  marker=$agent_rules.agent-toolkit.sha256
+  [[ -f $agent_rules && -f $marker ]] || { printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1; }
+  [[ $(<"$marker") == "$(shasum -a 256 "$agent_rules" | awk '{print $1}')" ]] || {
+    printf '%s: installed agent rules failed their integrity check\n' "${0##*/}" >&2
+    exit 1
+  }
+}
+
 enable_git_guard() {
   guard=$system_home/.local/libexec/agent-toolkit/git
   marker=$guard.agent-toolkit.sha256
@@ -31,18 +41,28 @@ enable_git_guard() {
 
 case ${0##*/} in
   codex-yolo)
+    verify_agent_rules
     rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
     [[ -f $rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
     codex execpolicy check --rules "$rules" -- rm -rf yolo-policy-check | grep -q '"decision":"forbidden"' || {
       printf 'codex-yolo: installed safety policy failed its self-check\n' >&2
       exit 1
     }
+    if ! codex_instructions=$(node - "$agent_rules" <<'NODE'
+const fs = require("node:fs");
+process.stdout.write(JSON.stringify(fs.readFileSync(process.argv[2], "utf8")));
+NODE
+    ); then
+      printf 'codex-yolo: could not load installed agent rules\n' >&2
+      exit 1
+    fi
     enable_git_guard
-    args=(--ask-for-approval never --sandbox workspace-write)
+    args=(--ask-for-approval never --sandbox workspace-write -c "developer_instructions=$codex_instructions")
     for root in "${trusted_roots[@]}"; do args+=(--add-dir "$root"); done
     PATH=$PATH exec codex "${args[@]}" "$@"
     ;;
   claude-yolo)
+    verify_agent_rules
     settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
     if ! claude_settings=$(node - "$settings" <<'NODE'
 const fs = require("node:fs");
@@ -62,17 +82,40 @@ if (process.platform === "darwin") {
 }
 process.stdout.write(JSON.stringify({
   permissions: { deny: ["Bash(dangerouslyDisableSandbox:true)", "Bash(*/git *)"] },
-  sandbox: { network, filesystem: { disabled: true } },
+  sandbox: {
+    allowUnsandboxedCommands: false,
+    excludedCommands: ["autoreview"],
+    network,
+    filesystem: { disabled: false },
+  },
 }));
 NODE
     ); then
       printf 'claude-yolo: run agent-toolkit/install.sh first\n' >&2
       exit 1
     fi
+    claude_has_model=false
+    claude_has_effort=false
+    for argument in "$@"; do
+      [[ $argument != -- ]] || break
+      case $argument in
+      --model|--model=*) claude_has_model=true ;;
+      --effort|--effort=*) claude_has_effort=true ;;
+      --permission-mode|--permission-mode=*|--settings|--settings=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions)
+        printf 'claude-yolo: safety overrides are disabled\n' >&2
+        exit 2
+        ;;
+      esac
+    done
+    claude_args=(--permission-mode bypassPermissions --settings "$claude_settings" --append-system-prompt-file "$agent_rules")
+    [[ $claude_has_model == true ]] || claude_args+=(--model opus)
+    [[ $claude_has_effort == true ]] || claude_args+=(--effort high)
+    claude_args+=("$@")
     enable_git_guard
-    PATH=$PATH exec claude --permission-mode bypassPermissions --settings "$claude_settings" "$@"
+    PATH=$PATH exec claude "${claude_args[@]}"
     ;;
   pi-yolo)
+    verify_agent_rules
     source_agent_dir=$system_home/.pi/agent
     source_web_config_dir=$system_home/.pi
     policy=$source_agent_dir/extensions/pi-permission-system/config.json

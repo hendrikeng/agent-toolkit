@@ -19,10 +19,12 @@ cd agent-toolkit
 ./install.sh
 ```
 
-Run the installer from a trusted human terminal. Then exit old Pi sessions and start a new one:
+Run the installer from a trusted human terminal. Then exit old agent sessions and start the managed launcher you need:
 
 ```sh
 pi-yolo
+codex-yolo
+claude-yolo
 ```
 
 Make sure that `~/.local/bin` is on `PATH`.
@@ -35,9 +37,11 @@ The installer:
 - configures safety policy without replacing user-owned files;
 - backs up replaced files under `~/.local/share/agent-toolkit/backups/`.
 
-Source edits and `/reload` do not update the installed permission package or policy. Run `./install.sh` and start a fresh Pi session after permission changes. The installer uses `proper-lockfile` so concurrent settings updates cannot overwrite each other.
+Source edits and `/reload` do not update the installed permission package or policy. Run `./install.sh` and start a fresh agent session after permission changes. The installer uses `proper-lockfile` so concurrent settings updates cannot overwrite each other.
 
 ## Main tools
+
+Commands beginning with `/` in this table are Pi extensions. Claude and Codex keep their native interfaces.
 
 | Tool | Purpose |
 |---|---|
@@ -55,9 +59,13 @@ Source edits and `/reload` do not update the installed permission package or pol
 | Web access | Load web tools only when external information is needed. |
 | Figma MCP | Load local Figma Desktop tools only for Figma tasks. |
 
-The toolkit also includes guidance for FastAPI, Fastify, Python, Vue, Simple English, React Doctor, and DeepSec.
+Pi, Codex, and Claude receive the same shared guidance for FastAPI, Fastify, Python, Vue, Simple English, Test Audit, React Doctor, DeepSec, and AutoReview. DeepSec and React Doctor remain manual-only.
 
 Test Audit applies while an agent writes, changes, reviews, or audits tests. It does not trigger an independent AI review.
+
+`claude-yolo` starts Claude Opus with high effort unless you supply overrides. It enforces the toolkit sandbox and Git guard.
+
+All three managed launchers load the same toolkit rules without replacing `~/.codex/AGENTS.md` or `~/.claude/CLAUDE.md`. Repository instructions still apply after the shared defaults.
 
 ## Permission model
 
@@ -104,7 +112,7 @@ Switch the session policy when needed:
 /reviews
 ```
 
-`auto` applies the risk gates from `pi/AGENTS.md`. `off` disables automatic AI review for the session. It does not block an explicit review request.
+`auto` applies the risk gates from the shared managed rules, whose source is `pi/AGENTS.md`. `off` disables automatic AI review for the session. It does not block an explicit review request. In Claude or Codex, say `reviews:auto` or `reviews:off` instead of using the Pi command.
 
 AutoReview validates its Git target, isolates the reviewer, validates structured output, and writes reports under `AGENT_TOOLKIT_REVIEW_ROOT`. It does not scan for secrets before it sends the review bundle to the model.
 
@@ -176,12 +184,15 @@ Open Figma Desktop and enable its local MCP server first.
 
 ### Manual security and React scans
 
-DeepSec and React Doctor run only when explicitly requested:
+DeepSec and React Doctor run only when explicitly requested. Use the host's skill syntax:
 
 ```text
-/skill:deepsec plan
-/skill:react-doctor changed
+Pi:     /skill:deepsec plan
+Claude: /deepsec plan
+Codex:  $deepsec plan
 ```
+
+Use the same syntax with `react-doctor changed`.
 
 Read each skill before using it. DeepSec AI stages can use shell access and incur substantial model charges.
 

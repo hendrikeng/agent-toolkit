@@ -47,6 +47,24 @@ test('pi-yolo defaults to Sol at high thinking while preserving explicit overrid
  assert.match(launcher, /pi "\$\{pi_args\[@\]\}"/)
 })
 
+test('claude-yolo defaults to Opus at high effort while preserving explicit overrides', () => {
+ const start = launcher.indexOf('    claude_has_model=false')
+ const block = launcher.slice(start, launcher.indexOf('    enable_git_guard', start))
+ const args = values => spawnSync('/bin/bash', ['-uc', `claude_settings='{}'\nagent_rules=/managed/AGENTS.md\n${block}\nprintf '%s\\n' "\${claude_args[@]}"`, 'launcher-test', ...values], { encoding: 'utf8' })
+ const defaults = args([])
+ assert.equal(defaults.status, 0, defaults.stderr)
+ assert.deepEqual(defaults.stdout.trim().split('\n').slice(-4), ['--model', 'opus', '--effort', 'high'])
+ const explicit = args(['--model', 'sonnet', '--effort', 'max'])
+ assert.equal(explicit.status, 0, explicit.stderr)
+ assert.deepEqual(explicit.stdout.trim().split('\n').slice(-4), ['--model', 'sonnet', '--effort', 'max'])
+ for (const unsafe of ['--permission-mode', '--settings', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions']) {
+  const result = args([unsafe, 'unsafe'])
+  assert.equal(result.status, 2, unsafe)
+  assert.match(result.stderr, /safety overrides are disabled/)
+ }
+ assert.match(launcher, /claude "\$\{claude_args\[@\]\}"/)
+})
+
 test('pi-yolo exposes installed skill roots without exposing whole agent directories', () => {
  for (const path of ['runtimeAgentDir, "skills"', 'managedAgentDir, "skills"', '".agents/skills"', '".claude/skills"', '".codex/skills"']) assert.ok(launcher.includes(path), path)
  assert.doesNotMatch(launcher, /piInfrastructureReadPaths[^]*path\.join\(os\.homedir\(\), "\.agents"\)/)
@@ -96,6 +114,15 @@ test('installer validates shell files before side effects and installs the stock
  assert.match(installer, /fs\.realpathSync\(settingsPath\)/)
  assert.match(installer, /extensions\/copy-code/)
  assert.match(installer, /extensions\/legacy-session-filter/)
+ assert.match(installer, /codex\/skills\/autoreview.*\.claude\/skills\/autoreview/)
+ for (const skill of ['deepsec', 'react-doctor']) {
+  assert.match(installer, new RegExp(`pi/skills/${skill}.*\\.codex/skills/${skill}`))
+  assert.match(installer, new RegExp(`pi/skills/${skill}.*\\.claude/skills/${skill}`))
+ }
+ assert.match(installer, /install_managed_copy .*pi\/AGENTS\.md.*agent-toolkit\/AGENTS\.md/)
+ assert.match(launcher, /developer_instructions=\$codex_instructions/)
+ assert.match(launcher, /--append-system-prompt-file "\$agent_rules"/)
+ assert.equal((launcher.match(/^    verify_agent_rules$/gm) || []).length, 3)
  assert.doesNotMatch(installer, /extensions\/permission-floor/)
  assert.match(installer, /legacy_task_graph=.*extensions\/task-graph/)
  assert.match(installer, /legacy_git_test=.*agent-toolkit\/git-test/)

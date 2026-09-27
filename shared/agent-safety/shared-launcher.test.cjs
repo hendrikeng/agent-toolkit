@@ -12,6 +12,9 @@ test('shared Codex and Claude launchers retain sandbox, account environment and 
  const guard = fs.readFileSync(path.join(__dirname, 'git-yolo-guard'))
  fs.writeFileSync(path.join(managed, 'git'), guard, { mode: 0o700 })
  fs.writeFileSync(path.join(managed, 'git.agent-toolkit.sha256'), createHash('sha256').update(guard).digest('hex'))
+ const agentRules = '# Shared fixture rules\n'
+ fs.writeFileSync(path.join(managed, 'AGENTS.md'), agentRules)
+ fs.writeFileSync(path.join(managed, 'AGENTS.md.agent-toolkit.sha256'), createHash('sha256').update(agentRules).digest('hex'))
  fs.writeFileSync(path.join(home, '.codex/rules/agent-safety.rules'), 'synthetic policy fixture')
  fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify({ sandbox: { enabled: true, failIfUnavailable: true }, permissions: { deny: ['Bash(rm *)'] } }))
  const fake = `#!/usr/bin/env node
@@ -37,10 +40,16 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
   if (host === 'codex') {
    assert.ok(capture.args.includes('workspace-write'))
    assert.ok(capture.args.includes(path.join(home, 'orca/workspaces')))
+   assert.equal(capture.args[capture.args.indexOf('-c') + 1], `developer_instructions=${JSON.stringify(agentRules)}`)
   } else {
    const config = JSON.parse(capture.args[capture.args.indexOf('--settings') + 1])
    assert.ok(config.permissions.deny.includes('Bash(dangerouslyDisableSandbox:true)'))
+   assert.equal(config.sandbox.allowUnsandboxedCommands, false)
+   assert.deepEqual(config.sandbox.excludedCommands, ['autoreview'])
+   assert.equal(config.sandbox.filesystem.disabled, false)
    assert.deepEqual(config.sandbox.network.allowedDomains, ['localhost', '127.0.0.1'])
+   assert.equal(capture.args[capture.args.indexOf('--append-system-prompt-file') + 1], path.join(managed, 'AGENTS.md'))
+   assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'high'])
   }
  }
  console.log(`Retained shared launcher fixture: ${home}`)

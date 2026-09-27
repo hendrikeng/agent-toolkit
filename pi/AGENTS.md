@@ -1,4 +1,4 @@
-# Pi defaults
+# Agent Toolkit defaults
 
 ## Orca CLI
 
@@ -6,15 +6,15 @@ Resolve the Orca executable without a shell wrapper. On macOS, use `orca` direct
 
 ## Browser control
 
-When Pi runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
+When an agent runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
 Use the GitHub CLI inspection commands and the bounded pull-request tools for GitHub pull requests and Actions. Do not open a browser for these tasks unless the user explicitly asks for it.
 Pass static browser values as direct quoted arguments. Never hide them behind shell variables, command substitution, or `printf` escapes; the permission parser correctly treats those wrappers as opaque. For example, use `orca fill ... --value '/runtime'` directly.
 
 ## Agent delegation
 
-Use `pi-yolo` for all spawned task workers and full handoffs. Workers default to `openai-codex/gpt-5.6-sol` with high thinking. An explicit user-selected worker model or thinking level overrides this default. The coordinator's model and thinking level do not propagate to workers unless the user requests that behavior.
+Use managed yolo launchers for spawned task workers and full handoffs. Pi workers use `pi-yolo` and default to `openai-codex/gpt-5.6-sol` with high thinking. When the user explicitly requests Claude, use `claude-yolo`; it defaults to Claude Opus with high effort. An explicit user-selected worker model or reasoning level overrides these defaults. The coordinator's model and reasoning level do not propagate to workers unless the user requests that behavior.
 
-Never invoke `pi-yolo` directly through Bash from a running Pi session. The runtime policy intentionally denies recursive `pi-yolo` launches. In Orca, execute `orca` and pass `pi-yolo --model provider/model --thinking level` as the command for `terminal create` in the target worktree, substituting the selected worker values or the Sol/high defaults above. Then deliver the task with the version-matched handoff or orchestration guide. For supervised work, use the guide's custom-argv topology so Orca owns the external terminal and lifecycle. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent` launchers that do not guarantee `pi-yolo`. If Orca or the wrapper cannot launch, report the blocker rather than falling back to another agent.
+Never invoke `pi-yolo` or `claude-yolo` directly through Bash from a running agent session. The runtime policy may deny recursive agent launches. In Orca, execute `orca` and pass the selected wrapper as the command for `terminal create` in the target worktree. Use `pi-yolo --model provider/model --thinking level` for Pi or `claude-yolo --model model --effort level` for Claude. Then deliver the task with the version-matched handoff or orchestration guide. For supervised work, use the guide's custom-argv topology so Orca owns the external terminal and lifecycle. Preserve any account-pinning requirements from the active workflow. Do not copy launcher examples from generic guides, launch plain `pi` or `claude`, or use generic `--agent` launchers that bypass the managed wrappers. If Orca or the selected wrapper cannot launch, report the blocker rather than falling back to another agent.
 
 Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at high thinking and retries `gpt-5.6-terra` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
@@ -28,7 +28,7 @@ Permission prompts block unattended orchestration. Never put programs in opaque 
 
 ## Development access
 
-Pi uses the pinned stock permission extension and one managed global policy. Source edits and `/reload` do not update that installation. Run `./install.sh` from a trusted human terminal, then start a fresh session.
+The managed launchers combine host-native sandboxing with the toolkit Git guard and policy. Source edits and reload commands do not update that installation. Run `./install.sh` from a trusted human terminal, then start a fresh session.
 
 Ordinary development is allowed under `~/Code` and `~/orca/workspaces`. Start each Orca worker in the worktree it owns instead of routing shell commands across repositories. Native permission denials remain authoritative.
 Dependencies and hooks run as the local account. The permission extension is a decision layer, not an operating-system sandbox. It does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
@@ -37,7 +37,7 @@ For reviewed, unchanged tracked files in an owned worktree, use `repo-delete -- 
 
 ## Disposable PostgreSQL tests
 
-After a full toolkit installation and a fresh `pi-yolo` session, use the managed `pg-test` helper for disposable PostgreSQL 17 tests:
+After a full toolkit installation and a fresh managed agent session, use the `pg-test` helper for disposable PostgreSQL 17 tests:
 
 ```sh
 pg-test start
@@ -55,9 +55,9 @@ A missing helper requires the reviewed toolkit installation from a trusted human
 
 ## Review artifacts
 
-In `pi-yolo`, put review and Security handoff results in a unique subdirectory of `AGENT_TOOLKIT_REVIEW_ROOT`, not an arbitrary temporary directory. Before starting a reviewer, use the native `read` tool on that root's `.read-probe.txt`. If the variable is missing or the read is denied, stop before spending review quota and request a restart through the updated launcher. Do not substitute shell reads or widen permissions. `/reload` does not regenerate the runtime policy.
+When `AGENT_TOOLKIT_REVIEW_ROOT` is set, put review and Security handoff results in a unique subdirectory of that root, not an arbitrary temporary directory. Before starting a reviewer, use the native read tool on its `.read-probe.txt`. If the variable is set and the read is denied, stop before spending review quota and request a restart through the updated launcher. Do not substitute shell reads or widen permissions. Reload commands do not regenerate runtime policy.
 
-The `autoreview` helper provides unique default report and status paths under this root. Prefer those defaults. Keep additional wrapper logs under the same root using normally authorized operations. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
+The `autoreview` helper provides unique default report and status paths. Prefer those defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
 
 ## Response formatting
 
@@ -65,7 +65,7 @@ Do not wrap ordinary replies, drafts, or generated text in Markdown blockquotes.
 
 ## Documentation prose
 
-Before you create or edit documentation prose in Markdown files other than `AGENTS.md`, `SKILL.md`, and prompt files, read the installed Simple English skill at `$PI_CODING_AGENT_DIR/extensions/simple-english/SKILL.md` (default `~/.pi/agent/extensions/simple-english/SKILL.md`) completely and follow it in pragmatic mode. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, or source code.
+Before you create or edit documentation prose in Markdown files other than `AGENTS.md`, `CLAUDE.md`, `SKILL.md`, and prompt files, read the installed Simple English skill completely and follow it in pragmatic mode. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, or source code.
 
 ## Test quality
 
@@ -75,7 +75,7 @@ Load and follow the `test-audit` skill whenever you write, change, review, or au
 
 Do not run `autoreview` or `ponytail-review` merely because code was edited or a task is ending.
 
-When the user asks Pi to commit, push, open or update a PR, merge, or ship, evaluate the current change bundle once:
+When the user asks the agent to commit, push, open or update a PR, merge, or ship, evaluate the current change bundle once:
 
 1. Inspect the relevant staged, unstaged, or branch diff and run the smallest focused deterministic checks.
 2. Run `ponytail-review` only when the diff adds a dependency, abstraction or layer, configurable surface, or at least 150 changed non-test, non-doc lines.
