@@ -12,9 +12,9 @@ Pass static browser values as direct quoted arguments. Never hide them behind sh
 
 ## Agent delegation
 
-Use `pi-yolo` for all spawned task workers and full handoffs. Use the current Pi provider/model with an explicit `--model provider/model` and `--thinking medium`; use high only when the user explicitly requests it, never automatically on retries.
+Use `pi-yolo` for all spawned task workers and full handoffs. Workers default to `openai-codex/gpt-5.6-sol` with high thinking. An explicit user-selected worker model or thinking level overrides this default. The coordinator's model and thinking level do not propagate to workers unless the user requests that behavior.
 
-In Orca, launch workers through `terminal create --command 'pi-yolo --model provider/model --thinking medium'` in the target worktree, then deliver the task using the version-matched handoff or orchestration guide. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent`/`worker-start` launchers that do not guarantee `pi-yolo`. If the wrapper cannot launch, report the blocker rather than falling back to another agent.
+Never invoke `pi-yolo` directly through Bash from a running Pi session. The runtime policy intentionally denies recursive `pi-yolo` launches. In Orca, execute `orca` and pass `pi-yolo --model provider/model --thinking level` as the command for `terminal create` in the target worktree, substituting the selected worker values or the Sol/high defaults above. Then deliver the task with the version-matched handoff or orchestration guide. For supervised work, use the guide's custom-argv topology so Orca owns the external terminal and lifecycle. Preserve any account-pinning requirements from the active workflow. Do not copy Codex launcher examples from generic guides, launch plain `pi`, or use generic `--agent` launchers that do not guarantee `pi-yolo`. If Orca or the wrapper cannot launch, report the blocker rather than falling back to another agent.
 
 Review exception: `autoreview` uses its Codex CLI engine with `gpt-5.6-sol` at high thinking and retries `gpt-5.6-terra` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
