@@ -85,14 +85,20 @@ After an explicit user request, `/push` and `/pr` provide bounded publication fl
 
 ### Disposable PostgreSQL
 
-For a new local PostgreSQL 17 fixture:
+For a new local PostgreSQL fixture:
 
 ```sh
 pg-test start
+pg-test start-migration
 pg-test start-admin
+pg-test start-admin --postgres-version 18
 pg-test status <id>
 pg-test stop <id>
 ```
+
+All three start commands accept `--postgres-version 17` or `--postgres-version 18`. The default remains PostgreSQL 17. The selected Homebrew version must already be installed. The helper never installs it or falls back to another version.
+
+The resource ID identifies the version: `pg17-…` or `pg18-…`. Status and stop need only this ID. Existing PG17 resources keep their lifecycle support.
 
 Use the returned connection URL only for the test process. The helper creates a private temporary cluster and a non-superuser role.
 

@@ -19,15 +19,15 @@ function fixtureRoot() {
  fs.chmodSync(root, 0o700)
  return root
 }
-function binaries() {
- const candidates = ['/opt/homebrew/opt/postgresql@17/bin', '/usr/local/opt/postgresql@17/bin'].filter(fs.existsSync)
- if (candidates.length !== 1) throw Error('Expected exactly one existing Homebrew PostgreSQL 17 installation. This helper never installs or upgrades it.')
+function binaries(major) {
+ const candidates = [`/opt/homebrew/opt/postgresql@${major}/bin`, `/usr/local/opt/postgresql@${major}/bin`].filter(fs.existsSync)
+ if (candidates.length !== 1) throw Error(`Expected exactly one existing Homebrew PostgreSQL ${major} installation. This helper never installs or upgrades it.`)
  const bin = fs.realpathSync(candidates[0])
- const prefix = candidates[0].split('/opt/postgresql@17/')[0]
- if (!bin.startsWith(`${prefix}/Cellar/postgresql@17/`) || !bin.endsWith('/bin')) throw Error('PostgreSQL installation resolves outside its Homebrew formula.')
+ const prefix = candidates[0].split(`/opt/postgresql@${major}/`)[0]
+ if (!bin.startsWith(`${prefix}/Cellar/postgresql@${major}/`) || !bin.endsWith('/bin')) throw Error('PostgreSQL installation resolves outside its Homebrew formula.')
  for (const name of ['postgres', 'initdb', 'pg_ctl', 'psql']) {
   const file = path.join(bin, name)
-  if (fs.realpathSync(file) !== file || !fs.statSync(file).isFile()) throw Error('Expected regular PostgreSQL 17 executables.')
+  if (fs.realpathSync(file) !== file || !fs.statSync(file).isFile()) throw Error(`Expected regular PostgreSQL ${major} executables.`)
  }
  return bin
 }
@@ -48,10 +48,10 @@ function save(root, state) {
  fs.writeFileSync(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
  fs.renameSync(temporary, path.join(root, 'pg-test.json'))
 }
-function identity(root, state) {
+function identity(root, state, major) {
  if (!fs.existsSync(path.join(root, 'data')) && !state.pid) return false
  const data = directory(path.join(root, 'data'))
- if (fs.readFileSync(file(data, 'PG_VERSION'), 'utf8').trim() !== '17') throw Error('Not a PostgreSQL 17 test cluster.')
+ if (fs.readFileSync(file(data, 'PG_VERSION'), 'utf8').trim() !== major) throw Error(`Not a PostgreSQL ${major} test cluster.`)
  const pidFile = path.join(data, 'postmaster.pid')
  if (!fs.existsSync(pidFile)) return false
  const lines = fs.readFileSync(file(data, 'postmaster.pid'), 'utf8').split('\n')
@@ -76,21 +76,22 @@ const quote = value => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "''")}
 async function main(args) {
  const [action, id] = args
  const starting = action === 'start' || action === 'start-admin' || action === 'start-migration'
- if (!['start', 'start-admin', 'start-migration', 'status', 'stop'].includes(action) || args.length !== (starting ? 1 : 2) || !starting && !/^pg17-[A-Za-z0-9]{6}$/.test(id)) throw Error('Usage: pg-test start | pg-test start-admin | pg-test start-migration | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
+ if (!['start', 'start-admin', 'start-migration', 'status', 'stop'].includes(action) || (starting ? !(args.length === 1 || args.length === 3 && id === '--postgres-version' && ['17', '18'].includes(args[2])) : args.length !== 2 || !/^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration [--postgres-version 17|18] | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
+ const major = starting ? args[2] ?? '17' : id.slice(2, 4)
  const fixtures = fixtureRoot()
  if (!starting) {
   const root = directory(path.join(fixtures, id))
   const state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
-  if (state.version !== 1 || state.bin !== binaries() || !Number.isInteger(state.port) || state.port < 1024 || state.port > 65535) throw Error('Invalid or changed test database record. Preserve it for inspection.')
-  const running = identity(root, state)
+  if (state.version !== 1 || state.bin !== binaries(major) || !Number.isInteger(state.port) || state.port < 1024 || state.port > 65535) throw Error('Invalid or changed test database record. Preserve it for inspection.')
+  const running = identity(root, state, major)
   if (action === 'stop' && running) {
    run(state.bin, 'pg_ctl', ['-D', path.join(root, 'data'), '-w', '-t', '30', '-m', 'fast', 'stop'], root)
-   if (identity(root, state)) throw Error('PostgreSQL did not stop. Preserve its files.')
+   if (identity(root, state, major)) throw Error('PostgreSQL did not stop. Preserve its files.')
   }
   return { id, status: action === 'stop' || !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: 'retained' }
  }
- const bin = binaries()
- const root = fs.mkdtempSync(path.join(fixtures, 'pg17-'))
+ const bin = binaries(major)
+ const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync('/tmp'), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
@@ -100,7 +101,7 @@ async function main(args) {
  save(root, state)
  let operation = 'PostgreSQL version check'
  try {
-  if (!/^postgres \(PostgreSQL\) 17\./.test(run(bin, 'postgres', ['--version'], root))) throw Error('Expected PostgreSQL major version 17.')
+  if (!run(bin, 'postgres', ['--version'], root).startsWith(`postgres (PostgreSQL) ${major}.`)) throw Error(`Expected PostgreSQL major version ${major}.`)
   operation = 'socket path check'
   if (Buffer.byteLength(path.join(socket, `.s.PGSQL.${state.port}`)) > 103) throw Error('Temporary socket path is too long for this platform.')
   fs.mkdirSync(socket, { mode: 0o700 })
@@ -110,7 +111,7 @@ async function main(args) {
   // ponytail: release the temporary port reservation before pg_ctl; a collision fails closed, with no automatic retry.
   operation = 'pg_ctl start'
   run(bin, 'pg_ctl', ['-D', data, '-w', '-t', '30', '-l', path.join(root, 'postgres.log'), 'start'], root)
-  Object.assign(state, identity(root, state))
+  Object.assign(state, identity(root, state, major))
   if (!state.pid) throw Error('PostgreSQL started without a verifiable identity.')
   save(root, state)
   const password = randomBytes(24).toString('hex')

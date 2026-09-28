@@ -37,16 +37,18 @@ For reviewed, unchanged tracked files in an owned worktree, use `repo-delete -- 
 
 ## Disposable PostgreSQL tests
 
-After a full toolkit installation and a fresh managed agent session, use the `pg-test` helper for disposable PostgreSQL 17 tests:
+After a full toolkit installation and a fresh managed agent session, use the `pg-test` helper for disposable PostgreSQL 17 or 18 tests:
 
 ```sh
 pg-test start
 pg-test start-migration
 pg-test start-admin
+pg-test start-admin --postgres-version 18
 pg-test status <id>
 pg-test stop <id>
 ```
 
+All three start commands accept only `--postgres-version 17` or `--postgres-version 18`. The default remains PostgreSQL 17. Select 18 explicitly when the repository requires it. The selected Homebrew version must already be installed; the helper never installs it or falls back to another version. Status and stop select the version from the `pg17-…` or `pg18-…` resource ID and need no version flag. Existing PG17 resource records remain supported.
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
 The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-migration` creates a separate new cluster whose owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS`. `start-admin` creates a separate new cluster whose owner has `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. Use `start-admin` for repositories whose test reset guard requires `BYPASSRLS`; `start-migration` will be rejected there. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
