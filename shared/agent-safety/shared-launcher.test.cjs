@@ -45,7 +45,12 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    const config = JSON.parse(capture.args[capture.args.indexOf('--settings') + 1])
    assert.ok(config.permissions.deny.includes('Bash(dangerouslyDisableSandbox:true)'))
    assert.equal(config.sandbox.allowUnsandboxedCommands, false)
-   assert.deepEqual(config.sandbox.excludedCommands, ['autoreview', 'pg-test'])
+   assert.deepEqual(config.sandbox.excludedCommands, [
+  'autoreview',
+  'pg-test start', 'pg-test start --postgres-version 17', 'pg-test start --postgres-version 18',
+  'pg-test start-migration', 'pg-test start-migration --postgres-version 17', 'pg-test start-migration --postgres-version 18',
+  'pg-test start-admin', 'pg-test start-admin --postgres-version 17', 'pg-test start-admin --postgres-version 18',
+ ])
    assert.equal(config.sandbox.filesystem.disabled, false)
    assert.deepEqual(config.sandbox.network.allowedDomains, ['localhost', '127.0.0.1'])
    assert.equal(config.sandbox.network.allowLocalBinding, true)

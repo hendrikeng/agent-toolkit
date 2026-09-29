@@ -84,7 +84,12 @@ process.stdout.write(JSON.stringify({
   permissions: { deny: ["Bash(dangerouslyDisableSandbox:true)", "Bash(*/git *)"] },
   sandbox: {
     allowUnsandboxedCommands: false,
-    excludedCommands: ["autoreview", "pg-test"],
+    excludedCommands: [
+      "autoreview",
+      "pg-test start", "pg-test start --postgres-version 17", "pg-test start --postgres-version 18",
+      "pg-test start-migration", "pg-test start-migration --postgres-version 17", "pg-test start-migration --postgres-version 18",
+      "pg-test start-admin", "pg-test start-admin --postgres-version 17", "pg-test start-admin --postgres-version 18",
+    ],
     network,
     filesystem: { disabled: false },
   },
