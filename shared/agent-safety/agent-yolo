@@ -84,7 +84,7 @@ process.stdout.write(JSON.stringify({
   permissions: { deny: ["Bash(dangerouslyDisableSandbox:true)", "Bash(*/git *)"] },
   sandbox: {
     allowUnsandboxedCommands: false,
-    excludedCommands: ["autoreview"],
+    excludedCommands: ["autoreview", "pg-test"],
     network,
     filesystem: { disabled: false },
   },

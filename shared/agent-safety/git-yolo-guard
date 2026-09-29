@@ -7,32 +7,12 @@ for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
 done
 [[ -n $real_git ]] || { printf 'git yolo guard: real Git executable is unavailable\n' >&2; exit 126; }
 
-# Engines can add these fixed credential settings after launcher startup, and
-# nested hosts can duplicate them. The final invocation enforces both values.
-# Remove the indexed environment only when every entry is one of this exact pair.
-strip_fixed_credential_config() {
-  local count=${GIT_CONFIG_COUNT:-} index key_name value_name key value
-  local interactive=false gui_prompt=false
-  [[ $count =~ ^[1-9][0-9]*$ && $count -le 16 ]] || return 0
-  for ((index = 0; index < count; index++)); do
-    key_name=GIT_CONFIG_KEY_$index
-    value_name=GIT_CONFIG_VALUE_$index
-    declare -p "$key_name" "$value_name" >/dev/null 2>&1 || return 0
-    key=${!key_name}
-    value=${!value_name}
-    case $key:$value in
-      credential.interactive:false) interactive=true ;;
-      credential.guiPrompt:false) gui_prompt=true ;;
-      *) return 0 ;;
-    esac
-  done
-  [[ $interactive == true && $gui_prompt == true ]] || return 0
-  for ((index = 0; index < count; index++)); do
-    unset "GIT_CONFIG_KEY_$index" "GIT_CONFIG_VALUE_$index"
-  done
-  unset GIT_CONFIG_COUNT
-}
-strip_fixed_credential_config
+# Engines can add Git configuration and local proxy transports after launcher
+# startup. Remove them rather than letting them affect the guarded invocation.
+for name in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}" "${!GIT_SSH@}"; do
+  unset "$name"
+done
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_PROXY_COMMAND GIT_ASKPASS GIT_ASKPASS_REQUIRE
 
 # Inherited selectors/configuration can redirect even an apparently read-only command.
 for name in ${!GIT_@}; do

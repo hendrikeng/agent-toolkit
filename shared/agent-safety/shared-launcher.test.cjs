@@ -45,7 +45,7 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    const config = JSON.parse(capture.args[capture.args.indexOf('--settings') + 1])
    assert.ok(config.permissions.deny.includes('Bash(dangerouslyDisableSandbox:true)'))
    assert.equal(config.sandbox.allowUnsandboxedCommands, false)
-   assert.deepEqual(config.sandbox.excludedCommands, ['autoreview'])
+   assert.deepEqual(config.sandbox.excludedCommands, ['autoreview', 'pg-test'])
    assert.equal(config.sandbox.filesystem.disabled, false)
    assert.deepEqual(config.sandbox.network.allowedDomains, ['localhost', '127.0.0.1'])
    assert.equal(config.sandbox.network.allowLocalBinding, true)

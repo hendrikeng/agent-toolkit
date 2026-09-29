@@ -15,23 +15,23 @@ test('allows the upstream review Git version preflight without other global opti
   assert.equal(run('--version', 'status').status, 126)
 })
 
-test('removes only duplicated fixed credential configuration from nested hosts', () => {
+test('neutralizes Git configuration and proxy transports added by nested hosts', () => {
   const guard = join(__dirname, 'git-yolo-guard')
-  const fixed = {
-    GIT_CONFIG_COUNT: '4',
-    GIT_CONFIG_KEY_0: 'credential.interactive', GIT_CONFIG_VALUE_0: 'false',
-    GIT_CONFIG_KEY_1: 'credential.guiPrompt', GIT_CONFIG_VALUE_1: 'false',
-    GIT_CONFIG_KEY_2: 'credential.interactive', GIT_CONFIG_VALUE_2: 'false',
-    GIT_CONFIG_KEY_3: 'credential.guiPrompt', GIT_CONFIG_VALUE_3: 'false',
+  const injected = {
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '/workspace',
+    GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/tmp/hooks',
+    GIT_CONFIG_PARAMETERS: "'http.proxyAuthMethod=basic' 'credential.http://localhost:55105.helper='",
+    GIT_SSH_COMMAND: "ssh -o ProxyCommand='nc -X 5 -x localhost:55105 %h %p'",
+    GIT_ASKPASS: '',
   }
-  const accepted = spawnSync(guard, ['--version'], { encoding: 'utf8', env: { ...fixtureEnv, ...fixed } })
+  const accepted = spawnSync(guard, ['--version'], { encoding: 'utf8', env: { ...fixtureEnv, ...injected } })
   assert.equal(accepted.status, 0, accepted.stderr)
-  const rejected = spawnSync(guard, ['--version'], {
-    encoding: 'utf8',
-    env: { ...fixtureEnv, ...fixed, GIT_CONFIG_KEY_3: 'core.hooksPath', GIT_CONFIG_VALUE_3: '/tmp/hooks' },
-  })
+  const ignored = spawnSync(guard, ['config', '--get', 'core.hooksPath'], { encoding: 'utf8', env: { ...fixtureEnv, ...injected } })
+  assert.equal(ignored.status, 1, ignored.stderr)
+  assert.equal(ignored.stdout, '')
+  const rejected = spawnSync(guard, ['--version'], { encoding: 'utf8', env: { ...fixtureEnv, GIT_CONFIG_GLOBAL: '/tmp/config' } })
   assert.equal(rejected.status, 126)
-  assert.match(rejected.stderr, /unset inherited GIT_CONFIG_COUNT/)
 })
 
 test('allows explicit config reads and GitHub CLI repository resolution without config writes', () => {
