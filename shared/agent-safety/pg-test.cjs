@@ -124,14 +124,6 @@ function sessionOwner(root) {
  if (!started) throw Error('Managed agent session is no longer running.')
  return { session, pid, started }
 }
-function fixtureOwner(root) {
- const managed = sessionOwner(root)
- if (managed) return managed
- const pid = process.ppid
- const started = Number.isInteger(pid) && pid > 1 && processStarted(root, pid)
- if (!started) throw Error('Invoking parent process is no longer running.')
- return { pid, started }
-}
 function validState(state, major) {
  const owner = state.owner
  return state.version === 1 && state.bin === binaries(major) && Number.isInteger(state.port) && state.port >= 1024 && state.port <= 65535 && (state.socket === undefined || typeof state.socket === 'string' && path.isAbsolute(state.socket)) && (owner === undefined || typeof owner === 'object' && (owner.session === undefined || /^[a-f0-9-]{36}$/.test(owner.session)) && Number.isInteger(owner.pid) && owner.pid > 1 && typeof owner.started === 'string' && owner.started.length > 0)
@@ -260,7 +252,7 @@ async function main(args) {
  }
  garbageCollect(roots)
  const bin = binaries(major)
- const owner = fixtureOwner(fixtures)
+ const owner = sessionOwner(fixtures)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync(os.tmpdir()), `agent-pg-${path.basename(root).slice(5)}`)
@@ -297,7 +289,7 @@ async function main(args) {
   state.ready = true
   save(root, state)
   operation = 'owner process check'
-  if (!ownerIsRunning(root, state.owner)) {
+  if (state.owner && !ownerIsRunning(root, state.owner)) {
    stop(root, state, major)
    delete state.owner
    save(root, state)

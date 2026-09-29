@@ -109,11 +109,13 @@ The helper accepts no raw SQL, database path, server option, or existing databas
 
 Fixtures live in `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures`. PostgreSQL socket directories remain under the temporary directory to keep their paths short.
 
-Each fixture records its owner process. Managed sessions use the session process. Other calls use the invoking parent process.
+Managed sessions record the session process as the fixture owner. Fixtures started outside a managed session have no owner.
 
-Garbage collection runs before each start and after a managed session ends. It scans the fixed root and the older temporary-directory roots. It stops a cluster when its owner process is gone. For a legacy record without an owner, it stops the cluster only after two hours. It removes a stopped fixture only when its record is more than three days old. It preserves and reports records with changed, ambiguous, or invalid identities. Run `pg-test gc` to collect garbage at any time.
+Garbage collection runs before each start and after a managed session ends. It stops a cluster when its recorded owner process is gone. It stops a running ownerless cluster only after two hours. It removes a stopped fixture only when its record is more than three days old. It preserves and reports records with changed, ambiguous, or invalid identities. Run `pg-test gc` to collect garbage at any time.
 
-When you finish with a fixture, run `pg-test stop <id>`. The `pg-test gc`, `pg-test stop <id>`, and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. The launcher also stops its fixtures when the session exits. If you use the helper outside a managed launcher, stop each fixture explicitly.
+The `status` and `stop` commands also find clusters in the older temporary-directory roots. If an ID exists in more than one root, these commands refuse it.
+
+When you finish with a fixture, run `pg-test stop <id>`. This command is important for fixtures started outside a managed session. The `pg-test gc`, `pg-test stop <id>`, and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. The launcher also stops its fixtures when the session exits.
 
 ## Reviews
 

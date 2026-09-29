@@ -19,8 +19,7 @@ function fixture(major = '17') {
  for (const directory of [shortTmp, systemTmp, darwinTmp]) fs.mkdirSync(directory)
  const calls = [], processes = new Map()
  const owner = { session: '12345678-1234-1234-1234-123456789abc', pid: 3210, started: 'Tue Sep 29 12:00:00 2026' }
- const parent = { pid: 3200, started: 'Tue Sep 29 11:59:00 2026' }
- const owners = new Map([[owner.pid, owner.started], [parent.pid, parent.started]])
+ const owners = new Map([[owner.pid, owner.started]])
  let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, ownerDiesOnReload = false, serverMajor = major, stopRace = false
  const mockFs = { ...fs,
   existsSync: value => Object.hasOwn(installed, value) ? !missing || installed[value] !== bin : /^\/usr\/local\/opt\/postgresql@(17|18)\/bin$/.test(value) ? false : fs.existsSync(value),
@@ -66,7 +65,7 @@ function fixture(major = '17') {
   return ''
  }
  const module = { exports: {} }
- const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {}, ppid: parent.pid }
+ const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {} }
  const mockOs = { ...os, tmpdir: () => shortTmp, userInfo: () => ({ homedir: home }), platform: () => 'darwin' }
  const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? mockOs : name === 'node:process' ? mockProcess : name === 'node:child_process' ? { execFileSync } : require(name)
  // Model Claude's writable temporary directory for socket checks.
@@ -84,7 +83,7 @@ function fixture(major = '17') {
   return moved
  }
  return {
-  main: module.exports.main, calls, home, legacy, owner, parent, scratch, shortTmp, moveToLegacy,
+  main: module.exports.main, calls, home, legacy, owner, scratch, shortTmp, moveToLegacy,
   set managed(value) { if (value) Object.assign(mockProcess.env, { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }); else { delete mockProcess.env.AGENT_TOOLKIT_SESSION_ID; delete mockProcess.env.AGENT_TOOLKIT_SESSION_PID } },
   set missing(value) { missing = value },
   set ownerAlive(value) { if (value) owners.set(owner.pid, owner.started); else owners.delete(owner.pid) },
@@ -219,12 +218,12 @@ test('a fixture stops itself when its managed session exits during startup', asy
  assert.equal(JSON.parse(fs.readFileSync(path.join(f.scratch, id, 'pg-test.json'), 'utf8')).owner, undefined)
 })
 
-test('fixtures outside managed sessions belong to the invoking parent process', async () => {
+test('fixtures outside managed sessions have no owner', async () => {
  const f = fixture()
  f.managed = false
  const started = await f.main(['start'])
  const state = JSON.parse(fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8'))
- assert.deepEqual(state.owner, f.parent)
+ assert.equal(state.owner, undefined)
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
 })
 
