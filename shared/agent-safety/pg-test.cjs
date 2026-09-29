@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const net = require('node:net')
+const process = require('node:process')
 const { randomBytes } = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 
@@ -51,16 +52,86 @@ function save(root, state) {
 function identity(root, state, major) {
  if (!fs.existsSync(path.join(root, 'data')) && !state.pid) return false
  const data = directory(path.join(root, 'data'))
+ const version = path.join(data, 'PG_VERSION')
+ if (!fs.existsSync(version) && !state.pid) return false
  if (fs.readFileSync(file(data, 'PG_VERSION'), 'utf8').trim() !== major) throw Error(`Not a PostgreSQL ${major} test cluster.`)
  const pidFile = path.join(data, 'postmaster.pid')
  if (!fs.existsSync(pidFile)) return false
- const lines = fs.readFileSync(file(data, 'postmaster.pid'), 'utf8').split('\n')
+ let lines
+ try {
+  lines = fs.readFileSync(file(data, 'postmaster.pid'), 'utf8').split('\n')
+ } catch (error) {
+  if (error.code === 'ENOENT') return false
+  throw error
+ }
  if (!/^\d+$/.test(lines[0]) || lines[1] !== data || !/^\d+$/.test(lines[2]) || lines[3] !== String(state.port)) throw Error('Postmaster identity does not match this test cluster.')
  const pid = Number(lines[0])
  if (pid <= 1 || state.pid && (state.pid !== pid || state.started !== lines[2])) throw Error('Postmaster identity changed; preserve the cluster for inspection.')
- const command = execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim()
+ let command
+ try {
+  command = execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim()
+ } catch (error) {
+  if (error.status === 1) return false
+  throw error
+ }
  if (command !== `${state.bin}/postgres -D ${data}`) throw Error('Refusing to control a process outside this test cluster.')
  return { pid, started: lines[2] }
+}
+function processStarted(root, pid) {
+ try {
+  return execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', 'lstart='], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim() || undefined
+ } catch (error) {
+  if (error.status === 1) return undefined
+  throw error
+ }
+}
+function sessionOwner(root) {
+ const session = process.env.AGENT_TOOLKIT_SESSION_ID
+ const pidText = process.env.AGENT_TOOLKIT_SESSION_PID
+ if (!session && !pidText) return undefined
+ if (!/^[a-f0-9-]{36}$/.test(session ?? '') || !/^\d+$/.test(pidText ?? '')) throw Error('Invalid managed agent session identity.')
+ const pid = Number(pidText)
+ const started = processStarted(root, pid)
+ if (!started) throw Error('Managed agent session is no longer running.')
+ return { session, pid, started }
+}
+function validState(state, major) {
+ const owner = state.owner
+ return state.version === 1 && state.bin === binaries(major) && Number.isInteger(state.port) && state.port >= 1024 && state.port <= 65535 && (owner === undefined || typeof owner === 'object' && /^[a-f0-9-]{36}$/.test(owner.session) && Number.isInteger(owner.pid) && owner.pid > 1 && typeof owner.started === 'string' && owner.started.length > 0)
+}
+function ownerIsRunning(root, owner) {
+ return processStarted(root, owner.pid) === owner.started
+}
+function stop(root, state, major) {
+ if (!identity(root, state, major)) return
+ let stopError
+ try {
+  run(state.bin, 'pg_ctl', ['-D', path.join(root, 'data'), '-w', '-t', '30', '-m', 'fast', 'stop'], root)
+ } catch (error) {
+  stopError = error
+ }
+ const deadline = Date.now() + 30_000
+ while (identity(root, state, major)) {
+  if (Date.now() >= deadline) throw stopError ?? Error('PostgreSQL did not stop. Preserve its files.')
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+ }
+}
+function clean(fixtures, predicate) {
+ const stopped = []
+ for (const id of fs.readdirSync(fixtures).filter(name => /^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(name))) {
+  const root = directory(path.join(fixtures, id))
+  const record = path.join(root, 'pg-test.json')
+  if (!fs.existsSync(record)) continue
+  const major = id.slice(2, 4)
+  const state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
+  if (!predicate(root, state)) continue
+  if (!validState(state, major)) throw Error('Invalid or changed test database record. Preserve it for inspection.')
+  stop(root, state, major)
+  delete state.owner
+  save(root, state)
+  stopped.push(id)
+ }
+ return stopped
 }
 function freePort() {
  return new Promise((resolve, reject) => {
@@ -76,20 +147,31 @@ const quote = value => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "''")}
 async function main(args) {
  const [action, id] = args
  const starting = action === 'start' || action === 'start-admin' || action === 'start-migration'
- if (!['start', 'start-admin', 'start-migration', 'status', 'stop'].includes(action) || (starting ? !(args.length === 1 || args.length === 3 && id === '--postgres-version' && ['17', '18'].includes(args[2])) : args.length !== 2 || !/^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration [--postgres-version 17|18] | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
- const major = starting ? args[2] ?? '17' : id.slice(2, 4)
+ const watching = action === 'watch-session'
+ if (!['start', 'start-admin', 'start-migration', 'status', 'stop', 'watch-session'].includes(action) || (starting ? !(args.length === 1 || args.length === 3 && id === '--postgres-version' && ['17', '18'].includes(args[2])) : watching ? args.length !== 1 : args.length !== 2 || !/^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration [--postgres-version 17|18] | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
  const fixtures = fixtureRoot()
+ if (watching) {
+  for (const signal of ['SIGHUP', 'SIGINT', 'SIGQUIT', 'SIGTERM']) process.on(signal, () => {})
+  const owner = sessionOwner(fixtures)
+  if (!owner) throw Error('Managed agent session identity is required.')
+  while (ownerIsRunning(fixtures, owner)) await new Promise(resolve => setTimeout(resolve, 250))
+  return { status: 'stopped', resources: clean(fixtures, (_root, state) => state.owner?.session === owner.session) }
+ }
+ const major = starting ? args[2] ?? '17' : id.slice(2, 4)
  if (!starting) {
   const root = directory(path.join(fixtures, id))
-  const state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
-  if (state.version !== 1 || state.bin !== binaries(major) || !Number.isInteger(state.port) || state.port < 1024 || state.port > 65535) throw Error('Invalid or changed test database record. Preserve it for inspection.')
-  const running = identity(root, state, major)
-  if (action === 'stop' && running) {
-   run(state.bin, 'pg_ctl', ['-D', path.join(root, 'data'), '-w', '-t', '30', '-m', 'fast', 'stop'], root)
-   if (identity(root, state, major)) throw Error('PostgreSQL did not stop. Preserve its files.')
+  let state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
+  if (!validState(state, major)) throw Error('Invalid or changed test database record. Preserve it for inspection.')
+  if (action === 'stop') {
+   stop(root, state, major)
+   delete state.owner
+   save(root, state)
+   return { id, status: 'stopped', path: root, files: 'retained' }
   }
-  return { id, status: action === 'stop' || !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: 'retained' }
+  const running = identity(root, state, major)
+  return { id, status: !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: 'retained' }
  }
+ clean(fixtures, (root, state) => state.owner !== undefined && !ownerIsRunning(root, state.owner))
  const bin = binaries(major)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
@@ -102,6 +184,8 @@ async function main(args) {
  let operation = 'PostgreSQL version check'
  try {
   if (!run(bin, 'postgres', ['--version'], root).startsWith(`postgres (PostgreSQL) ${major}.`)) throw Error(`Expected PostgreSQL major version ${major}.`)
+  state.owner = sessionOwner(root)
+  save(root, state)
   operation = 'socket path check'
   if (Buffer.byteLength(path.join(socket, `.s.PGSQL.${state.port}`)) > 103) throw Error('Temporary socket path is too long for this platform.')
   fs.mkdirSync(socket, { mode: 0o700 })
@@ -126,6 +210,13 @@ async function main(args) {
   run(bin, 'pg_ctl', ['-D', data, 'reload'], root)
   state.ready = true
   save(root, state)
+  operation = 'managed session check'
+  if (state.owner && !ownerIsRunning(root, state.owner)) {
+   stop(root, state, major)
+   delete state.owner
+   save(root, state)
+   throw Error('Managed agent session ended during setup.')
+  }
   // The URL is returned once, not stored in the lifecycle record or logged by the helper.
   return { id: path.basename(root), status: 'running', path: root, profile: state.profile, database_url: `postgresql://${role}:${password}@127.0.0.1:${state.port}/toolkit_test`, files: 'retained until separately authorized cleanup' }
  } catch (error) {

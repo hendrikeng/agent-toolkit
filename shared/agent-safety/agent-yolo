@@ -17,6 +17,15 @@ verify_agent_rules() {
   }
 }
 
+start_pg_test_session() {
+  AGENT_TOOLKIT_SESSION_ID=$(node -p 'require("node:crypto").randomUUID()')
+  AGENT_TOOLKIT_SESSION_PID=$$
+  export AGENT_TOOLKIT_SESSION_ID AGENT_TOOLKIT_SESSION_PID
+  if [[ -x $system_home/.local/bin/pg-test ]]; then
+    "$system_home/.local/bin/pg-test" watch-session >/dev/null &
+  fi
+}
+
 enable_git_guard() {
   guard=$system_home/.local/libexec/agent-toolkit/git
   marker=$guard.agent-toolkit.sha256
@@ -68,6 +77,7 @@ case ${0##*/} in
     ;;
   codex-yolo)
     verify_agent_rules
+    start_pg_test_session
     rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
     [[ -f $rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
     codex execpolicy check --rules "$rules" -- rm -rf yolo-policy-check | grep -q '"decision":"forbidden"' || {
@@ -89,6 +99,7 @@ NODE
     ;;
   claude-yolo)
     verify_agent_rules
+    start_pg_test_session
     settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
     if ! claude_settings=$(node - "$settings" <<'NODE'
 const fs = require("node:fs");
@@ -167,6 +178,7 @@ NODE
     scratch_root=$(cd -P "$scratch_root" && pwd -P)
     case $scratch_root in "$system_home/Code/"*) ;; *) printf 'pi-yolo: scratch path escaped ~/Code\n' >&2; exit 1 ;; esac
     export HOME=$system_home TMPDIR=$scratch_root
+    start_pg_test_session
 
     account_profile=
     pinned_account=false

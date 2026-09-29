@@ -16,7 +16,8 @@ function fixture(major = '17') {
  const bin = installed[`/opt/homebrew/opt/postgresql@${major}/bin`]
  fs.mkdirSync(shortTmp)
  const calls = [], processes = new Map()
- let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, serverMajor = major
+ const owner = { session: '12345678-1234-1234-1234-123456789abc', pid: 3210, started: 'Tue Sep 29 12:00:00 2026' }
+ let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, ownerAlive = true, ownerDiesOnReload = false, serverMajor = major, stopRace = false
  const mockFs = { ...fs,
   existsSync: value => Object.hasOwn(installed, value) ? !missing || installed[value] !== bin : /^\/usr\/local\/opt\/postgresql@(17|18)\/bin$/.test(value) ? false : fs.existsSync(value),
   realpathSync: value => installed[value] ?? (value.startsWith(bin + '/') ? value : fs.realpathSync(value)),
@@ -24,7 +25,14 @@ function fixture(major = '17') {
  }
  const execFileSync = (file, args, options) => {
   calls.push({ file, args: [...args], options })
-  if (file === '/bin/ps') return foreign ? 'postgres -D /unrelated/database' : `${bin}/postgres -D ${processes.get(Number(args[args.indexOf('-p') + 1]))}`
+  if (file === '/bin/ps') {
+   const pid = Number(args[args.indexOf('-p') + 1])
+   if (pid === owner.pid) {
+    if (ownerAlive) return owner.started
+    throw Object.assign(Error('process absent'), { status: 1 })
+   }
+   return foreign ? 'postgres -D /unrelated/database' : `${bin}/postgres -D ${processes.get(pid)}`
+  }
   assert.equal(path.dirname(file), bin)
   assert.deepEqual(Object.keys(options.env).sort(), ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR'])
   assert.ok(options.cwd.startsWith(scratch + `/pg${major}-`))
@@ -43,19 +51,22 @@ function fixture(major = '17') {
    processes.set(++nextPid, data)
    fs.writeFileSync(path.join(data, 'postmaster.pid'), `${nextPid}\n${data}\n1700000000\n${port}\n`)
   }
+  if (program === 'pg_ctl' && args.at(-1) === 'reload' && ownerDiesOnReload) ownerAlive = false
   if (program === 'pg_ctl' && args.at(-1) === 'stop') {
    const pid = Number(fs.readFileSync(path.join(data, 'postmaster.pid'), 'utf8').split('\n')[0])
    processes.delete(pid)
    fs.renameSync(path.join(data, 'postmaster.pid'), path.join(data, 'stopped.pid'))
+   if (stopRace) throw Error('concurrent stop completed first')
   }
   return ''
  }
  const module = { exports: {} }
- const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, tmpdir: () => shortTmp } : name === 'node:child_process' ? { execFileSync } : require(name)
+ const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {} }
+ const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, tmpdir: () => shortTmp } : name === 'node:process' ? mockProcess : name === 'node:child_process' ? { execFileSync } : require(name)
  // Model Claude's writable temporary directory for socket checks.
  const mockBuffer = { byteLength: value => longSocket ? 104 : Buffer.byteLength(value.replace(shortTmp, '/private/tmp/claude-501').replace(home, '/Users/test')) }
- vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'pg-test.cjs'), 'utf8'), { require: customRequire, module, Buffer: mockBuffer, console })
- return { main: module.exports.main, calls, scratch, shortTmp, set missing(value) { missing = value }, set serverMajor(value) { serverMajor = value }, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value } }
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'pg-test.cjs'), 'utf8'), { require: customRequire, module, Buffer: mockBuffer, console, setTimeout })
+ return { main: module.exports.main, calls, owner, scratch, shortTmp, set missing(value) { missing = value }, set ownerAlive(value) { ownerAlive = value }, set ownerDiesOnReload(value) { ownerDiesOnReload = value }, set serverMajor(value) { serverMajor = value }, set stopRace(value) { stopRace = value }, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value } }
 }
 
 for (const major of ['17', '18']) {
@@ -75,6 +86,7 @@ test(`PG${major} fixture lifecycle isolates bootstrap credentials, retains files
  assert.match(config, new RegExp(`unix_socket_directories = '${f.shortTmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/agent-pg-[A-Za-z0-9]{6}'`))
  const record = fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8')
  assert.ok(!record.includes(new URL(started.database_url).password))
+ assert.deepEqual(JSON.parse(record).owner, f.owner)
  const queries = f.calls.filter(call => path.basename(call.file) === 'psql')
  assert.equal(queries.length, 3)
  assert.match(queries[0].options.input, /^CREATE ROLE toolkit_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '[a-f0-9]{48}';\n$/)
@@ -88,6 +100,7 @@ test(`PG${major} fixture lifecycle isolates bootstrap credentials, retains files
  await assert.rejects(f.main(['stop', started.id]), /outside this test cluster/)
  assert.equal(stops(), 0)
  f.foreign = false
+ f.stopRace = true
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
  assert.equal(stops(), 1)
@@ -149,6 +162,38 @@ test(`PG${major} failed setup preserves a controllable incomplete cluster withou
  assert.equal(f.calls.filter(call => path.basename(call.file) === 'initdb').length, initialized)
 })
 }
+
+test('managed sessions stop their fixtures and reap a fixture from a dead session before the next start', async () => {
+ const f = fixture()
+ fs.mkdirSync(path.join(f.scratch, 'pg17-ABC123'), { recursive: true })
+ const abandoned = await f.main(['start'])
+ const abandonedRecord = path.join(abandoned.path, 'pg-test.json')
+ const state = JSON.parse(fs.readFileSync(abandonedRecord, 'utf8'))
+ state.owner = { session: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', pid: 9999, started: 'Mon Sep 28 12:00:00 2026' }
+ fs.writeFileSync(abandonedRecord, JSON.stringify(state))
+ const partial = path.join(f.scratch, 'pg17-DEF456')
+ fs.mkdirSync(path.join(partial, 'data'), { recursive: true })
+ fs.writeFileSync(path.join(partial, 'pg-test.json'), JSON.stringify({ ...state, pid: undefined, started: undefined }))
+ const current = await f.main(['start-admin'])
+ assert.equal((await f.main(['status', abandoned.id])).status, 'stopped')
+ assert.equal(JSON.parse(fs.readFileSync(path.join(partial, 'pg-test.json'), 'utf8')).owner, undefined)
+ assert.equal((await f.main(['status', current.id])).status, 'running')
+ const watched = f.main(['watch-session'])
+ setTimeout(() => { f.ownerAlive = false }, 10)
+ const cleanup = await watched
+ assert.deepEqual(Array.from(cleanup.resources), [current.id])
+ assert.equal((await f.main(['status', current.id])).status, 'stopped')
+ assert.equal(f.calls.filter(call => call.args.at(-1) === 'stop').length, 2)
+})
+
+test('a fixture stops itself when its managed session exits during startup', async () => {
+ const f = fixture()
+ f.ownerDiesOnReload = true
+ await assert.rejects(f.main(['start']), /failed during managed session check/)
+ const [id] = fs.readdirSync(f.scratch)
+ assert.equal((await f.main(['status', id])).status, 'stopped')
+ assert.equal(JSON.parse(fs.readFileSync(path.join(f.scratch, id, 'pg-test.json'), 'utf8')).owner, undefined)
+})
 
 test('PG18 selection refuses a missing installation or wrong binary without falling back to PG17', async () => {
  const missing = fixture('18')

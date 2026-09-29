@@ -65,6 +65,13 @@ test('claude-yolo defaults to Opus at high effort while preserving explicit over
  assert.match(launcher, /claude "\$\{claude_args\[@\]\}"/)
 })
 
+test('all managed agent launchers own their PostgreSQL fixtures', () => {
+ assert.equal((launcher.match(/^    start_pg_test_session$/gm) || []).length, 3)
+ const pi = launcher.indexOf('  pi-yolo)')
+ const temporary = launcher.indexOf('export HOME=$system_home TMPDIR=$scratch_root', pi)
+ assert.ok(temporary > pi && temporary < launcher.indexOf('start_pg_test_session', pi))
+})
+
 test('pi-yolo exposes installed skill roots without exposing whole agent directories', () => {
  for (const path of ['runtimeAgentDir, "skills"', 'managedAgentDir, "skills"', '".agents/skills"', '".claude/skills"', '".codex/skills"']) assert.ok(launcher.includes(path), path)
  assert.doesNotMatch(launcher, /piInfrastructureReadPaths[^]*path\.join\(os\.homedir\(\), "\.agents"\)/)

@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process')
 test('shared Codex and Claude launchers retain sandbox, account environment and Git safeguards', () => {
  const home = fs.mkdtempSync(path.join(tmpdir(), 'shared-launchers-'))
  const bin = path.join(home, 'bin'), managed = path.join(home, '.local/libexec/agent-toolkit')
- for (const local of ['bin', 'Code', 'orca/workspaces', '.claude', '.codex/rules', '.local/libexec/agent-toolkit']) fs.mkdirSync(path.join(home, local), { recursive: true })
+ for (const local of ['bin', 'Code', 'orca/workspaces', '.claude', '.codex/rules', '.local/bin', '.local/libexec/agent-toolkit']) fs.mkdirSync(path.join(home, local), { recursive: true })
  const guard = fs.readFileSync(path.join(__dirname, 'git-yolo-guard'))
  fs.writeFileSync(path.join(managed, 'git'), guard, { mode: 0o700 })
  fs.writeFileSync(path.join(managed, 'git.agent-toolkit.sha256'), createHash('sha256').update(guard).digest('hex'))
@@ -21,6 +21,8 @@ test('shared Codex and Claude launchers retain sandbox, account environment and 
  const pg18Helper = '#!/bin/sh\nprintf pg18 > "$CAPTURE.pg18"\n'
  fs.writeFileSync(path.join(managed, 'pg18-fresh-yolo'), pg18Helper, { mode: 0o700 })
  fs.writeFileSync(path.join(managed, 'pg18-fresh-yolo.agent-toolkit.sha256'), createHash('sha256').update(pg18Helper).digest('hex'))
+ const pgTestHelper = '#!/bin/sh\ntest "$1" = watch-session || exit 2\nwhile kill -0 "$AGENT_TOOLKIT_SESSION_PID" 2>/dev/null; do sleep 0.05; done\nprintf \'%s\\n%s\\n\' "$AGENT_TOOLKIT_SESSION_ID" "$AGENT_TOOLKIT_SESSION_PID" >> "$CAPTURE.pg-test"\n'
+ fs.writeFileSync(path.join(home, '.local/bin/pg-test'), pgTestHelper, { mode: 0o700 })
  fs.mkdirSync(path.join(home, 'Code/.agent-toolkit-reports'))
  fs.writeFileSync(path.join(home, '.codex/rules/agent-safety.rules'), 'synthetic policy fixture')
  fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify({ sandbox: { enabled: true, failIfUnavailable: true }, permissions: { deny: ['Bash(rm *)'] } }))
@@ -65,6 +67,12 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    assert.equal(capture.args[capture.args.indexOf('--append-system-prompt-file') + 1], path.join(managed, 'AGENTS.md'))
    assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'high'])
   }
+ }
+ const cleanupSessions = fs.readFileSync(`${env.CAPTURE}.pg-test`, 'utf8').trim().split('\n')
+ assert.equal(cleanupSessions.length, 4)
+ for (let index = 0; index < cleanupSessions.length; index += 2) {
+  assert.match(cleanupSessions[index], /^[a-f0-9-]{36}$/)
+  assert.match(cleanupSessions[index + 1], /^\d+$/)
  }
  const reviewer = path.join(bin, 'autoreview-yolo')
  fs.writeFileSync(reviewer, launcherFixture, { mode: 0o700 })

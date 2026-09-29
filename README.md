@@ -106,6 +106,8 @@ Use the returned connection URL only for the test process. The helper creates a 
 
 The helper accepts no raw SQL, database path, server option, or existing database target. It retains files and logs after stop or failure.
 
+The managed launchers assign each fixture to one agent session. The launcher stops its fixtures when the session exits. Before a new fixture starts, the helper stops fixtures from managed sessions that no longer run. Manual helper use outside a managed launcher still requires `pg-test stop`.
+
 ## Reviews
 
 Automatic AI review is risk-gated and runs only at a requested commit, push, pull request, merge, or ship boundary. Explicit review requests always run.
