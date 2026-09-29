@@ -48,6 +48,7 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    assert.deepEqual(config.sandbox.excludedCommands, ['autoreview'])
    assert.equal(config.sandbox.filesystem.disabled, false)
    assert.deepEqual(config.sandbox.network.allowedDomains, ['localhost', '127.0.0.1'])
+   assert.equal(config.sandbox.network.allowLocalBinding, true)
    assert.equal(capture.args[capture.args.indexOf('--append-system-prompt-file') + 1], path.join(managed, 'AGENTS.md'))
    assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'high'])
   }

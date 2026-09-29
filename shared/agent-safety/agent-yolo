@@ -70,7 +70,7 @@ const os = require("node:os");
 const path = require("node:path");
 const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 if (settings.sandbox?.enabled !== true || settings.sandbox?.failIfUnavailable !== true || !settings.permissions?.deny?.includes("Bash(rm *)")) process.exit(1);
-const network = { allowedDomains: ["localhost", "127.0.0.1"] };
+const network = { allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true };
 if (process.platform === "darwin") {
   const userData = path.resolve(process.env.ORCA_USER_DATA_PATH || path.join(os.homedir(), "Library", "Application Support", "orca"));
   try {
