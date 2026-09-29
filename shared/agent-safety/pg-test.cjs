@@ -14,11 +14,40 @@ function directory(value) {
  return absolute
 }
 function fixtureRoot() {
- const root = path.join(fs.realpathSync(os.tmpdir()), 'agent-toolkit-fixtures')
+ const root = path.join(os.userInfo().homedir, 'Code/.agent-toolkit-scratch/agent-toolkit-fixtures')
  fs.mkdirSync(root, { recursive: true, mode: 0o700 })
  directory(root)
  fs.chmodSync(root, 0o700)
  return root
+}
+function fixtureRoots(primary) {
+ const roots = [primary]
+ const add = value => {
+  try { roots.push(path.join(fs.realpathSync(value), 'agent-toolkit-fixtures')) } catch {}
+ }
+ add(os.tmpdir())
+ if (os.platform() === 'darwin') {
+  try { add(execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 5000 }).trim()) } catch {}
+ }
+ try {
+  const temporary = fs.realpathSync('/tmp')
+  for (const name of fs.readdirSync(temporary).filter(name => /^claude-[A-Za-z0-9._-]+$/.test(name))) {
+   const candidate = path.join(temporary, name)
+   try {
+    if (fs.realpathSync(candidate) === candidate && fs.lstatSync(candidate).isDirectory()) roots.push(path.join(candidate, 'agent-toolkit-fixtures'))
+   } catch {}
+  }
+ } catch {}
+ return [...new Set(roots)]
+}
+function fixturePath(candidates, id) {
+ const matches = []
+ for (const fixtures of candidates) {
+  const root = path.join(fixtures, id)
+  if (fs.existsSync(root)) matches.push(directory(root))
+ }
+ if (matches.length !== 1) throw Error(matches.length ? 'Fixture ID is ambiguous across fixture roots.' : 'Fixture ID does not exist.')
+ return matches[0]
 }
 function binaries(major) {
  const candidates = [`/opt/homebrew/opt/postgresql@${major}/bin`, `/usr/local/opt/postgresql@${major}/bin`].filter(fs.existsSync)
@@ -95,9 +124,17 @@ function sessionOwner(root) {
  if (!started) throw Error('Managed agent session is no longer running.')
  return { session, pid, started }
 }
+function fixtureOwner(root) {
+ const managed = sessionOwner(root)
+ if (managed) return managed
+ const pid = process.ppid
+ const started = Number.isInteger(pid) && pid > 1 && processStarted(root, pid)
+ if (!started) throw Error('Invoking parent process is no longer running.')
+ return { pid, started }
+}
 function validState(state, major) {
  const owner = state.owner
- return state.version === 1 && state.bin === binaries(major) && Number.isInteger(state.port) && state.port >= 1024 && state.port <= 65535 && (owner === undefined || typeof owner === 'object' && /^[a-f0-9-]{36}$/.test(owner.session) && Number.isInteger(owner.pid) && owner.pid > 1 && typeof owner.started === 'string' && owner.started.length > 0)
+ return state.version === 1 && state.bin === binaries(major) && Number.isInteger(state.port) && state.port >= 1024 && state.port <= 65535 && (state.socket === undefined || typeof state.socket === 'string' && path.isAbsolute(state.socket)) && (owner === undefined || typeof owner === 'object' && (owner.session === undefined || /^[a-f0-9-]{36}$/.test(owner.session)) && Number.isInteger(owner.pid) && owner.pid > 1 && typeof owner.started === 'string' && owner.started.length > 0)
 }
 function ownerIsRunning(root, owner) {
  return processStarted(root, owner.pid) === owner.started
@@ -116,22 +153,68 @@ function stop(root, state, major) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
  }
 }
-function clean(fixtures, predicate) {
- const stopped = []
- for (const id of fs.readdirSync(fixtures).filter(name => /^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(name))) {
-  const root = directory(path.join(fixtures, id))
-  const record = path.join(root, 'pg-test.json')
-  if (!fs.existsSync(record)) continue
-  const major = id.slice(2, 4)
-  const state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
-  if (!predicate(root, state)) continue
-  if (!validState(state, major)) throw Error('Invalid or changed test database record. Preserve it for inspection.')
-  stop(root, state, major)
-  delete state.owner
-  save(root, state)
-  stopped.push(id)
+function garbageCollect(candidates) {
+ const summary = { status: 'complete', checked: 0, stopped: [], deleted: [], preserved: [] }
+ const socketRoots = new Set(candidates.map(fixtures => path.resolve(path.dirname(fixtures))))
+ for (const candidate of candidates) {
+  if (!fs.existsSync(candidate)) continue
+  let fixtures
+  try { fixtures = directory(candidate) } catch (error) {
+   summary.preserved.push({ path: candidate, error: error.message })
+   continue
+  }
+  let ids
+  try { ids = fs.readdirSync(fixtures).filter(name => /^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(name)) } catch (error) {
+   summary.preserved.push({ path: fixtures, error: error.message })
+   continue
+  }
+  for (const id of ids) {
+   summary.checked += 1
+   const candidateRoot = path.join(fixtures, id)
+   try {
+    const root = directory(candidateRoot)
+    const record = path.join(root, 'pg-test.json')
+    if (!fs.existsSync(record)) throw Error('Missing test database record.')
+    const major = id.slice(2, 4)
+    const state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
+    if (!validState(state, major)) throw Error('Invalid or changed test database record.')
+    const running = identity(root, state, major)
+    if (running) {
+     let reclaim = state.owner ? !ownerIsRunning(root, state.owner) : false
+     if (!state.owner) {
+      if (!/^\d+$/.test(running.started)) throw Error('Postmaster start time is invalid.')
+      reclaim = Date.now() - Number(running.started) * 1000 > 2 * 60 * 60 * 1000
+     }
+     if (reclaim) {
+      stop(root, state, major)
+      delete state.owner
+      save(root, state)
+      summary.stopped.push({ id, path: root })
+     }
+     continue
+    }
+    if (state.owner) {
+     if (ownerIsRunning(root, state.owner)) continue
+     delete state.owner
+     save(root, state)
+     continue
+    }
+    if (Date.now() - fs.statSync(record).mtimeMs <= 3 * 24 * 60 * 60 * 1000) continue
+    const socketName = `agent-pg-${id.slice(5)}`
+    const socket = path.resolve(state.socket ?? path.join(path.dirname(fixtures), socketName))
+    if (fs.existsSync(socket)) {
+     if (path.basename(socket) !== socketName || !socketRoots.has(path.dirname(socket))) throw Error('Socket directory is outside the fixture roots.')
+     directory(socket)
+     fs.rmSync(socket, { recursive: true })
+    }
+    fs.rmSync(root, { recursive: true })
+    summary.deleted.push({ id, path: root })
+   } catch (error) {
+    summary.preserved.push({ id, path: candidateRoot, error: error.message })
+   }
+  }
  }
- return stopped
+ return summary
 }
 function freePort() {
  return new Promise((resolve, reject) => {
@@ -148,18 +231,22 @@ async function main(args) {
  const [action, id] = args
  const starting = action === 'start' || action === 'start-admin' || action === 'start-migration'
  const watching = action === 'watch-session'
- if (!['start', 'start-admin', 'start-migration', 'status', 'stop', 'watch-session'].includes(action) || (starting ? !(args.length === 1 || args.length === 3 && id === '--postgres-version' && ['17', '18'].includes(args[2])) : watching ? args.length !== 1 : args.length !== 2 || !/^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration [--postgres-version 17|18] | pg-test status <id> | pg-test stop <id>. No raw commands, paths, SQL or server options.')
+ const collecting = action === 'gc'
+ if (!['start', 'start-admin', 'start-migration', 'status', 'stop', 'watch-session', 'gc'].includes(action) || (starting ? !(args.length === 1 || args.length === 3 && id === '--postgres-version' && ['17', '18'].includes(args[2])) : watching || collecting ? args.length !== 1 : args.length !== 2 || !/^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration [--postgres-version 17|18] | pg-test status <id> | pg-test stop <id> | pg-test gc. No raw commands, paths, SQL or server options.')
  const fixtures = fixtureRoot()
+ const roots = fixtureRoots(fixtures)
+ if (collecting) return garbageCollect(roots)
  if (watching) {
   for (const signal of ['SIGHUP', 'SIGINT', 'SIGQUIT', 'SIGTERM']) process.on(signal, () => {})
   const owner = sessionOwner(fixtures)
   if (!owner) throw Error('Managed agent session identity is required.')
   while (ownerIsRunning(fixtures, owner)) await new Promise(resolve => setTimeout(resolve, 250))
-  return { status: 'stopped', resources: clean(fixtures, (_root, state) => state.owner?.session === owner.session) }
+  const summary = garbageCollect(roots)
+  return { status: 'stopped', resources: summary.stopped.map(item => item.id), preserved: summary.preserved }
  }
  const major = starting ? args[2] ?? '17' : id.slice(2, 4)
  if (!starting) {
-  const root = directory(path.join(fixtures, id))
+  const root = fixturePath(roots, id)
   let state = JSON.parse(fs.readFileSync(file(root, 'pg-test.json'), 'utf8'))
   if (!validState(state, major)) throw Error('Invalid or changed test database record. Preserve it for inspection.')
   if (action === 'stop') {
@@ -171,21 +258,20 @@ async function main(args) {
   const running = identity(root, state, major)
   return { id, status: !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: 'retained' }
  }
- clean(fixtures, (root, state) => state.owner !== undefined && !ownerIsRunning(root, state.owner))
+ garbageCollect(roots)
  const bin = binaries(major)
+ const owner = fixtureOwner(fixtures)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync(os.tmpdir()), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
  const migration = action === 'start-migration'
  const role = 'toolkit_test'
- const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'admin' : migration ? 'migration' : 'restricted' }
+ const state = { version: 1, bin, port: await freePort(), ready: false, profile: administrative ? 'admin' : migration ? 'migration' : 'restricted', socket, owner }
  save(root, state)
  let operation = 'PostgreSQL version check'
  try {
   if (!run(bin, 'postgres', ['--version'], root).startsWith(`postgres (PostgreSQL) ${major}.`)) throw Error(`Expected PostgreSQL major version ${major}.`)
-  state.owner = sessionOwner(root)
-  save(root, state)
   operation = 'socket path check'
   if (Buffer.byteLength(path.join(socket, `.s.PGSQL.${state.port}`)) > 103) throw Error('Temporary socket path is too long for this platform.')
   fs.mkdirSync(socket, { mode: 0o700 })
@@ -210,19 +296,19 @@ async function main(args) {
   run(bin, 'pg_ctl', ['-D', data, 'reload'], root)
   state.ready = true
   save(root, state)
-  operation = 'managed session check'
-  if (state.owner && !ownerIsRunning(root, state.owner)) {
+  operation = 'owner process check'
+  if (!ownerIsRunning(root, state.owner)) {
    stop(root, state, major)
    delete state.owner
    save(root, state)
-   throw Error('Managed agent session ended during setup.')
+   throw Error('Fixture owner process ended during setup.')
   }
   // The URL is returned once, not stored in the lifecycle record or logged by the helper.
-  return { id: path.basename(root), status: 'running', path: root, profile: state.profile, database_url: `postgresql://${role}:${password}@127.0.0.1:${state.port}/toolkit_test`, files: 'retained until separately authorized cleanup' }
+  return { id: path.basename(root), status: 'running', path: root, profile: state.profile, database_url: `postgresql://${role}:${password}@127.0.0.1:${state.port}/toolkit_test`, files: 'retained until age-based garbage collection after stop' }
  } catch (error) {
   // Never delete an interrupted cluster or try another executable after an error.
   const code = typeof error.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? ` (${error.code})` : ''
-  throw Error(`Test database setup failed during ${operation}${code}. Files retained at ${root}. Use pg-test status ${path.basename(root)} or pg-test stop ${path.basename(root)}. No automatic restart or deletion.`)
+  throw Error(`Test database setup failed during ${operation}${code}. Files retained at ${root}. Use pg-test status ${path.basename(root)} or pg-test stop ${path.basename(root)}. No automatic restart or immediate deletion.`)
  }
 }
 module.exports = { main }

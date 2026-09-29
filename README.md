@@ -94,6 +94,7 @@ pg-test start-admin
 pg-test start-admin --postgres-version 18
 pg-test status <id>
 pg-test stop <id>
+pg-test gc
 ```
 
 All three start commands accept `--postgres-version 17` or `--postgres-version 18`. The default remains PostgreSQL 17. The selected Homebrew version must already be installed. The helper never installs it or falls back to another version.
@@ -104,9 +105,15 @@ Use the returned connection URL only for the test process. The helper creates a 
 
 `start` creates a restricted `toolkit_test` database owner. `start-admin` creates the same fixture owner with `CREATEROLE` and `BYPASSRLS`. These attributes let migrations create fixture roles. The helper does not create a separate maintenance role. Neither profile grants superuser or database-creation privileges.
 
-The helper accepts no raw SQL, database path, server option, or existing database target. It retains files and logs after stop or failure.
+The helper accepts no raw SQL, database path, server option, or existing database target. It retains files and logs until garbage collection removes an eligible fixture.
 
-The managed launchers assign each fixture to one agent session. When you finish with a fixture, run `pg-test stop <id>`. The `pg-test stop <id>` and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. The launcher also stops its fixtures when the session exits. Before a new fixture starts, the helper stops fixtures from managed sessions that no longer run. If you use the helper outside a managed launcher, stop each fixture explicitly.
+Fixtures live in `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures`. PostgreSQL socket directories remain under the temporary directory to keep their paths short.
+
+Each fixture records its owner process. Managed sessions use the session process. Other calls use the invoking parent process.
+
+Garbage collection runs before each start and after a managed session ends. It scans the fixed root and the older temporary-directory roots. It stops a cluster when its owner process is gone. For a legacy record without an owner, it stops the cluster only after two hours. It removes a stopped fixture only when its record is more than three days old. It preserves and reports records with changed, ambiguous, or invalid identities. Run `pg-test gc` to collect garbage at any time.
+
+When you finish with a fixture, run `pg-test stop <id>`. The `pg-test gc`, `pg-test stop <id>`, and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. The launcher also stops its fixtures when the session exits. If you use the helper outside a managed launcher, stop each fixture explicitly.
 
 ## Reviews
 

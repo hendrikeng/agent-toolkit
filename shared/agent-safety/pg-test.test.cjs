@@ -8,34 +8,39 @@ const test = require('node:test')
 function fixture(major = '17') {
  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pg-test-fixture-')))
  const shortTmp = path.join(home, 'claude-tmp')
- const scratch = path.join(shortTmp, 'agent-toolkit-fixtures')
+ const scratch = path.join(home, 'Code/.agent-toolkit-scratch/agent-toolkit-fixtures')
+ const legacy = path.join(shortTmp, 'agent-toolkit-fixtures')
+ const systemTmp = path.join(home, 'system-tmp'), darwinTmp = path.join(home, 'darwin-tmp')
  const installed = {
   '/opt/homebrew/opt/postgresql@17/bin': '/opt/homebrew/Cellar/postgresql@17/17.6/bin',
   '/opt/homebrew/opt/postgresql@18/bin': '/opt/homebrew/Cellar/postgresql@18/18.1/bin',
  }
  const bin = installed[`/opt/homebrew/opt/postgresql@${major}/bin`]
- fs.mkdirSync(shortTmp)
+ for (const directory of [shortTmp, systemTmp, darwinTmp]) fs.mkdirSync(directory)
  const calls = [], processes = new Map()
  const owner = { session: '12345678-1234-1234-1234-123456789abc', pid: 3210, started: 'Tue Sep 29 12:00:00 2026' }
- let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, ownerAlive = true, ownerDiesOnReload = false, serverMajor = major, stopRace = false
+ const parent = { pid: 3200, started: 'Tue Sep 29 11:59:00 2026' }
+ const owners = new Map([[owner.pid, owner.started], [parent.pid, parent.started]])
+ let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, ownerDiesOnReload = false, serverMajor = major, stopRace = false
  const mockFs = { ...fs,
   existsSync: value => Object.hasOwn(installed, value) ? !missing || installed[value] !== bin : /^\/usr\/local\/opt\/postgresql@(17|18)\/bin$/.test(value) ? false : fs.existsSync(value),
-  realpathSync: value => installed[value] ?? (value.startsWith(bin + '/') ? value : fs.realpathSync(value)),
+  realpathSync: value => value === '/tmp' ? systemTmp : installed[value] ?? (value.startsWith(bin + '/') ? value : fs.realpathSync(value)),
   statSync: value => value.startsWith(bin + '/') ? { isFile: () => true } : fs.statSync(value),
  }
  const execFileSync = (file, args, options) => {
   calls.push({ file, args: [...args], options })
+  if (file === '/usr/bin/getconf') return `${darwinTmp}\n`
   if (file === '/bin/ps') {
    const pid = Number(args[args.indexOf('-p') + 1])
-   if (pid === owner.pid) {
-    if (ownerAlive) return owner.started
+   if (args.includes('lstart=')) {
+    if (owners.has(pid)) return owners.get(pid)
     throw Object.assign(Error('process absent'), { status: 1 })
    }
    return foreign ? 'postgres -D /unrelated/database' : `${bin}/postgres -D ${processes.get(pid)}`
   }
   assert.equal(path.dirname(file), bin)
   assert.deepEqual(Object.keys(options.env).sort(), ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR'])
-  assert.ok(options.cwd.startsWith(scratch + `/pg${major}-`))
+  assert.ok([scratch, legacy].some(root => options.cwd.startsWith(root + `/pg${major}-`)))
   assert.equal(options.env.HOME, options.cwd); assert.equal(options.env.TMPDIR, options.cwd)
   const program = path.basename(file)
   if (failure === program) throw Error('simulated executable failure')
@@ -51,7 +56,7 @@ function fixture(major = '17') {
    processes.set(++nextPid, data)
    fs.writeFileSync(path.join(data, 'postmaster.pid'), `${nextPid}\n${data}\n1700000000\n${port}\n`)
   }
-  if (program === 'pg_ctl' && args.at(-1) === 'reload' && ownerDiesOnReload) ownerAlive = false
+  if (program === 'pg_ctl' && args.at(-1) === 'reload' && ownerDiesOnReload) owners.delete(owner.pid)
   if (program === 'pg_ctl' && args.at(-1) === 'stop') {
    const pid = Number(fs.readFileSync(path.join(data, 'postmaster.pid'), 'utf8').split('\n')[0])
    processes.delete(pid)
@@ -61,12 +66,30 @@ function fixture(major = '17') {
   return ''
  }
  const module = { exports: {} }
- const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {} }
- const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, tmpdir: () => shortTmp } : name === 'node:process' ? mockProcess : name === 'node:child_process' ? { execFileSync } : require(name)
+ const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {}, ppid: parent.pid }
+ const mockOs = { ...os, tmpdir: () => shortTmp, userInfo: () => ({ homedir: home }), platform: () => 'darwin' }
+ const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? mockOs : name === 'node:process' ? mockProcess : name === 'node:child_process' ? { execFileSync } : require(name)
  // Model Claude's writable temporary directory for socket checks.
  const mockBuffer = { byteLength: value => longSocket ? 104 : Buffer.byteLength(value.replace(shortTmp, '/private/tmp/claude-501').replace(home, '/Users/test')) }
  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'pg-test.cjs'), 'utf8'), { require: customRequire, module, Buffer: mockBuffer, console, setTimeout })
- return { main: module.exports.main, calls, owner, scratch, shortTmp, set missing(value) { missing = value }, set ownerAlive(value) { ownerAlive = value }, set ownerDiesOnReload(value) { ownerDiesOnReload = value }, set serverMajor(value) { serverMajor = value }, set stopRace(value) { stopRace = value }, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value } }
+ function moveToLegacy(started) {
+  fs.mkdirSync(legacy, { recursive: true })
+  const moved = { ...started, path: path.join(legacy, started.id) }
+  fs.renameSync(started.path, moved.path)
+  const pidFile = path.join(moved.path, 'data/postmaster.pid')
+  const lines = fs.readFileSync(pidFile, 'utf8').split('\n')
+  lines[1] = path.join(moved.path, 'data')
+  fs.writeFileSync(pidFile, lines.join('\n'))
+  processes.set(Number(lines[0]), lines[1])
+  return moved
+ }
+ return {
+  main: module.exports.main, calls, home, legacy, owner, parent, scratch, shortTmp, moveToLegacy,
+  set managed(value) { if (value) Object.assign(mockProcess.env, { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }); else { delete mockProcess.env.AGENT_TOOLKIT_SESSION_ID; delete mockProcess.env.AGENT_TOOLKIT_SESSION_PID } },
+  set missing(value) { missing = value },
+  set ownerAlive(value) { if (value) owners.set(owner.pid, owner.started); else owners.delete(owner.pid) },
+  set ownerDiesOnReload(value) { ownerDiesOnReload = value }, set serverMajor(value) { serverMajor = value }, set stopRace(value) { stopRace = value }, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value }
+ }
 }
 
 for (const major of ['17', '18']) {
@@ -74,12 +97,13 @@ const startArgs = action => major === '17' ? [action] : [action, '--postgres-ver
 
 test(`PG${major} fixture lifecycle isolates bootstrap credentials, retains files, and refuses arbitrary commands or foreign processes`, async () => {
  const f = fixture(major)
- for (const args of [[], ['start', '-D', '/elsewhere'], ['start', '--postgres-version'], ['start', '--postgres-version', '19'], ['start', '--postgres-version', '18', 'extra'], ['start', '--postgres-version=18'], ['psql', '-c', 'select 1'], ['stop', '../existing'], ['status', '/absolute'], ['stop', 'pg18-ABC123', '--postgres-version', '17']]) await assert.rejects(f.main(args), /Usage/)
+ for (const args of [[], ['start', '-D', '/elsewhere'], ['start', '--postgres-version'], ['start', '--postgres-version', '19'], ['start', '--postgres-version', '18', 'extra'], ['start', '--postgres-version=18'], ['gc', 'extra'], ['psql', '-c', 'select 1'], ['stop', '../existing'], ['status', '/absolute'], ['stop', 'pg18-ABC123', '--postgres-version', '17']]) await assert.rejects(f.main(args), /Usage/)
  assert.equal(f.calls.length, 0)
  const started = await f.main(startArgs('start'))
  assert.match(started.id, new RegExp(`^pg${major}-[A-Za-z0-9]{6}$`))
  assert.equal(started.status, 'running')
  assert.equal(started.profile, 'restricted')
+ assert.ok(started.path.startsWith(f.scratch + path.sep))
  assert.match(started.database_url, /^postgresql:\/\/toolkit_test:[a-f0-9]{48}@127\.0\.0\.1:\d+\/toolkit_test$/)
  assert.equal(fs.statSync(started.path).mode & 0o777, 0o700)
  const config = fs.readFileSync(path.join(started.path, 'data/postgresql.conf'), 'utf8')
@@ -189,21 +213,104 @@ test('managed sessions stop their fixtures and reap a fixture from a dead sessio
 test('a fixture stops itself when its managed session exits during startup', async () => {
  const f = fixture()
  f.ownerDiesOnReload = true
- await assert.rejects(f.main(['start']), /failed during managed session check/)
+ await assert.rejects(f.main(['start']), /failed during owner process check/)
  const [id] = fs.readdirSync(f.scratch)
  assert.equal((await f.main(['status', id])).status, 'stopped')
  assert.equal(JSON.parse(fs.readFileSync(path.join(f.scratch, id, 'pg-test.json'), 'utf8')).owner, undefined)
+})
+
+test('fixtures outside managed sessions belong to the invoking parent process', async () => {
+ const f = fixture()
+ f.managed = false
+ const started = await f.main(['start'])
+ const state = JSON.parse(fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8'))
+ assert.deepEqual(state.owner, f.parent)
+ assert.equal((await f.main(['stop', started.id])).status, 'stopped')
+})
+
+test('garbage collection stops dead-owner and old ownerless clusters but keeps live and fresh clusters', async () => {
+ const f = fixture()
+ const dead = await f.main(['start'])
+ const oldOwnerless = f.moveToLegacy(await f.main(['start']))
+ const live = await f.main(['start'])
+ const freshOwnerless = await f.main(['start'])
+ const rewrite = (started, owner, startedAt) => {
+  const record = path.join(started.path, 'pg-test.json')
+  const state = JSON.parse(fs.readFileSync(record, 'utf8'))
+  state.owner = owner
+  if (startedAt) {
+   state.started = String(startedAt)
+   const pidFile = path.join(started.path, 'data/postmaster.pid')
+   const lines = fs.readFileSync(pidFile, 'utf8').split('\n')
+   lines[2] = state.started
+   fs.writeFileSync(pidFile, lines.join('\n'))
+  }
+  fs.writeFileSync(record, JSON.stringify(state))
+ }
+ rewrite(dead, { ...f.owner, pid: 9999 })
+ rewrite(oldOwnerless, undefined)
+ rewrite(freshOwnerless, undefined, Math.floor(Date.now() / 1000))
+ const summary = await f.main(['gc'])
+ assert.deepEqual(Array.from(summary.stopped, item => item.id).sort(), [dead.id, oldOwnerless.id].sort())
+ assert.equal(fs.existsSync(path.join(oldOwnerless.path, 'data/postmaster.pid')), false)
+ assert.equal((await f.main(['status', oldOwnerless.id])).status, 'stopped')
+ assert.equal((await f.main(['status', dead.id])).status, 'stopped')
+ assert.equal((await f.main(['status', live.id])).status, 'running')
+ assert.equal((await f.main(['status', freshOwnerless.id])).status, 'running')
+})
+
+test('garbage collection deletes only stopped fixtures with records older than three days', async () => {
+ const f = fixture()
+ const old = await f.main(['start'])
+ const missingSocket = await f.main(['start'])
+ const fresh = await f.main(['start'])
+ const owned = await f.main(['start'])
+ for (const started of [old, missingSocket, fresh, owned]) await f.main(['stop', started.id])
+ const ownedRecord = path.join(owned.path, 'pg-test.json')
+ const ownedState = JSON.parse(fs.readFileSync(ownedRecord, 'utf8'))
+ ownedState.owner = f.owner
+ fs.writeFileSync(ownedRecord, JSON.stringify(ownedState))
+ const oldSocket = path.join(f.shortTmp, `agent-pg-${old.id.slice(5)}`)
+ const missingRecord = path.join(missingSocket.path, 'pg-test.json')
+ const missingState = JSON.parse(fs.readFileSync(missingRecord, 'utf8'))
+ fs.rmSync(missingState.socket, { recursive: true })
+ missingState.socket = path.join(f.home, 'vanished-tmp', path.basename(missingState.socket))
+ fs.writeFileSync(missingRecord, JSON.stringify(missingState))
+ const then = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
+ for (const record of [path.join(old.path, 'pg-test.json'), missingRecord, ownedRecord]) fs.utimesSync(record, then, then)
+ const summary = await f.main(['gc'])
+ assert.deepEqual(Array.from(summary.deleted, item => item.id).sort(), [old.id, missingSocket.id].sort())
+ assert.equal(fs.existsSync(old.path), false)
+ assert.equal(fs.existsSync(oldSocket), false)
+ assert.equal(fs.existsSync(missingSocket.path), false)
+ assert.equal(fs.existsSync(fresh.path), true)
+ assert.equal(fs.existsSync(owned.path), true)
+})
+
+test('garbage collection preserves and reports an invalid record without aborting', async () => {
+ const f = fixture()
+ const invalid = await f.main(['start'])
+ const reclaimable = await f.main(['start'])
+ const record = path.join(reclaimable.path, 'pg-test.json')
+ const state = JSON.parse(fs.readFileSync(record, 'utf8'))
+ state.owner = { ...f.owner, pid: 9999 }
+ fs.writeFileSync(record, JSON.stringify(state))
+ fs.writeFileSync(path.join(invalid.path, 'pg-test.json'), '{')
+ const summary = await f.main(['gc'])
+ assert.equal(summary.preserved.some(item => item.id === invalid.id), true)
+ assert.equal(summary.stopped.some(item => item.id === reclaimable.id), true)
+ assert.equal(fs.existsSync(invalid.path), true)
 })
 
 test('PG18 selection refuses a missing installation or wrong binary without falling back to PG17', async () => {
  const missing = fixture('18')
  missing.missing = true
  await assert.rejects(missing.main(['start-admin', '--postgres-version', '18']), /Expected exactly one existing Homebrew PostgreSQL 18 installation/)
- assert.equal(missing.calls.length, 0)
+ assert.equal(missing.calls.every(call => call.file === '/usr/bin/getconf'), true)
  const wrong = fixture('18')
  wrong.serverMajor = '17'
  await assert.rejects(wrong.main(['start-admin', '--postgres-version', '18']), /failed during PostgreSQL version check/)
- assert.deepEqual(wrong.calls.map(call => path.basename(call.file)), ['postgres'])
+ assert.deepEqual(wrong.calls.filter(call => !['/usr/bin/getconf', '/bin/ps'].includes(call.file)).map(call => path.basename(call.file)), ['postgres'])
 })
 
 test('PG18 lifecycle binds the resource ID to both the binary record and cluster version', async () => {

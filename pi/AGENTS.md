@@ -46,13 +46,17 @@ pg-test start-admin
 pg-test start-admin --postgres-version 18
 pg-test status <id>
 pg-test stop <id>
+pg-test gc
 ```
 
 All three start commands accept only `--postgres-version 17` or `--postgres-version 18`. The default remains PostgreSQL 17. Select 18 explicitly when the repository requires it. The selected Homebrew version must already be installed; the helper never installs it or falls back to another version. Status and stop select the version from the `pg17-…` or `pg18-…` resource ID and need no version flag. Existing PG17 resource records remain supported.
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
 The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-migration` creates a separate new cluster whose owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS`. `start-admin` creates a separate new cluster whose owner has `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. Use `start-admin` for repositories whose test reset guard requires `BYPASSRLS`; `start-migration` will be rejected there. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
-The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
-When you finish with a cluster in a managed session, run `pg-test stop <id>`. The `pg-test stop <id>` and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. Managed launchers also stop session-owned clusters when the session exits. Before a new cluster starts, the helper stops clusters from managed sessions that no longer run. If you call the helper outside a managed launcher, stop each cluster explicitly.
+The helper retains files until garbage collection removes an eligible fixture. It accepts no arbitrary SQL, paths, or server options.
+Fixtures live in `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures`. PostgreSQL socket directories remain under the temporary directory to keep their paths short.
+Each fixture records its owner process. Managed sessions use the session process. Other calls use the invoking parent process.
+Garbage collection runs before each start and after a managed session ends. It scans the fixed root and the older temporary-directory roots. It stops a cluster when its owner process is gone. For a legacy record without an owner, it stops the cluster only after two hours. It removes a stopped fixture only when its record is more than three days old. It preserves and reports records with changed, ambiguous, or invalid identities. Run `pg-test gc` to collect garbage at any time.
+When you finish with a cluster in a managed session, run `pg-test stop <id>`. The `pg-test gc`, `pg-test stop <id>`, and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. Managed launchers also stop session-owned clusters when the session exits. If you call the helper outside a managed launcher, stop each cluster explicitly.
 For a repository that exposes the exact `test:pg18-fresh` and `test:pg18-fresh:built` scripts, use `pg18-fresh-yolo` without arguments when the host test itself must launch PostgreSQL. It installs from only the manifest and lockfile with pnpm hooks and lifecycle scripts disabled, then runs the update and verification in an isolated Docker workspace with no test-time network. The source is mounted read-only for copying, and only the generated security inventory is copied back.
 Do not replace these helpers with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.

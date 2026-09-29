@@ -59,7 +59,7 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
   'pg-test start', 'pg-test start --postgres-version 17', 'pg-test start --postgres-version 18',
   'pg-test start-migration', 'pg-test start-migration --postgres-version 17', 'pg-test start-migration --postgres-version 18',
   'pg-test start-admin', 'pg-test start-admin --postgres-version 17', 'pg-test start-admin --postgres-version 18',
-  'pg-test status *', 'pg-test stop *',
+  'pg-test status *', 'pg-test stop *', 'pg-test gc',
  ])
    assert.equal(config.sandbox.filesystem.disabled, false)
    assert.deepEqual(config.sandbox.network.allowedDomains, ['localhost', '127.0.0.1'])
