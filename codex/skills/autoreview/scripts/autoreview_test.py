@@ -77,6 +77,14 @@ class PiReviewOutputTests(unittest.TestCase):
                 policy.write_text(json.dumps({"piInfrastructureReadPaths": []}))
                 with self.assertRaisesRegex(SystemExit, "not read-authorized"):
                     AUTOREVIEW.prepare_pi_review_outputs(argparse.Namespace(), repo)
+            # claude-yolo exports only the results root; it has no Pi policy to verify.
+            with mock.patch.dict(os.environ, {"AGENT_TOOLKIT_REVIEW_ROOT": str(results)}, clear=True):
+                args = argparse.Namespace(output=None, json_output=None, status_output=None)
+                AUTOREVIEW.prepare_pi_review_outputs(args, repo)
+                self.assertEqual(Path(args.output).parent.parent, results)
+                with self.assertRaisesRegex(SystemExit, "must stay under"):
+                    AUTOREVIEW.prepare_pi_review_outputs(
+                        argparse.Namespace(output=str(root / "outside.txt"), json_output=None, status_output=None), repo)
 
     def test_old_pi_sessions_fail_before_review(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):

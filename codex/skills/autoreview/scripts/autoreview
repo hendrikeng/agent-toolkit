@@ -7207,15 +7207,17 @@ def prepare_pi_review_outputs(args: argparse.Namespace, repo: Path) -> None:
     if not root.is_dir() or root.is_relative_to(repo.resolve()):
         raise SystemExit("Pi review results must be a directory outside the reviewed repository.")
     runtime = os.environ.get("PI_CODING_AGENT_DIR")
-    if not runtime or not Path(runtime).is_absolute():
-        raise SystemExit("Pi review policy is unavailable; restart through the updated pi-yolo launcher.")
-    try:
-        policy = json.loads((Path(runtime) / "extensions/pi-permission-system/config.json").read_text())
-        allowed = {Path(path).expanduser().resolve() for path in policy.get("piInfrastructureReadPaths", [])}
-    except (OSError, ValueError, TypeError) as exc:
-        raise SystemExit("Pi review policy cannot be verified; no reviewer was launched.") from exc
-    if root not in allowed or policy.get("permission", {}).get("read") == "deny":
-        raise SystemExit("Pi review results are not read-authorized; restart through the updated pi-yolo launcher.")
+    # claude-yolo also exports the results root, but only Pi has a read policy to verify.
+    if runtime or os.environ.get("AGENT_TOOLKIT_PI_AGENT_DIR"):
+        if not runtime or not Path(runtime).is_absolute():
+            raise SystemExit("Pi review policy is unavailable; restart through the updated pi-yolo launcher.")
+        try:
+            policy = json.loads((Path(runtime) / "extensions/pi-permission-system/config.json").read_text())
+            allowed = {Path(path).expanduser().resolve() for path in policy.get("piInfrastructureReadPaths", [])}
+        except (OSError, ValueError, TypeError) as exc:
+            raise SystemExit("Pi review policy cannot be verified; no reviewer was launched.") from exc
+        if root not in allowed or policy.get("permission", {}).get("read") == "deny":
+            raise SystemExit("Pi review results are not read-authorized; restart through the updated pi-yolo launcher.")
     fields = {"output": "report.txt", "json_output": "report.json", "status_output": "status.json"}
     for field in fields:
         output = getattr(args, field, None)
