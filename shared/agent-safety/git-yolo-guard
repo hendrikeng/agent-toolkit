@@ -7,14 +7,32 @@ for candidate in /usr/bin/git /usr/local/bin/git /opt/homebrew/bin/git; do
 done
 [[ -n $real_git ]] || { printf 'git yolo guard: real Git executable is unavailable\n' >&2; exit 126; }
 
-# Engines can add these fixed credential settings after launcher startup.
-# The final Git invocation already enforces both values, so removing this exact
-# pair does not weaken credentials or authorize any other configuration.
-if [[ ${GIT_CONFIG_COUNT:-} == 2 && ${GIT_CONFIG_VALUE_0:-} == false && ${GIT_CONFIG_VALUE_1:-} == false ]] &&
-   { [[ ${GIT_CONFIG_KEY_0:-} == credential.interactive && ${GIT_CONFIG_KEY_1:-} == credential.guiPrompt ]] ||
-     [[ ${GIT_CONFIG_KEY_1:-} == credential.interactive && ${GIT_CONFIG_KEY_0:-} == credential.guiPrompt ]]; }; then
-  unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
-fi
+# Engines can add these fixed credential settings after launcher startup, and
+# nested hosts can duplicate them. The final invocation enforces both values.
+# Remove the indexed environment only when every entry is one of this exact pair.
+strip_fixed_credential_config() {
+  local count=${GIT_CONFIG_COUNT:-} index key_name value_name key value
+  local interactive=false gui_prompt=false
+  [[ $count =~ ^[1-9][0-9]*$ && $count -le 16 ]] || return 0
+  for ((index = 0; index < count; index++)); do
+    key_name=GIT_CONFIG_KEY_$index
+    value_name=GIT_CONFIG_VALUE_$index
+    declare -p "$key_name" "$value_name" >/dev/null 2>&1 || return 0
+    key=${!key_name}
+    value=${!value_name}
+    case $key:$value in
+      credential.interactive:false) interactive=true ;;
+      credential.guiPrompt:false) gui_prompt=true ;;
+      *) return 0 ;;
+    esac
+  done
+  [[ $interactive == true && $gui_prompt == true ]] || return 0
+  for ((index = 0; index < count; index++)); do
+    unset "GIT_CONFIG_KEY_$index" "GIT_CONFIG_VALUE_$index"
+  done
+  unset GIT_CONFIG_COUNT
+}
+strip_fixed_credential_config
 
 # Inherited selectors/configuration can redirect even an apparently read-only command.
 for name in ${!GIT_@}; do

@@ -93,7 +93,7 @@ async function main(args) {
  const bin = binaries(major)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
- const data = path.join(root, 'data'), socket = path.join(fs.realpathSync('/tmp'), `agent-pg-${path.basename(root).slice(5)}`)
+ const data = path.join(root, 'data'), socket = path.join(fs.realpathSync(os.tmpdir()), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
  const migration = action === 'start-migration'
  const role = 'toolkit_test'

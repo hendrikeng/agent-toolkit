@@ -7,18 +7,19 @@ const test = require('node:test')
 
 function fixture(major = '17') {
  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pg-test-fixture-')))
- const scratch = path.join(home, 'agent-toolkit-fixtures')
+ const shortTmp = path.join(home, 'claude-tmp')
+ const scratch = path.join(shortTmp, 'agent-toolkit-fixtures')
  const installed = {
   '/opt/homebrew/opt/postgresql@17/bin': '/opt/homebrew/Cellar/postgresql@17/17.6/bin',
   '/opt/homebrew/opt/postgresql@18/bin': '/opt/homebrew/Cellar/postgresql@18/18.1/bin',
  }
- const bin = installed[`/opt/homebrew/opt/postgresql@${major}/bin`], shortTmp = path.join(home, 'short-tmp')
+ const bin = installed[`/opt/homebrew/opt/postgresql@${major}/bin`]
  fs.mkdirSync(shortTmp)
  const calls = [], processes = new Map()
  let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, serverMajor = major
  const mockFs = { ...fs,
   existsSync: value => Object.hasOwn(installed, value) ? !missing || installed[value] !== bin : /^\/usr\/local\/opt\/postgresql@(17|18)\/bin$/.test(value) ? false : fs.existsSync(value),
-  realpathSync: value => installed[value] ?? (value === '/tmp' ? shortTmp : value.startsWith(bin + '/') ? value : fs.realpathSync(value)),
+  realpathSync: value => installed[value] ?? (value.startsWith(bin + '/') ? value : fs.realpathSync(value)),
   statSync: value => value.startsWith(bin + '/') ? { isFile: () => true } : fs.statSync(value),
  }
  const execFileSync = (file, args, options) => {
@@ -50,9 +51,9 @@ function fixture(major = '17') {
   return ''
  }
  const module = { exports: {} }
- const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, tmpdir: () => home } : name === 'node:child_process' ? { execFileSync } : require(name)
- // Model the normal temporary-directory length for socket checks.
- const mockBuffer = { byteLength: value => longSocket ? 104 : Buffer.byteLength(value.replace(shortTmp, '/private/tmp').replace(home, '/Users/test')) }
+ const customRequire = name => name === 'node:fs' ? mockFs : name === 'node:os' ? { ...os, tmpdir: () => shortTmp } : name === 'node:child_process' ? { execFileSync } : require(name)
+ // Model Claude's writable temporary directory for socket checks.
+ const mockBuffer = { byteLength: value => longSocket ? 104 : Buffer.byteLength(value.replace(shortTmp, '/private/tmp/claude-501').replace(home, '/Users/test')) }
  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'pg-test.cjs'), 'utf8'), { require: customRequire, module, Buffer: mockBuffer, console })
  return { main: module.exports.main, calls, scratch, shortTmp, set missing(value) { missing = value }, set serverMajor(value) { serverMajor = value }, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value } }
 }
