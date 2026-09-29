@@ -106,7 +106,7 @@ Use the returned connection URL only for the test process. The helper creates a 
 
 The helper accepts no raw SQL, database path, server option, or existing database target. It retains files and logs after stop or failure.
 
-The managed launchers assign each fixture to one agent session. The launcher stops its fixtures when the session exits. Before a new fixture starts, the helper stops fixtures from managed sessions that no longer run. Manual helper use outside a managed launcher still requires `pg-test stop`.
+The managed launchers assign each fixture to one agent session. When you finish with a fixture, run `pg-test stop <id>`. The `pg-test stop <id>` and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. The launcher also stops its fixtures when the session exits. Before a new fixture starts, the helper stops fixtures from managed sessions that no longer run. If you use the helper outside a managed launcher, stop each fixture explicitly.
 
 ## Reviews
 
