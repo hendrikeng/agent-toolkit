@@ -52,14 +52,15 @@ All three start commands accept only `--postgres-version 17` or `--postgres-vers
 Use the returned test connection URL, not an existing database. Keep the URL out of committed files.
 The default helper uses private scratch and an unprivileged `toolkit_test` database owner. `start-migration` creates a separate new cluster whose owner has exactly `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS`. `start-admin` creates a separate new cluster whose owner has `LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION BYPASSRLS`. Use `start-admin` for repositories whose test reset guard requires `BYPASSRLS`; `start-migration` will be rejected there. The helper does not create a separate maintenance role. It cannot upgrade or target an existing database.
 The helper retains files after stop or failure and accepts no arbitrary SQL, paths, or server options.
-Do not replace it with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
+For a repository that exposes the exact `test:pg18-fresh` and `test:pg18-fresh:built` scripts, use `pg18-fresh-yolo` without arguments when the host test itself must launch PostgreSQL. It installs from only the manifest and lockfile with pnpm hooks and lifecycle scripts disabled, then runs the update and verification in an isolated Docker workspace with no test-time network. The source is mounted read-only for copying, and only the generated security inventory is copied back.
+Do not replace these helpers with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.
 
 ## Review artifacts
 
 When `AGENT_TOOLKIT_REVIEW_ROOT` is set, put review and Security handoff results in a unique subdirectory of that root, not an arbitrary temporary directory. Before starting a reviewer, use the native read tool on its `.read-probe.txt`. If the variable is set and the read is denied, stop before spending review quota and request a restart through the updated launcher. Do not substitute shell reads or widen permissions. Reload commands do not regenerate runtime policy.
 
-The `autoreview` helper provides unique default report and status paths. Prefer those defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
+In a managed Claude session, run `autoreview-yolo` without arguments. It validates the installed helper and provides unique report and status paths outside the reviewed repository. On other hosts, prefer the `autoreview` helper defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
 
 ## Response formatting
 

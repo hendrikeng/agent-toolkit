@@ -40,6 +40,32 @@ enable_git_guard() {
 }
 
 case ${0##*/} in
+  pg18-fresh-yolo)
+    [[ $# -eq 0 ]] || { printf 'pg18-fresh-yolo: arguments are disabled\n' >&2; exit 2; }
+    helper=$system_home/.local/libexec/agent-toolkit/pg18-fresh-yolo
+    marker=$helper.agent-toolkit.sha256
+    [[ -x $helper && -f $marker ]] || { printf 'pg18-fresh-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    [[ $(<"$marker") == "$(shasum -a 256 "$helper" | awk '{print $1}')" ]] || {
+      printf 'pg18-fresh-yolo: installed helper failed its integrity check\n' >&2
+      exit 1
+    }
+    exec "$helper"
+    ;;
+  autoreview-yolo)
+    [[ $# -eq 0 ]] || { printf 'autoreview-yolo: arguments are disabled\n' >&2; exit 2; }
+    helper=$system_home/.local/libexec/agent-toolkit/autoreview
+    marker=$helper.agent-toolkit.sha256
+    [[ -x $helper && -f $marker ]] || { printf 'autoreview-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    [[ $(<"$marker") == "$(shasum -a 256 "$helper" | awk '{print $1}')" ]] || {
+      printf 'autoreview-yolo: installed helper failed its integrity check\n' >&2
+      exit 1
+    }
+    review_root=${AGENT_TOOLKIT_REVIEW_ROOT:-$system_home/Code/.agent-toolkit-reports}
+    [[ -d $review_root ]] || { printf 'autoreview-yolo: review root is unavailable; run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    output_dir=$(mktemp -d "$review_root/review-XXXXXXXX")
+    printf 'review output directory: %s\n' "$output_dir"
+    exec "$helper" --mode local --output "$output_dir/report.txt" --json-output "$output_dir/report.json" --status-output "$output_dir/status.json"
+    ;;
   codex-yolo)
     verify_agent_rules
     rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
@@ -72,12 +98,14 @@ const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 if (settings.sandbox?.enabled !== true || settings.sandbox?.failIfUnavailable !== true || !settings.permissions?.deny?.includes("Bash(rm *)")) process.exit(1);
 const network = { allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true };
 if (process.platform === "darwin") {
+  const uid = process.getuid();
   const userData = path.resolve(process.env.ORCA_USER_DATA_PATH || path.join(os.homedir(), "Library", "Application Support", "orca"));
+  network.allowUnixSockets = [path.join("/private/tmp", `claude-${uid}`, `tsx-${uid}`)];
   try {
     const metadata = JSON.parse(fs.readFileSync(path.join(userData, "orca-runtime.json"), "utf8"));
     const transport = [...(metadata.transports ?? []), metadata.transport].find((entry) => entry?.kind === "unix");
     const endpoint = transport?.endpoint && path.resolve(transport.endpoint);
-    if (endpoint && path.dirname(endpoint) === userData) network.allowUnixSockets = [endpoint];
+    if (endpoint && path.dirname(endpoint) === userData) network.allowUnixSockets.push(endpoint);
   } catch {}
 }
 process.stdout.write(JSON.stringify({
@@ -85,7 +113,7 @@ process.stdout.write(JSON.stringify({
   sandbox: {
     allowUnsandboxedCommands: false,
     excludedCommands: [
-      "autoreview",
+      "autoreview-yolo", "pg18-fresh-yolo",
       "pg-test start", "pg-test start --postgres-version 17", "pg-test start --postgres-version 18",
       "pg-test start-migration", "pg-test start-migration --postgres-version 17", "pg-test start-migration --postgres-version 18",
       "pg-test start-admin", "pg-test start-admin --postgres-version 17", "pg-test start-admin --postgres-version 18",
@@ -112,6 +140,7 @@ NODE
         ;;
       esac
     done
+    export AGENT_TOOLKIT_REVIEW_ROOT=${AGENT_TOOLKIT_REVIEW_ROOT:-$system_home/Code/.agent-toolkit-reports}
     claude_args=(--permission-mode bypassPermissions --settings "$claude_settings" --append-system-prompt-file "$agent_rules")
     [[ $claude_has_model == true ]] || claude_args+=(--model opus)
     [[ $claude_has_effort == true ]] || claude_args+=(--effort high)
@@ -389,7 +418,7 @@ NODE
       pi "${pi_args[@]}"
     ;;
   *)
-    printf 'invoke this launcher as pi-yolo, codex-yolo, or claude-yolo\n' >&2
+    printf 'invoke this launcher as pi-yolo, codex-yolo, claude-yolo, autoreview-yolo, or pg18-fresh-yolo\n' >&2
     exit 2
     ;;
 esac

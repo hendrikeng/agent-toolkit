@@ -6,6 +6,9 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 for script in "$repo_dir/install.sh" "$repo_dir/shared/agent-safety/agent-yolo" "$repo_dir/shared/agent-safety/git-yolo-guard"; do
   /bin/bash -n "$script"
 done
+for script in "$repo_dir/shared/agent-safety/pg-test.cjs" "$repo_dir/shared/agent-safety/pg18-fresh-yolo.cjs"; do
+  node --check "$script"
+done
 timestamp=$(date +%Y%m%d-%H%M%S)
 backup_root="${XDG_DATA_HOME:-$HOME/.local/share}/agent-toolkit/backups/$timestamp"
 config_root=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -479,6 +482,20 @@ install_managed_copy "$repo_dir/shared/agent-safety/repo-delete.cjs" "$HOME/.loc
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/bin/pg-test" 700
 # ponytail: keep the legacy copy while deployed permission-bundle launchers still validate this path.
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700
+install_managed_copy "$repo_dir/shared/agent-safety/pg18-fresh-yolo.cjs" "$HOME/.local/libexec/agent-toolkit/pg18-fresh-yolo" 700
+install_managed_copy "$repo_dir/codex/skills/autoreview/scripts/autoreview" "$HOME/.local/libexec/agent-toolkit/autoreview" 700
+review_root="$HOME/Code/.agent-toolkit-reports"
+review_probe="$review_root/.read-probe.txt"
+mkdir -p "$review_root"
+if [[ -e $review_probe || -L $review_probe ]]; then
+  if [[ ! -f $review_probe || -L $review_probe ]] || ! cmp -s "$repo_dir/shared/agent-safety/review-read-probe.txt" "$review_probe"; then
+    printf 'refusing to replace invalid review read-access probe at %s\n' "$review_probe" >&2
+    exit 1
+  fi
+  chmod 600 "$review_probe"
+else
+  install -m 600 "$repo_dir/shared/agent-safety/review-read-probe.txt" "$review_probe"
+fi
 install_link "$repo_dir/codex/skills/autoreview" "$pi_agent_dir/skills/autoreview"
 install_managed_copy "$repo_dir/pi/AGENTS.md" "$HOME/.local/libexec/agent-toolkit/AGENTS.md" 600
 install_link "$HOME/.local/libexec/agent-toolkit/AGENTS.md" "$pi_agent_dir/AGENTS.md"
@@ -519,6 +536,8 @@ printf '\ninstalling agent safety boundaries…\n'
 install_agent_safety
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/codex-yolo" 700
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/claude-yolo" 700
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/autoreview-yolo" 700
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pg18-fresh-yolo" 700
 configure_pi_settings
 
 target="$HOME/.local/bin/pi-yolo"

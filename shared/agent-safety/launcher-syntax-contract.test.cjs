@@ -19,7 +19,7 @@ test('launcher avoids macOS Bash 3.2 unmatched-heredoc-apostrophe regression', (
 test('installer defaults to one no-argument installation', () => {
  const root = mkdtempSync(join(tmpdir(), 'install-choice-'))
  mkdirSync(join(root, 'shared/agent-safety'), { recursive: true })
- for (const name of ['agent-yolo', 'git-yolo-guard']) writeFileSync(join(root, 'shared/agent-safety', name), readFileSync(join(__dirname, name)))
+ for (const name of ['agent-yolo', 'git-yolo-guard', 'pg-test.cjs', 'pg18-fresh-yolo.cjs']) writeFileSync(join(root, 'shared/agent-safety', name), readFileSync(join(__dirname, name)))
  // Exercise the argument parser only; never run installation side effects.
  const parser = installer.slice(0, installer.indexOf('initialize_blueprint_submodule()'))
  writeFileSync(join(root, 'install.sh'), parser + '\nprintf done\n')

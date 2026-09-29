@@ -27,10 +27,15 @@ for the upstream revision and local differences.
 
 ## Run
 
-Use `scripts/autoreview` beside this skill. Keep its custom `codex exec` path:
-native `codex review` cannot combine explicit Git target flags with custom instructions.
-The helper combines those with evidence, severity filtering, and validated JSON;
-it leaves review judgment to Codex. For an OpenClaw checkout:
+In a managed `claude-yolo` session, run `autoreview-yolo` without arguments. The
+fixed launcher validates the installed helper, runs the local review outside Claude's
+network sandbox, and writes unique report files under `AGENT_TOOLKIT_REVIEW_ROOT`.
+Do not add arguments or shell operators.
+
+On other hosts, use `scripts/autoreview` beside this skill. Keep its custom `codex exec`
+path: native `codex review` cannot combine explicit Git target flags with custom
+instructions. The helper combines those with evidence, severity filtering, and validated
+JSON; it leaves review judgment to Codex. For an OpenClaw checkout:
 
 ```bash
 AUTOREVIEW=".agents/skills/autoreview/scripts/autoreview"

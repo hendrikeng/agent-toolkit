@@ -7,7 +7,7 @@ cd "$repo_dir"
 for script in install.sh update.sh shared/agent-safety/agent-yolo shared/agent-safety/git-yolo-guard; do
   bash -n "$script"
 done
-for script in shared/agent-safety/configure.cjs shared/agent-safety/pg-test.cjs; do
+for script in shared/agent-safety/configure.cjs shared/agent-safety/pg-test.cjs shared/agent-safety/pg18-fresh-yolo.cjs; do
   node --check "$script"
 done
 node -e 'JSON.parse(require("node:fs").readFileSync("shared/agent-safety/pi-permission-system.json", "utf8"))'
