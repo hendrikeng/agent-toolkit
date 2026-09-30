@@ -64,6 +64,7 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    assert.equal(config.sandbox.filesystem.disabled, false)
    assert.deepEqual(config.sandbox.network.allowedDomains, ['localhost', '127.0.0.1'])
    assert.equal(config.sandbox.network.allowLocalBinding, true)
+   assert.deepEqual(config.env, process.platform === 'darwin' ? { SSL_CERT_FILE: '/etc/ssl/cert.pem' } : {})
    if (process.platform === 'darwin') assert.ok(config.sandbox.network.allowUnixSockets.includes(`/private/tmp/claude-${process.getuid()}/tsx-${process.getuid()}`))
    assert.equal(capture.args[capture.args.indexOf('--append-system-prompt-file') + 1], path.join(managed, 'AGENTS.md'))
    assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'medium'])

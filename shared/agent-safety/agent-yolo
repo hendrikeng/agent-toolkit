@@ -112,6 +112,9 @@ const path = require("node:path");
 const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 if (settings.sandbox?.enabled !== true || settings.sandbox?.failIfUnavailable !== true || !settings.permissions?.deny?.includes("Bash(rm *)")) process.exit(1);
 const network = { allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true };
+// Go tools such as gh verify TLS through trustd, which the macOS sandbox blocks. Go 1.27+ honors this CA file
+// instead; older Go builds ignore it on macOS and still fail.
+const env = process.platform === "darwin" ? { SSL_CERT_FILE: "/etc/ssl/cert.pem" } : {};
 if (process.platform === "darwin") {
   const uid = process.getuid();
   const userData = path.resolve(process.env.ORCA_USER_DATA_PATH || path.join(os.homedir(), "Library", "Application Support", "orca"));
@@ -124,6 +127,7 @@ if (process.platform === "darwin") {
   } catch {}
 }
 process.stdout.write(JSON.stringify({
+  env,
   permissions: { deny: ["Bash(dangerouslyDisableSandbox:true)", "Bash(*/git *)"] },
   sandbox: {
     allowUnsandboxedCommands: false,
