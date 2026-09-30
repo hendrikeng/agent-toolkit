@@ -82,8 +82,14 @@ case ${0##*/} in
   codex-yolo)
     verify_agent_rules
     start_pg_test_session
+    shared_rules=$system_home/.codex/rules/agent-safety.rules
+    [[ -f $shared_rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
     rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
-    [[ -f $rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    # Orca and account profiles set their own CODEX_HOME. Codex loads rules only from there and skips symlinks.
+    if [[ -L $rules ]] || ! cmp -s "$shared_rules" "$rules"; then
+      mkdir -p "${rules%/*}" && rm -f "$rules" && cp "$shared_rules" "$rules" && chmod 600 "$rules"
+    fi
+    [[ -f $rules && ! -L $rules ]] || { printf 'codex-yolo: missing safety policy %s\n' "$rules" >&2; exit 1; }
     codex execpolicy check --rules "$rules" -- rm -rf yolo-policy-check | grep -q '"decision":"forbidden"' || {
       printf 'codex-yolo: installed safety policy failed its self-check\n' >&2
       exit 1

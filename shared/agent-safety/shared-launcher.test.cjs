@@ -70,8 +70,15 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'medium'])
   }
  }
+ const orcaRules = path.join(home, 'orca-codex-home/rules/agent-safety.rules')
+ fs.mkdirSync(path.dirname(orcaRules), { recursive: true })
+ fs.symlinkSync(path.join(home, '.codex/rules/agent-safety.rules'), orcaRules)
+ const orcaRun = spawnSync(path.join(bin, 'codex-yolo'), [], { cwd: home, env: { ...env, CODEX_HOME: path.join(home, 'orca-codex-home') }, encoding: 'utf8' })
+ assert.equal(orcaRun.status, 0, orcaRun.stderr)
+ assert.ok(fs.lstatSync(orcaRules).isFile(), 'Codex rule discovery skips symlinks')
+ assert.equal(fs.readFileSync(orcaRules, 'utf8'), 'synthetic policy fixture')
  const cleanupSessions = fs.readFileSync(`${env.CAPTURE}.pg-test`, 'utf8').trim().split('\n')
- assert.equal(cleanupSessions.length, 4)
+ assert.equal(cleanupSessions.length, 6)
  for (let index = 0; index < cleanupSessions.length; index += 2) {
   assert.match(cleanupSessions[index], /^[a-f0-9-]{36}$/)
   assert.match(cleanupSessions[index + 1], /^\d+$/)
