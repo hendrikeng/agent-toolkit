@@ -114,7 +114,7 @@ Garbage collection runs before each start and after a managed session ends. It s
 
 The `status` and `stop` commands also find clusters in the older temporary-directory roots. If an ID exists in more than one root, these commands refuse it.
 
-When you finish with a fixture, run `pg-test stop <id>`. This command is important for fixtures started outside a managed session. The `pg-test gc`, `pg-test stop <id>`, and `pg-test status <id>` commands run outside the sandbox in managed Claude sessions. The launcher also stops its fixtures when the session exits.
+When you finish with a fixture, run `pg-test stop <id>`. This command is important for fixtures started outside a managed session. In managed Claude sessions, the `pg-test` start, `status`, `stop`, and `gc` commands run outside the sandbox. This exception applies only when `pg-test` is the complete command. Do not put `pg-test` in a pipeline, an `&&` chain, `$(...)`, or a script. In those forms, the sandbox blocks `/bin/ps` and `pg-test` fails. The launcher also stops its fixtures when the session exits.
 
 ## Reviews
 

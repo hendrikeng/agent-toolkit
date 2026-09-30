@@ -78,6 +78,14 @@ function save(root, state) {
  fs.writeFileSync(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
  fs.renameSync(temporary, path.join(root, 'pg-test.json'))
 }
+function ps(root, pid, field) {
+ try {
+  return execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', `${field}=`], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim()
+ } catch (error) {
+  if (error.code === 'EPERM') throw Error('The sandbox blocked /bin/ps. Run pg-test as a command on its own, not inside a script, pipeline, && chain, or $(...).')
+  throw error
+ }
+}
 function identity(root, state, major) {
  if (!fs.existsSync(path.join(root, 'data')) && !state.pid) return false
  const data = directory(path.join(root, 'data'))
@@ -98,7 +106,7 @@ function identity(root, state, major) {
  if (pid <= 1 || state.pid && (state.pid !== pid || state.started !== lines[2])) throw Error('Postmaster identity changed; preserve the cluster for inspection.')
  let command
  try {
-  command = execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim()
+  command = ps(root, pid, 'command')
  } catch (error) {
   if (error.status === 1) return false
   throw error
@@ -108,7 +116,7 @@ function identity(root, state, major) {
 }
 function processStarted(root, pid) {
  try {
-  return execFileSync('/bin/ps', ['-ww', '-p', String(pid), '-o', 'lstart='], { encoding: 'utf8', timeout: 5000, env: environment(root) }).trim() || undefined
+  return ps(root, pid, 'lstart') || undefined
  } catch (error) {
   if (error.status === 1) return undefined
   throw error

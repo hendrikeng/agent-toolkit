@@ -30,6 +30,7 @@ function fixture(major = '17') {
   calls.push({ file, args: [...args], options })
   if (file === '/usr/bin/getconf') return `${darwinTmp}\n`
   if (file === '/bin/ps') {
+   if (failure === 'ps') throw Object.assign(Error('spawnSync /bin/ps EPERM'), { code: 'EPERM' })
    const pid = Number(args[args.indexOf('-p') + 1])
    if (args.includes('lstart=')) {
     if (owners.has(pid)) return owners.get(pid)
@@ -216,6 +217,12 @@ test('a fixture stops itself when its managed session exits during startup', asy
  const [id] = fs.readdirSync(f.scratch)
  assert.equal((await f.main(['status', id])).status, 'stopped')
  assert.equal(JSON.parse(fs.readFileSync(path.join(f.scratch, id, 'pg-test.json'), 'utf8')).owner, undefined)
+})
+
+test('a sandboxed ps call explains how to run pg-test', async () => {
+ const f = fixture()
+ f.failure = 'ps'
+ await assert.rejects(f.main(['start']), /blocked \/bin\/ps\. Run pg-test as a command on its own/)
 })
 
 test('fixtures outside managed sessions have no owner', async () => {
