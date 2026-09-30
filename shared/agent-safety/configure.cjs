@@ -154,6 +154,7 @@ function configureClaude(text) {
     deny: [...new Set([...(settings.permissions?.deny ?? []).filter((rule) => rule !== CLAUDE_YOLO_ONLY_DENY), ...DENY_RULES])],
     additionalDirectories: [...new Set([...(settings.permissions?.additionalDirectories ?? []), ...trustedRoots])],
   };
+  settings.attribution = { ...settings.attribution, commit: "" };
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
@@ -227,6 +228,7 @@ function configureCodex(text) {
 if (process.argv[2] === "--self-test") {
   const claude = JSON.parse(configureClaude('{// keep values\n"permissions":{"ask":["Bash(custom *)","Bash(git -*)",],},}'));
   assert.equal(claude.sandbox.enabled, true);
+  assert.equal(claude.attribution.commit, "");
   assert.deepEqual(claude.permissions.ask, ["Bash(custom *)", ...ASK_RULES]);
   assert.equal(claude.permissions.deny.includes("Bash(rm *)"), true);
   assert.equal(claude.permissions.deny.includes(CLAUDE_YOLO_ONLY_DENY), false);
