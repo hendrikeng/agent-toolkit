@@ -74,7 +74,7 @@ Do not wrap ordinary replies, drafts, or generated text in Markdown blockquotes.
 
 ## Documentation prose
 
-Before you create or edit documentation prose in Markdown files other than `AGENTS.md`, `CLAUDE.md`, `SKILL.md`, and prompt files, read the installed Simple English skill completely and follow it in pragmatic mode. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, or source code.
+Before you create or edit documentation prose in Markdown files other than `AGENTS.md`, `CLAUDE.md`, `SKILL.md`, and prompt files, read the installed Simple English skill completely with the native read tool and follow it in pragmatic mode. Its file is `~/.claude/skills/simple-english/SKILL.md` in Claude, `~/.codex/skills/simple-english/SKILL.md` in Codex, and `~/.pi/agent/extensions/simple-english/SKILL.md` in Pi. The skill is manual-only, so do not wait for it to load automatically. Apply it whether people or agents use the documentation. Do not apply it to code blocks, inline code, commands, identifiers, paths, quoted output, or source code.
 
 ## Test quality
 

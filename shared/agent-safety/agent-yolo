@@ -73,6 +73,10 @@ case ${0##*/} in
     [[ -d $review_root ]] || { printf 'autoreview-yolo: review root is unavailable; run agent-toolkit/install.sh first\n' >&2; exit 1; }
     output_dir=$(mktemp -d "$review_root/review-XXXXXXXX")
     printf 'review output directory: %s\n' "$output_dir"
+    # Claude's sandbox exports a shared TMPDIR that the Codex reviewer refuses on macOS,
+    # and Python falls back to /tmp without one, so pin the private per-user directory.
+    unset TMPDIR TMP TEMP
+    [[ $(uname -s) != Darwin ]] || export TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)
     exec "$helper" --mode local --output "$output_dir/report.txt" --json-output "$output_dir/report.json" --status-output "$output_dir/status.json"
     ;;
   codex-yolo)

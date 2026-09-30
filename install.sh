@@ -381,15 +381,11 @@ install_ponytail() {
 initialize_blueprint_submodule
 
 if ! command -v npm >/dev/null 2>&1; then
-  printf 'npm is required to install figma-mcp dependencies.\n' >&2
+  printf 'npm is required to install toolkit dependencies.\n' >&2
   exit 1
 fi
 
 printf 'installing pinned toolkit dependencies…\n'
-(
-  cd "$repo_dir/pi/extensions/figma-mcp"
-  npm ci --ignore-scripts --no-audit --no-fund
-)
 (
   cd "$repo_dir/pi/skills/react-doctor"
   npm ci --ignore-scripts --no-audit --no-fund
@@ -503,7 +499,6 @@ install_link "$repo_dir/pi/extensions/ask-user-question" "$pi_agent_dir/extensio
 install_link "$repo_dir/pi/extensions/codex-account" "$pi_agent_dir/extensions/codex-account"
 install_link "$repo_dir/pi/extensions/codex-fast" "$pi_agent_dir/extensions/codex-fast"
 install_link "$repo_dir/pi/extensions/copy-code" "$pi_agent_dir/extensions/copy-code"
-install_link "$repo_dir/pi/extensions/figma-mcp" "$pi_agent_dir/extensions/figma-mcp"
 install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-push"
 install_link "$repo_dir/pi/extensions/legacy-session-filter" "$pi_agent_dir/extensions/legacy-session-filter"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
@@ -512,7 +507,7 @@ install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/rev
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/side-question" "$pi_agent_dir/extensions/side-question"
 install_link "$repo_dir/pi/extensions/status-format" "$pi_agent_dir/integrations/status-format"
-for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_dir/extensions/00-status-format"; do
+for legacy_status_format in "$pi_agent_dir/extensions/status-format" "$pi_agent_dir/extensions/00-status-format" "$pi_agent_dir/extensions/figma-mcp"; do
   if [[ -L $legacy_status_format && $(readlink "$legacy_status_format") == "$repo_dir/pi/extensions/${legacy_status_format##*/}" ]]; then
     rm "$legacy_status_format"
   fi

@@ -15,7 +15,7 @@ test('shared Codex and Claude launchers retain sandbox, account environment and 
  const agentRules = '# Shared fixture rules\n'
  fs.writeFileSync(path.join(managed, 'AGENTS.md'), agentRules)
  fs.writeFileSync(path.join(managed, 'AGENTS.md.agent-toolkit.sha256'), createHash('sha256').update(agentRules).digest('hex'))
- const reviewHelper = '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$CAPTURE.review"\n'
+ const reviewHelper = '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$CAPTURE.review"\nprintf \'%s\' "${TMPDIR-unset}${TMP-}${TEMP-}" > "$CAPTURE.review-tmp"\n'
  fs.writeFileSync(path.join(managed, 'autoreview'), reviewHelper, { mode: 0o700 })
  fs.writeFileSync(path.join(managed, 'autoreview.agent-toolkit.sha256'), createHash('sha256').update(reviewHelper).digest('hex'))
  const pg18Helper = '#!/bin/sh\nprintf pg18 > "$CAPTURE.pg18"\n'
@@ -77,8 +77,10 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
  }
  const reviewer = path.join(bin, 'autoreview-yolo')
  fs.writeFileSync(reviewer, launcherFixture, { mode: 0o700 })
- const review = spawnSync(reviewer, [], { cwd: home, env, encoding: 'utf8' })
+ const review = spawnSync(reviewer, [], { cwd: home, env: { ...env, TMPDIR: '/tmp/claude-shared', TMP: '/tmp', TEMP: '/tmp' }, encoding: 'utf8' })
  assert.equal(review.status, 0, review.stderr)
+ const privateTmp = process.platform === 'darwin' ? spawnSync('getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8' }).stdout.trim() : 'unset'
+ assert.equal(fs.readFileSync(`${env.CAPTURE}.review-tmp`, 'utf8'), privateTmp)
  const reviewArgs = fs.readFileSync(`${env.CAPTURE}.review`, 'utf8').trim().split('\n')
  assert.deepEqual(reviewArgs.filter(argument => !argument.startsWith(path.join(home, 'Code/.agent-toolkit-reports/review-'))), ['--mode', 'local', '--output', '--json-output', '--status-output'])
  assert.equal(spawnSync(reviewer, ['--mode', 'local'], { cwd: home, env, encoding: 'utf8' }).status, 2)

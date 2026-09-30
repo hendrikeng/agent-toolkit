@@ -57,7 +57,6 @@ Commands beginning with `/` in this table are Pi extensions. Claude and Codex ke
 | `/pr` | Create a pull request from the repository template. |
 | `/reviews` | Switch automatic reviews between `auto` and `off`. |
 | Web access | Load web tools only when external information is needed. |
-| Figma MCP | Load local Figma Desktop tools only for Figma tasks. |
 
 Pi, Codex, and Claude receive the same shared guidance for FastAPI, Fastify, Python, Vue, Simple English, Test Audit, React Doctor, DeepSec, and AutoReview. DeepSec and React Doctor remain manual-only.
 
@@ -187,17 +186,6 @@ Side messages do not enter the main conversation. Explicit side edits still chan
 /web off
 /web status
 ```
-
-### Figma Desktop
-
-```text
-/figma on
-/figma status
-/figma tools
-/figma off
-```
-
-Open Figma Desktop and enable its local MCP server first.
 
 ### Manual security and React scans
 
