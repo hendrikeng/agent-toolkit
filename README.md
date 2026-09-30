@@ -63,7 +63,7 @@ Pi, Codex, and Claude receive the same shared guidance for FastAPI, Fastify, Pyt
 
 Test Audit applies while an agent writes, changes, reviews, or audits tests. It does not trigger an independent AI review.
 
-`claude-yolo` starts Claude Opus with high effort unless you supply overrides. It enforces the toolkit sandbox and Git guard.
+`claude-yolo` starts Claude Opus with medium effort unless you supply overrides. It enforces the toolkit sandbox and Git guard.
 
 All three managed launchers load the same toolkit rules without replacing `~/.codex/AGENTS.md` or `~/.claude/CLAUDE.md`. Repository instructions still apply after the shared defaults.
 

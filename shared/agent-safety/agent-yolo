@@ -155,7 +155,7 @@ NODE
     export AGENT_TOOLKIT_REVIEW_ROOT=${AGENT_TOOLKIT_REVIEW_ROOT:-$system_home/Code/.agent-toolkit-reports}
     claude_args=(--permission-mode bypassPermissions --settings "$claude_settings" --append-system-prompt-file "$agent_rules")
     [[ $claude_has_model == true ]] || claude_args+=(--model opus)
-    [[ $claude_has_effort == true ]] || claude_args+=(--effort high)
+    [[ $claude_has_effort == true ]] || claude_args+=(--effort medium)
     claude_args+=("$@")
     enable_git_guard
     PATH=$PATH exec claude "${claude_args[@]}"
@@ -418,7 +418,7 @@ NODE
       esac
     done
     pi_args=(--no-approve)
-    [[ $has_model == true ]] || pi_args+=(--model openai-codex/gpt-5.6-sol)
+    [[ $has_model == true ]] || pi_args+=(--model openai-codex/gpt-6.1-sol)
     [[ $has_thinking == true ]] || pi_args+=(--thinking high)
     pi_args+=("$@")
     PATH=$PATH \

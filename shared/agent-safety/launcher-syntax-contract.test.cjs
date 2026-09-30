@@ -37,7 +37,7 @@ test('pi-yolo defaults to Sol at high thinking while preserving explicit overrid
  const args = values => spawnSync('/bin/bash', ['-uc', `${block}\nprintf '%s\\n' "\${pi_args[@]}"`, 'launcher-test', ...values], { encoding: 'utf8' })
  const defaults = args([])
  assert.equal(defaults.status, 0, defaults.stderr)
- assert.deepEqual(defaults.stdout.trim().split('\n'), ['--no-approve', '--model', 'openai-codex/gpt-5.6-sol', '--thinking', 'high'])
+ assert.deepEqual(defaults.stdout.trim().split('\n'), ['--no-approve', '--model', 'openai-codex/gpt-6.1-sol', '--thinking', 'high'])
  const explicit = args(['--model', 'google/gemini', '--thinking', 'high'])
  assert.equal(explicit.status, 0, explicit.stderr)
  assert.deepEqual(explicit.stdout.trim().split('\n'), ['--no-approve', '--model', 'google/gemini', '--thinking', 'high'])
@@ -47,13 +47,13 @@ test('pi-yolo defaults to Sol at high thinking while preserving explicit overrid
  assert.match(launcher, /pi "\$\{pi_args\[@\]\}"/)
 })
 
-test('claude-yolo defaults to Opus at high effort while preserving explicit overrides', () => {
+test('claude-yolo defaults to Opus at medium effort while preserving explicit overrides', () => {
  const start = launcher.indexOf('    claude_has_model=false')
  const block = launcher.slice(start, launcher.indexOf('    enable_git_guard', start))
  const args = values => spawnSync('/bin/bash', ['-uc', `claude_settings='{}'\nagent_rules=/managed/AGENTS.md\n${block}\nprintf '%s\\n' "\${claude_args[@]}"`, 'launcher-test', ...values], { encoding: 'utf8' })
  const defaults = args([])
  assert.equal(defaults.status, 0, defaults.stderr)
- assert.deepEqual(defaults.stdout.trim().split('\n').slice(-4), ['--model', 'opus', '--effort', 'high'])
+ assert.deepEqual(defaults.stdout.trim().split('\n').slice(-4), ['--model', 'opus', '--effort', 'medium'])
  const explicit = args(['--model', 'sonnet', '--effort', 'max'])
  assert.equal(explicit.status, 0, explicit.stderr)
  assert.deepEqual(explicit.stdout.trim().split('\n').slice(-4), ['--model', 'sonnet', '--effort', 'max'])

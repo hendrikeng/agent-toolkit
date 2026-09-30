@@ -236,7 +236,7 @@ class AutoreviewPriorityTests(unittest.TestCase):
             reviewer = AUTOREVIEW.reviewer_args(args)[0]
         self.assertEqual(args.max_priority, "P2")
         self.assertEqual((reviewer.model, reviewer.thinking, reviewer.fallback_model),
-                         ("gpt-5.6-sol", "high", "gpt-5.6-terra"))
+                         ("gpt-6.1-sol", "high", "gpt-5.6-sol"))
 
     def test_explicit_review_settings_override_toolkit_defaults(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(sys, "argv", [
@@ -673,7 +673,7 @@ class AutoreviewAmpTests(unittest.TestCase):
             args = AUTOREVIEW.parse_args()
         reviewer = AUTOREVIEW.reviewer_args(args)[0]
         self.assertEqual(reviewer.amp_bin, "/tmp/trusted-amp")
-        self.assertEqual(reviewer.model, "openai/gpt-5.6-sol")
+        self.assertEqual(reviewer.model, "openai/gpt-6.1-sol")
         self.assertEqual(reviewer.thinking, "high")
         self.assertFalse(reviewer.tools)
 
@@ -1209,6 +1209,13 @@ class AutoreviewCompatibilityTests(unittest.TestCase):
                 self.assertEqual(reviewer.model, "gpt-5.6-sol")
                 self.assertEqual(reviewer.thinking, effort)
                 self.assertIsNone(reviewer.fallback_model)
+
+    def test_default_sol_rejects_efforts_without_reasoning(self) -> None:
+        for effort in ("none", "minimal"):
+            with self.subTest(effort=effort), mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+                sys, "argv", ["autoreview", "--thinking", effort],
+            ), self.assertRaisesRegex(SystemExit, f"invalid thinking level for codex model gpt-6.1-sol: {effort}"):
+                AUTOREVIEW.reviewer_args(AUTOREVIEW.parse_args())
 
     @classmethod
     def setUpClass(cls) -> None:

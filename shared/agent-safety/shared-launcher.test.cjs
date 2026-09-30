@@ -66,7 +66,7 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    assert.equal(config.sandbox.network.allowLocalBinding, true)
    if (process.platform === 'darwin') assert.ok(config.sandbox.network.allowUnixSockets.includes(`/private/tmp/claude-${process.getuid()}/tsx-${process.getuid()}`))
    assert.equal(capture.args[capture.args.indexOf('--append-system-prompt-file') + 1], path.join(managed, 'AGENTS.md'))
-   assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'high'])
+   assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'medium'])
   }
  }
  const cleanupSessions = fs.readFileSync(`${env.CAPTURE}.pg-test`, 'utf8').trim().split('\n')
