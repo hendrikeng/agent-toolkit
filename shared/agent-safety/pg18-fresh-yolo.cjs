@@ -8,6 +8,11 @@ const path = require('node:path')
 const IMAGE = 'agent-toolkit-pg18-node24:1'
 const INVENTORY = 'tests/fixtures/fresh-install-security-inventory.json'
 const WORKSPACE_CONFIG = "packages:\n  - .\nautoInstallPeers: false\nverifyDepsBeforeRun: false\n"
+// Exact strings only. The TMPDIR=/tmp form keeps the macOS host socket path under 104 bytes; /tmp is a tmpfs in the container.
+const REVIEWED_BUILT_SCRIPTS = [
+  'vitest run --config vitest.pg18-fresh.config.ts',
+  'TMPDIR=/tmp vitest run --config vitest.pg18-fresh.config.ts',
+]
 
 function chownTree(filesystem, target, uid, gid, root = target) {
   const stat = filesystem.lstatSync(target)
@@ -103,7 +108,7 @@ function main({
   const manifest = JSON.parse(filesystem.readFileSync(packagePath, 'utf8'))
   if (
     manifest.scripts?.['test:pg18-fresh'] !== 'pnpm run build && pnpm run test:pg18-fresh:built' ||
-    manifest.scripts?.['test:pg18-fresh:built'] !== 'vitest run --config vitest.pg18-fresh.config.ts'
+    !REVIEWED_BUILT_SCRIPTS.includes(manifest.scripts?.['test:pg18-fresh:built'])
   ) fail('the repository does not expose the reviewed PostgreSQL 18 test scripts')
   if (manifest.packageManager !== 'pnpm@11.22.0') fail('the reviewed pnpm version is required')
   const exactVersion = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/

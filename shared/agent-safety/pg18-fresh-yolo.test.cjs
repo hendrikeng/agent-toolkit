@@ -178,3 +178,42 @@ test('rejects arguments and repositories without the exact reviewed scripts', ()
     assert.equal(externalDependency.calls.length, 0)
   }
 })
+
+test('accepts only the exact reviewed built-script variants', () => {
+  const withBuiltScript = builtScript => {
+    const result = fixture()
+    const readFile = result.options.filesystem.readFileSync
+    const scripts = { ...JSON.parse(manifest).scripts, 'test:pg18-fresh:built': builtScript }
+    result.options.filesystem = {
+      ...result.options.filesystem,
+      readFileSync: value => value.endsWith('package.json') ? JSON.stringify({ ...JSON.parse(manifest), scripts }) : readFile(value),
+    }
+    return result
+  }
+
+  for (const accepted of [
+    'vitest run --config vitest.pg18-fresh.config.ts',
+    'TMPDIR=/tmp vitest run --config vitest.pg18-fresh.config.ts',
+  ]) {
+    const result = withBuiltScript(accepted)
+    main(result.options)
+    assert.ok(result.calls.some(call => call.args.includes('--container-runner')), accepted)
+  }
+
+  for (const rejected of [
+    'TMPDIR=/tmp vitest run --config vitest.pg18-fresh.config.ts --reporter=verbose',
+    'TMPDIR=/tmp NODE_OPTIONS=--require=/x vitest run --config vitest.pg18-fresh.config.ts',
+    'PGHOST=/tmp vitest run --config vitest.pg18-fresh.config.ts',
+    'TMPDIR=/var/tmp vitest run --config vitest.pg18-fresh.config.ts',
+    'TMPDIR=/tmp/x vitest run --config vitest.pg18-fresh.config.ts',
+    'vitest run --config vitest.pg18-fresh.config.ts TMPDIR=/tmp',
+    'vitest TMPDIR=/tmp run --config vitest.pg18-fresh.config.ts',
+    ' TMPDIR=/tmp vitest run --config vitest.pg18-fresh.config.ts',
+    'TMPDIR=/tmp  vitest run --config vitest.pg18-fresh.config.ts',
+    'TMPDIR=/tmp vitest run --config vitest.pg18-fresh.config.ts; true',
+  ]) {
+    const result = withBuiltScript(rejected)
+    assert.throws(() => main(result.options), /does not expose the reviewed PostgreSQL 18 test scripts/, rejected)
+    assert.equal(result.calls.length, 0, rejected)
+  }
+})
