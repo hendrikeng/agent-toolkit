@@ -66,7 +66,7 @@ A missing helper requires the reviewed toolkit installation from a trusted human
 
 When `AGENT_TOOLKIT_REVIEW_ROOT` is set, put review and Security handoff results in a unique subdirectory of that root, not an arbitrary temporary directory. Before starting a reviewer, use the native read tool on its `.read-probe.txt`. If the variable is set and the read is denied, stop before spending review quota and request a restart through the updated launcher. Do not substitute shell reads or widen permissions. Reload commands do not regenerate runtime policy.
 
-In a managed Claude session, run `autoreview-yolo` without arguments. It validates the installed helper and provides unique report and status paths outside the reviewed repository. On other hosts, prefer the `autoreview` helper defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
+In a managed Claude session, run `autoreview-yolo` without arguments. It runs outside the sandbox only when `autoreview-yolo` is the complete Bash command. Change to the reviewed worktree in an earlier Bash call. Do not add `cd`, an environment prefix, a redirect, a pipe, or an `&&` chain. Wrapped forms run inside the sandbox, where the reviewer cannot write its temporary directory and refuses to start. It validates the installed helper and provides unique report and status paths outside the reviewed repository. On other hosts, prefer the `autoreview` helper defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
 
 ## Response formatting
 
