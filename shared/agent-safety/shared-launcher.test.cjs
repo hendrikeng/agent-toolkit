@@ -5,7 +5,7 @@ const path = require('node:path')
 const { tmpdir } = require('node:os')
 const { createHash } = require('node:crypto')
 const { spawnSync } = require('node:child_process')
-test('shared Codex and Claude launchers retain sandbox, account environment and Git safeguards', () => {
+test('shared managed launchers retain their safety gates, account environment and Git safeguards', () => {
  const home = fs.mkdtempSync(path.join(tmpdir(), 'shared-launchers-'))
  const bin = path.join(home, 'bin'), managed = path.join(home, '.local/libexec/agent-toolkit')
  for (const local of ['bin', 'Code', 'orca/workspaces', '.claude', '.codex/rules', '.local/bin', '.local/libexec/agent-toolkit']) fs.mkdirSync(path.join(home, local), { recursive: true })
@@ -29,7 +29,7 @@ test('shared Codex and Claude launchers retain sandbox, account environment and 
  const fake = `#!/usr/bin/env node
 const fs=require('node:fs');
 if(process.argv[2]==='execpolicy') console.log('{"decision":"forbidden"}');
-else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slice(2),path:process.env.PATH,account:process.env.CODEX_HOME,configCount:process.env.GIT_CONFIG_COUNT}));
+else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slice(2),path:process.env.PATH,account:process.env.CODEX_HOME,configCount:process.env.GIT_CONFIG_COUNT,agentDir:process.env.PI_CODING_AGENT_DIR}));
 `
  const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, CODEX_HOME: path.join(home, '.codex'), CLAUDE_CONFIG_DIR: path.join(home, '.claude'), AGENT_TOOLKIT_REVIEW_ROOT: path.join(home, 'Code/.agent-toolkit-reports'), CAPTURE: path.join(home, 'capture.json') }
  const launcherFixture = fs.readFileSync(path.join(__dirname, 'agent-yolo'), 'utf8').replace(`system_home=$(node -p 'require("node:os").userInfo().homedir')`, 'system_home=$HOME')
@@ -70,6 +70,33 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
    assert.deepEqual(capture.args.slice(capture.args.indexOf('--effort'), capture.args.indexOf('--effort') + 2), ['--effort', 'medium'])
   }
  }
+ const piLauncher = path.join(bin, 'pi-yolo')
+ fs.writeFileSync(piLauncher, launcherFixture, { mode: 0o700 })
+ const piExtensions = path.join(home, '.pi/agent/extensions')
+ fs.mkdirSync(path.join(piExtensions, 'pi-permission-system'), { recursive: true })
+ fs.writeFileSync(path.join(piExtensions, 'pi-permission-system/config.json'), '{}')
+ const pythonGuard = path.join(piExtensions, 'python-inline-guard/index.ts')
+ const missingGuard = spawnSync(piLauncher, [], { cwd: path.join(home, 'Code'), env, encoding: 'utf8' })
+ assert.equal(missingGuard.status, 1)
+ assert.match(missingGuard.stderr, /Python argument guard is missing or changed/)
+ fs.mkdirSync(path.dirname(pythonGuard))
+ const guardSource = fs.readFileSync(path.join(__dirname, '../../pi/extensions/python-inline-guard/index.ts'))
+ fs.writeFileSync(`${pythonGuard}.agent-toolkit.sha256`, createHash('sha256').update(guardSource).digest('hex'))
+ fs.writeFileSync(pythonGuard, '// changed guard\n')
+ const changedGuard = spawnSync(piLauncher, [], { cwd: path.join(home, 'Code'), env, encoding: 'utf8' })
+ assert.equal(changedGuard.status, 1)
+ assert.match(changedGuard.stderr, /Python argument guard is missing or changed/)
+ fs.writeFileSync(pythonGuard, guardSource)
+ fs.writeFileSync(path.join(piExtensions, 'pi-permission-system/config.json'), fs.readFileSync(path.join(__dirname, 'pi-permission-system.json')))
+ fs.writeFileSync(path.join(bin, 'pi'), fake, { mode: 0o700 })
+ const validGuard = spawnSync(piLauncher, [], { cwd: path.join(home, 'Code'), env, encoding: 'utf8' })
+ assert.equal(validGuard.status, 0, validGuard.stderr)
+ const piCapture = JSON.parse(fs.readFileSync(env.CAPTURE))
+ assert.ok(piCapture.args.includes('--no-approve'))
+ const runtimePolicy = JSON.parse(fs.readFileSync(path.join(piCapture.agentDir, 'extensions/pi-permission-system/config.json')))
+ for (const root of [piExtensions, path.join(piCapture.agentDir, 'extensions')]) {
+  assert.equal(runtimePolicy.permission.path[path.join(root, 'python-inline-guard/*')], 'deny')
+ }
  const orcaRules = path.join(home, 'orca-codex-home/rules/agent-safety.rules')
  fs.mkdirSync(path.dirname(orcaRules), { recursive: true })
  fs.symlinkSync(path.join(home, '.codex/rules/agent-safety.rules'), orcaRules)
@@ -78,7 +105,7 @@ else fs.writeFileSync(process.env.CAPTURE,JSON.stringify({args:process.argv.slic
  assert.ok(fs.lstatSync(orcaRules).isFile(), 'Codex rule discovery skips symlinks')
  assert.equal(fs.readFileSync(orcaRules, 'utf8'), 'synthetic policy fixture')
  const cleanupSessions = fs.readFileSync(`${env.CAPTURE}.pg-test`, 'utf8').trim().split('\n')
- assert.equal(cleanupSessions.length, 6)
+ assert.equal(cleanupSessions.length, 8)
  for (let index = 0; index < cleanupSessions.length; index += 2) {
   assert.match(cleanupSessions[index], /^[a-f0-9-]{36}$/)
   assert.match(cleanupSessions[index + 1], /^\d+$/)

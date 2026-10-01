@@ -180,6 +180,12 @@ NODE
     source_web_config_dir=$system_home/.pi
     policy=$source_agent_dir/extensions/pi-permission-system/config.json
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    python_guard=$source_agent_dir/extensions/python-inline-guard/index.ts
+    [[ -f $python_guard && ! -L $python_guard && -f $python_guard.agent-toolkit.sha256 ]] &&
+      [[ $(<"$python_guard.agent-toolkit.sha256") == "$(shasum -a 256 "$python_guard" | awk '{print $1}')" ]] || {
+      printf 'pi-yolo: Python argument guard is missing or changed; run agent-toolkit/install.sh first\n' >&2
+      exit 1
+    }
     working_dir=$(pwd -P)
     case $working_dir in
       "$system_home/Code"|"$system_home/Code/"*|"$system_home/orca/workspaces"|"$system_home/orca/workspaces/"*) ;;
@@ -341,7 +347,7 @@ NODE
 const fs = require("node:fs");
 const path = require("node:path");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *", "python -*c*", "python * -*c*", "python3 -*c*", "python3 * -*c*", "python3.* -*c*", "python3.* * -*c*", "*/python -*c*", "*/python * -*c*", "*/python3 -*c*", "*/python3 * -*c*", "*/python3.* -*c*", "*/python3.* * -*c*", "node -e*", "node -p*", "node -pe*", "node -ep*", "node --eval*", "node --print*", "node * -e*", "node * -p*", "node * --eval*", "node * --print*", "*/node -e*", "*/node -p*", "*/node -pe*", "*/node -ep*", "*/node --eval*", "*/node --print*", "*/node * -e*", "*/node * -p*", "*/node * --eval*", "*/node * --print*", "bash -*c*", "sh -*c*", "dash -*c*", "zsh -*c*", "ksh -*c*", "*/bash -*c*", "*/sh -*c*", "*/dash -*c*", "*/zsh -*c*", "*/ksh -*c*", "eval *", "pi", "pi *", "pi-yolo*", "*/pi", "*/pi *", "*/pi-yolo*", "{ *", "*()*", "if *", "while *", "for *", "case *"]) {
+for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *", "node -e*", "node -p*", "node -pe*", "node -ep*", "node --eval*", "node --print*", "node * -e*", "node * -p*", "node * --eval*", "node * --print*", "*/node -e*", "*/node -p*", "*/node -pe*", "*/node -ep*", "*/node --eval*", "*/node --print*", "*/node * -e*", "*/node * -p*", "*/node * --eval*", "*/node * --print*", "bash -*c*", "sh -*c*", "dash -*c*", "zsh -*c*", "ksh -*c*", "*/bash -*c*", "*/sh -*c*", "*/dash -*c*", "*/zsh -*c*", "*/ksh -*c*", "eval *", "pi", "pi *", "pi-yolo*", "*/pi", "*/pi *", "*/pi-yolo*", "{ *", "*()*", "if *", "while *", "for *", "case *"]) {
   if (config.permission?.bash?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy: ${pattern}`);
 }
 for (const pattern of ["*/.pi/settings.json", "*/.pi/extensions", "*/.pi/extensions/*", "*/.pi/agent/pi-permissions.jsonc", "*/.pi/agents*"]) {
@@ -358,6 +364,10 @@ for (const protectedPath of [
   path.join(runtimeAgentDir, "extensions/pi-permission-system/*"),
   path.join(managedAgentDir, "extensions/pi-permission-system"),
   path.join(managedAgentDir, "extensions/pi-permission-system/*"),
+  path.join(runtimeAgentDir, "extensions/python-inline-guard"),
+  path.join(runtimeAgentDir, "extensions/python-inline-guard/*"),
+  path.join(managedAgentDir, "extensions/python-inline-guard"),
+  path.join(managedAgentDir, "extensions/python-inline-guard/*"),
 ]) config.permission.path[protectedPath] = "deny";
 const temporaryDir = fs.realpathSync(process.argv[6]);
 const reviewRoot = path.join(home, "Code/.agent-toolkit-reports");

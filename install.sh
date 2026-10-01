@@ -503,6 +503,7 @@ install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-pu
 install_link "$repo_dir/pi/extensions/legacy-session-filter" "$pi_agent_dir/extensions/legacy-session-filter"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
 install_link "$repo_dir/pi/extensions/project-blueprint" "$pi_agent_dir/extensions/project-blueprint"
+install_managed_copy "$repo_dir/pi/extensions/python-inline-guard/index.ts" "$pi_agent_dir/extensions/python-inline-guard/index.ts" 600
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/side-question" "$pi_agent_dir/extensions/side-question"
