@@ -27,15 +27,15 @@ for the upstream revision and local differences.
 
 ## Run
 
-In a managed `claude-yolo` session, run `autoreview-yolo` without arguments. The
-fixed launcher validates the installed helper, runs the local review outside Claude's
-network sandbox, and writes unique report files under `AGENT_TOOLKIT_REVIEW_ROOT`.
+In managed Claude sessions, use the expanded absolute path to `~/.local/bin/autoreview-yolo` without arguments.
+In Pi, use the direct `autoreview-yolo` command. The launcher validates the installed helper and writes unique reports under `AGENT_TOOLKIT_REVIEW_ROOT`.
 Do not add arguments or shell operators.
 
-The sandbox exception matches only when `autoreview-yolo` is the complete Bash command.
+Managed Codex sessions cannot run host helpers with the denied-read profile. Ask the user to run the review from a trusted terminal. Keep the sandbox enabled.
+
+The host exception requires the helper as the complete Bash command.
 Change to the reviewed worktree in an earlier Bash call. Do not add `cd`, an environment
-prefix, a redirect, a pipe, or an `&&` chain. A wrapped command runs inside the sandbox,
-where the reviewer cannot write its temporary directory and refuses to start.
+prefix, a redirect, a pipe, or an `&&` chain. Compound commands remain sandboxed.
 
 On other hosts, use `scripts/autoreview` beside this skill. Keep its custom `codex exec`
 path: native `codex review` cannot combine explicit Git target flags with custom

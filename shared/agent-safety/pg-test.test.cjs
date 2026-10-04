@@ -84,7 +84,7 @@ function fixture(major = '17') {
   return moved
  }
  return {
-  main: module.exports.main, calls, home, legacy, owner, scratch, shortTmp, moveToLegacy,
+  main: module.exports.main, calls, home, legacy, owner, scratch, shortTmp, darwinTmp, moveToLegacy,
   set managed(value) { if (value) Object.assign(mockProcess.env, { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }); else { delete mockProcess.env.AGENT_TOOLKIT_SESSION_ID; delete mockProcess.env.AGENT_TOOLKIT_SESSION_PID } },
   set missing(value) { missing = value },
   set ownerAlive(value) { if (value) owners.set(owner.pid, owner.started); else owners.delete(owner.pid) },
@@ -107,7 +107,7 @@ test(`PG${major} fixture lifecycle isolates bootstrap credentials, retains files
  assert.match(started.database_url, /^postgresql:\/\/toolkit_test:[a-f0-9]{48}@127\.0\.0\.1:\d+\/toolkit_test$/)
  assert.equal(fs.statSync(started.path).mode & 0o777, 0o700)
  const config = fs.readFileSync(path.join(started.path, 'data/postgresql.conf'), 'utf8')
- assert.match(config, new RegExp(`unix_socket_directories = '${f.shortTmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/agent-pg-[A-Za-z0-9]{6}'`))
+ assert.match(config, new RegExp(`unix_socket_directories = '${f.darwinTmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/agent-pg-[A-Za-z0-9]{6}'`))
  const record = fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8')
  assert.ok(!record.includes(new URL(started.database_url).password))
  assert.deepEqual(JSON.parse(record).owner, f.owner)

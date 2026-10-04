@@ -1,0 +1,50 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const { spawnSync } = require('node:child_process')
+
+// Run the real installer with isolated homes and offline client/dependency stubs.
+test('installation recovers dangling Toolkit account links but preserves unrelated links', () => {
+  const source = path.resolve(__dirname, '../..')
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'install-migration-'))
+  const repo = path.join(fixture, 'repo')
+  const bin = path.join(fixture, 'bin')
+  fs.cpSync(source, repo, { recursive: true, filter: entry => !['.git', 'node_modules', 'vendor'].includes(path.basename(entry)) })
+  fs.mkdirSync(bin)
+  fs.mkdirSync(path.join(repo, 'vendor/agent-project-blueprint/distribution'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'vendor/agent-project-blueprint/distribution/bootstrap-questionnaire.json'), '{}')
+  for (const relative of ['shared/agent-safety', 'shared/pi-web-access']) fs.symlinkSync(path.join(source, relative, 'node_modules'), path.join(repo, relative, 'node_modules'), 'dir')
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'))
+  fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\nexit 0\n', { mode: 0o700 })
+  const version = fs.readFileSync(path.join(source, 'shared/ponytail/VERSION'), 'utf8').trim()
+  fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\ncase "$*" in\n  "plugin list --json") echo '[{"id":"ponytail@ponytail","scope":"user","enabled":true,"version":"${version}"}]' ;;\n  "plugin marketplace list --json") echo '[]' ;;\nesac\n`, { mode: 0o700 })
+  fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\ncase "$*" in\n  "plugin marketplace list --json") echo \'{"marketplaces":[]}\' ;;\nesac\n', { mode: 0o700 })
+  fs.writeFileSync(path.join(bin, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o700 })
+  for (const owned of [true, false]) {
+    const home = path.join(fixture, owned ? 'owned' : 'unrelated')
+    const rules = path.join(home, '.codex-accounts/business/rules')
+    fs.mkdirSync(rules, { recursive: true })
+    const target = path.join(home, '.codex/rules/agent-safety.rules')
+    const unrelated = path.join(home, 'user-policy.rules')
+    fs.writeFileSync(unrelated, 'user-owned policy')
+    const link = path.join(rules, 'agent-safety.rules')
+    fs.symlinkSync(owned ? target : unrelated, link)
+    const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: fixture, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share') }
+    const result = spawnSync('/bin/bash', [path.join(repo, 'install.sh')], { cwd: repo, env, encoding: 'utf8', timeout: 30000 })
+    if (owned) {
+      assert.equal(result.status, 0, result.stdout + result.stderr)
+      assert.equal(fs.existsSync(link), false)
+      assert.equal(fs.readFileSync(path.join(home, '.local/bin/pi-yolo'), 'utf8'), fs.readFileSync(path.join(repo, 'shared/agent-safety/agent-yolo'), 'utf8'))
+      const backups = fs.readdirSync(path.join(home, '.local/share/agent-toolkit/backups'))
+      assert.equal(backups.length, 1)
+      assert.equal(fs.readlinkSync(path.join(home, '.local/share/agent-toolkit/backups', backups[0], '.codex-accounts/business/rules/agent-safety.rules')), target)
+    } else {
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /refusing to retire unverified symlink/)
+      assert.equal(fs.readlinkSync(link), unrelated)
+    }
+    assert.equal(fs.readFileSync(unrelated, 'utf8'), 'user-owned policy')
+  }
+})

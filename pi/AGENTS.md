@@ -1,5 +1,7 @@
 # Agent Toolkit defaults
 
+Read repository instructions before work. For coding tasks, load Ponytail and keep its requested mode active. Load Test Audit for test changes. Do not depend on executable plugin hooks to supply this guidance.
+
 ## Orca CLI
 
 Resolve the Orca executable without a shell wrapper. On macOS, use `orca` directly. If the platform or executable is unclear, run each required probe as a separate Bash call: `uname -s`, `printenv ORCA_CLI_COMMAND`, or `printenv ORCA_DEV_REPO_ROOT`. Never use `if`, `case`, loops, shell variables, command substitution, or `printf` to select the executable. Write the selected executable directly in every Orca command.
@@ -8,7 +10,7 @@ Resolve the Orca executable without a shell wrapper. On macOS, use `orca` direct
 
 When an agent runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
 Use the GitHub CLI inspection commands and the bounded pull-request tools for GitHub pull requests and Actions. Do not open a browser for these tasks unless the user explicitly asks for it.
-Pass static browser values as direct quoted arguments. Never hide them behind shell variables, command substitution, or `printf` escapes; the permission parser correctly treats those wrappers as opaque. For example, use `orca fill ... --value '/runtime'` directly.
+Pass static browser values as direct quoted arguments. For example, use `orca fill ... --value '/runtime'` directly. Do not grant raw host-control sockets access through a development sandbox. A host terminal broker can run commands outside that sandbox.
 
 ## Agent delegation
 
@@ -22,18 +24,19 @@ Review exception: `autoreview` uses its Codex CLI engine with `gpt-6.1-sol` at h
 
 A hard permission denial is not an approval prompt. Chat approval does not update the runtime policy. Do not retry an unchanged denied command, ask for ineffective chat approval, or claim that restarting the same launcher will fix it. For ordinary scratch work, use the authorized scratch directory. If the task requires the denied location itself, report the exact missing permission; do not change policy from inside the session or work around the restriction with another tool.
 
-## Prompt-free shell commands
-
-Permission prompts block unattended orchestration. Never put programs in opaque inline interpreter arguments such as `python -c`, `python3 -c`, `node -e`, `node -p`, `bash -c`, `sh -c`, or `eval`. Do not use command-running indirection such as `xargs`, `find -exec`, or `env` when a direct command works. Use the native read, search, and edit tools first. For multi-line local analysis, write a short script under the authorized scratch directory with the native write tool, then run the interpreter on that script path.
-
 ## Development access
 
-The managed launchers combine host-native sandboxing with the toolkit Git guard and policy. Source edits and reload commands do not update that installation. Run `./install.sh` from a trusted human terminal, then start a fresh session.
+Start managed sessions in a repository or folder under `~/Code` or `~/orca/workspaces`, not in either root directory. The launcher selects one workspace and creates private scratch, cache, and review directories. Do not route worker commands across repositories.
 
-Ordinary development is allowed under `~/Code` and `~/orca/workspaces`. Start each Orca worker in the worktree it owns instead of routing shell commands across repositories. Native permission denials remain authoritative.
-Dependencies and hooks run as the local account. The permission extension is a decision layer, not an operating-system sandbox. It does not authorize secrets, production access, publication, deployment, destructive operations, global installation, or administration of existing databases.
-Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if those boundaries are unclear. Do not weaken guards to pass a test.
-For reviewed, unchanged tracked files in an owned worktree, use `repo-delete -- path/to/file` after a full installation and fresh session. It rejects directories, symlinks, hidden paths, untracked or modified files, and paths outside the worktree. It requires raw worktree bytes to match the committed blob, so clean CRLF or filtered files may need human deletion. Do not use it on files with concurrent writers: a write through an already-open descriptor can race with deletion. Do not use it as a workaround for a denial in the current session.
+Use native file tools for edits and inspection. Ordinary shell commands, inline programs, builds, tests, and generated-file cleanup are permitted inside the assigned workspace. Remove only files that the task requires. Preserve unrelated changes and untracked work. The sandbox limits the affected directories, but it cannot prevent loss of work inside them.
+
+Codex uses its native permission profile. Claude uses restricted file tools and its native Bash sandbox. Pi uses its permission package for file tools and Codex's OS sandbox for Bash and user shell commands. Neither command syntax nor a Git wrapper is the security boundary.
+
+Installed extensions, native clients, and frontend services remain trusted host programs. Do not install unreviewed extensions or grant arbitrary terminal, Docker, or administration brokers automatic access. Do not export production credentials into development sessions. Local services remain reachable through loopback access.
+
+These permissions do not authorize production access, publication, deployment, global installation, or administration of existing databases. Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if those boundaries are unclear. Keep test credentials in the private session directory, not in committed files.
+
+Source edits and reload commands do not update the installed boundary. Run `./install.sh` from a trusted human terminal. Then start fresh managed sessions. Do not repair live permissions from a restricted session.
 
 ## Disposable PostgreSQL tests
 
@@ -57,8 +60,9 @@ Fixtures live in `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures`. Postgre
 Managed sessions record the session process as the fixture owner. Fixtures started outside a managed session have no owner.
 Garbage collection runs before each start and after a managed session ends. It stops a cluster when its recorded owner process is gone. It stops a running ownerless cluster only after two hours. It removes a stopped fixture only when its record is more than three days old. It preserves and reports records with changed, ambiguous, or invalid identities. Run `pg-test gc` to collect garbage at any time.
 The `status` and `stop` commands also find clusters in the older temporary-directory roots. If an ID exists in more than one root, these commands refuse it.
-When you finish with a cluster, run `pg-test stop <id>`. This command is important for clusters started outside a managed session. In managed Claude sessions, the `pg-test` start, `status`, `stop`, and `gc` commands run outside the sandbox. This exception applies only when `pg-test` is the complete command. Do not put `pg-test` in a pipeline, an `&&` chain, `$(...)`, or a script. In those forms, the sandbox blocks `/bin/ps` and `pg-test` fails. Managed launchers also stop session-owned clusters when the session exits.
+When you finish with a cluster, run `pg-test stop <id>`. This command is important for clusters started outside a managed session. For the bounded host exception in Claude, use the absolute installed path: `~/.local/bin/pg-test`. In Pi, the direct `pg-test` command also uses this exception. Use the helper as the complete command. Pipelines, redirects, wrappers, and compound commands remain sandboxed. Managed launchers also stop session-owned clusters when the session exits.
 For a repository that exposes the exact `test:pg18-fresh` and `test:pg18-fresh:built` scripts, use `pg18-fresh-yolo` without arguments when the host test itself must launch PostgreSQL. It installs from only the manifest and lockfile with pnpm hooks and lifecycle scripts disabled, then runs the update and verification in an isolated Docker workspace with no test-time network. The source is mounted read-only for copying, and only the generated security inventory is copied back. The helper accepts `test:pg18-fresh:built` only as `vitest run --config vitest.pg18-fresh.config.ts` or `TMPDIR=/tmp vitest run --config vitest.pg18-fresh.config.ts`. The `TMPDIR=/tmp` form keeps macOS host socket paths short.
+Managed Codex sessions cannot run these host helpers with the denied-read profile. Ask the user to run them from a trusted terminal. Do not disable the sandbox.
 Do not replace these helpers with raw PostgreSQL commands, Homebrew writes, or deletion commands. Do not install or repair live permissions from a restricted session.
 A missing helper requires the reviewed toolkit installation from a trusted human shell, then a new session. `/reload` does not install it.
 
@@ -66,7 +70,7 @@ A missing helper requires the reviewed toolkit installation from a trusted human
 
 When `AGENT_TOOLKIT_REVIEW_ROOT` is set, put review and Security handoff results in a unique subdirectory of that root, not an arbitrary temporary directory. Before starting a reviewer, use the native read tool on its `.read-probe.txt`. If the variable is set and the read is denied, stop before spending review quota and request a restart through the updated launcher. Do not substitute shell reads or widen permissions. Reload commands do not regenerate runtime policy.
 
-In a managed Claude session, run `autoreview-yolo` without arguments. It runs outside the sandbox only when `autoreview-yolo` is the complete Bash command. Change to the reviewed worktree in an earlier Bash call. Do not add `cd`, an environment prefix, a redirect, a pipe, or an `&&` chain. Wrapped forms run inside the sandbox, where the reviewer cannot write its temporary directory and refuses to start. It validates the installed helper and provides unique report and status paths outside the reviewed repository. On other hosts, prefer the `autoreview` helper defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
+Run `~/.local/bin/autoreview-yolo` without arguments as the complete command. In Pi, the direct `autoreview-yolo` command also uses the bounded host exception. Do not add an environment prefix, redirect, pipe, or compound command. For `pg18-fresh-yolo`, use the same absolute-path rule. It validates the installed helper and provides unique report and status paths outside the reviewed repository. On other hosts, prefer the `autoreview` helper defaults. Verify the final status and report; a process ID is not completion evidence. Existing temporary reports still require explicit access approval.
 
 ## Response formatting
 

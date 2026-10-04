@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, readFile, readlink, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -304,13 +304,22 @@ test("activates only a logged-in Codex profile", async () => {
 		assert.equal(piAccountEmail(piHome), "developer@example.com")
 		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "safety-policy-missing" })
 
-		const sharedPolicy = join(sharedHome, "rules", "agent-safety.rules")
+		const sharedPolicy = join(sharedHome, "rules", "agent-toolkit-development.rules")
 		await mkdir(join(sharedHome, "rules"), { recursive: true })
 		await writeFile(sharedPolicy, "policy")
 
 		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { home: profileHome })
-		assert.equal(await readlink(join(profileHome, "rules", "agent-safety.rules")), sharedPolicy)
+		const profilePolicy = join(profileHome, "rules", "agent-toolkit-development.rules")
+		assert.equal((await lstat(profilePolicy)).isSymbolicLink(), false)
+		assert.equal(await readFile(profilePolicy, "utf8"), "policy")
 		assert.equal(process.env.CODEX_HOME, profileHome)
+		await writeFile(profilePolicy, "changed policy")
+		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "safety-policy-missing" })
+		assert.equal(await readFile(profilePolicy, "utf8"), "changed policy")
+		await rm(profilePolicy)
+		await symlink(sharedPolicy, profilePolicy)
+		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "safety-policy-missing" })
+		assert.equal(await readFile(sharedPolicy, "utf8"), "policy")
 	} finally {
 		if (original === undefined) delete process.env.CODEX_HOME
 		else process.env.CODEX_HOME = original

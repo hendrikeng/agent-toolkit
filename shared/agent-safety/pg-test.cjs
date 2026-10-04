@@ -263,7 +263,9 @@ async function main(args) {
  const owner = sessionOwner(fixtures)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
- const data = path.join(root, 'data'), socket = path.join(fs.realpathSync(os.tmpdir()), `agent-pg-${path.basename(root).slice(5)}`)
+ // Managed session scratch paths can exceed Unix socket limits. Use the private host temp directory on macOS.
+ const temporary = os.platform() === 'darwin' ? execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 5000 }).trim() : os.tmpdir()
+ const data = path.join(root, 'data'), socket = path.join(fs.realpathSync(temporary), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
  const migration = action === 'start-migration'
  const role = 'toolkit_test'

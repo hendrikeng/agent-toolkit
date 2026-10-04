@@ -4,14 +4,12 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cd "$repo_dir"
 
 [[ $# -eq 0 ]] || { printf 'Usage: ./verify.sh\n' >&2; exit 2; }
-for script in install.sh update.sh shared/agent-safety/agent-yolo shared/agent-safety/git-yolo-guard; do
+for script in install.sh update.sh shared/agent-safety/agent-yolo; do
   bash -n "$script"
 done
-for script in shared/agent-safety/configure.cjs shared/agent-safety/pg-test.cjs shared/agent-safety/pg18-fresh-yolo.cjs; do
+for script in shared/agent-safety/configure.cjs shared/agent-safety/development-policy.cjs shared/agent-safety/pg-test.cjs shared/agent-safety/pg18-fresh-yolo.cjs; do
   node --check "$script"
 done
-node -e 'JSON.parse(require("node:fs").readFileSync("shared/agent-safety/pi-permission-system.json", "utf8"))'
-node shared/agent-safety/configure.cjs --self-test
 node --test shared/agent-safety/*.test.cjs
 extension_tests=()
 for test_file in pi/extensions/*/tests/*.test.ts; do

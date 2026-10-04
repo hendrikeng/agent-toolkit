@@ -1,294 +1,47 @@
 #!/usr/bin/env node
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const pathModule = require("node:path");
-const os = require("node:os");
+'use strict'
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+const { parse, stringify } = require('smol-toml')
 
-const CLAUDE_YOLO_ONLY_DENY = "Bash(dangerouslyDisableSandbox:true)";
-
-function canonicalPath(value) {
-  let current = pathModule.resolve(value);
-  const missing = [];
-  while (true) {
-    try { return pathModule.join(fs.realpathSync(current), ...missing.reverse()); }
-    catch (error) {
-      if (error.code !== "ENOENT" || pathModule.dirname(current) === current) throw error;
-      missing.push(pathModule.basename(current));
-      current = pathModule.dirname(current);
-    }
-  }
+// Installation cleanup only: these old Toolkit rules must not survive the rewrite.
+const retired = new Set()
+for (const command of ['rm *', 'rmdir *', 'unlink *', 'shred *', 'truncate *', 'dd *', 'sudo *', 'find * -delete*', 'git clean *', 'git reset --hard', 'git reset --hard *', 'git checkout -- *', 'git restore *', 'git branch -D *', 'git branch -d*', 'git branch --delete*', 'git push *--force*', 'git push -f*', 'git push * -f*', 'git push -*', 'git -* clean*', 'git -* reset --hard*', 'git -* checkout -- *', 'git -* restore *', 'git -* branch -D *', 'git -* branch -d*', 'git -* branch --delete*', 'git -* push *--force*', 'git -* push -f*', 'git -* push * -f*', 'env *', 'bash -c *', 'sh -c *', 'zsh -c *']) {
+  retired.add(`Bash(${command})`)
+  retired.add(`Bash(*/${command})`)
 }
-
-const DENY_RULES = [
-  "Bash(rm *)",
-  "Bash(*/rm *)",
-  "Bash(rmdir *)",
-  "Bash(*/rmdir *)",
-  "Bash(unlink *)",
-  "Bash(*/unlink *)",
-  "Bash(shred *)",
-  "Bash(*/shred *)",
-  "Bash(truncate *)",
-  "Bash(*/truncate *)",
-  "Bash(dd *)",
-  "Bash(*/dd *)",
-  "Bash(find * -delete*)",
-  "Bash(*/find * -delete*)",
-  "Bash(sudo *)",
-  "Bash(*/sudo *)",
-  "Bash(git clean *)",
-  "Bash(*/git clean *)",
-  "Bash(git reset --hard)",
-  "Bash(git reset --hard *)",
-  "Bash(*/git reset --hard)",
-  "Bash(*/git reset --hard *)",
-  "Bash(git checkout -- *)",
-  "Bash(*/git checkout -- *)",
-  "Bash(git restore *)",
-  "Bash(*/git restore *)",
-  "Bash(git branch -D *)",
-  "Bash(git branch -d*)",
-  "Bash(git branch --delete*)",
-  "Bash(*/git branch -D *)",
-  "Bash(*/git branch -d*)",
-  "Bash(*/git branch --delete*)",
-  "Bash(git push *--force*)",
-  "Bash(*/git push *--force*)",
-  "Bash(git push -f*)",
-  "Bash(git push * -f*)",
-  "Bash(*/git push -f*)",
-  "Bash(*/git push * -f*)",
-  "Bash(git -* clean*)",
-  "Bash(*/git -* clean*)",
-  "Bash(git -* reset --hard*)",
-  "Bash(*/git -* reset --hard*)",
-  "Bash(git -* checkout -- *)",
-  "Bash(*/git -* checkout -- *)",
-  "Bash(git -* restore *)",
-  "Bash(*/git -* restore *)",
-  "Bash(git -* branch -D *)",
-  "Bash(git -* branch -d*)",
-  "Bash(git -* branch --delete*)",
-  "Bash(*/git -* branch -D *)",
-  "Bash(*/git -* branch -d*)",
-  "Bash(*/git -* branch --delete*)",
-  "Bash(git -* push *--force*)",
-  "Bash(*/git -* push *--force*)",
-  "Bash(git -* push -f*)",
-  "Bash(git -* push * -f*)",
-  "Bash(*/git -* push -f*)",
-  "Bash(*/git -* push * -f*)",
-  "Bash(command *)",
-  "Bash(exec *)",
-  "Bash(builtin *)",
-  "Bash(env *)",
-  "Bash(*/env *)",
-  "Bash(bash -c *)",
-  "Bash(sh -c *)",
-  "Bash(zsh -c *)",
-  "Bash(*/bash -c *)",
-  "Bash(*/sh -c *)",
-  "Bash(*/zsh -c *)",
-];
-
-const LEGACY_ASK_RULES = [
-  ...DENY_RULES,
-  "Bash(git -*)",
-  "Bash(*/git *)",
-];
-
-const ASK_RULES = ["Bash(git push -*)", "Bash(*/git push -*)"];
-
-function parseJsonc(text) {
-  let output = "";
-  let string = false;
-  let escaped = false;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (string) {
-      output += char;
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') string = false;
-      continue;
-    }
-    if (char === '"') {
-      string = true;
-      output += char;
-    } else if (char === "/" && text[i + 1] === "/") {
-      while (i < text.length && text[i] !== "\n") i++;
-      output += "\n";
-    } else if (char === "/" && text[i + 1] === "*") {
-      i += 2;
-      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
-      i++;
-    } else if (char === "}" || char === "]") {
-      let end = output.length;
-      while (/\s/.test(output[end - 1] ?? "")) end--;
-      if (output[end - 1] === ",") output = output.slice(0, end - 1) + output.slice(end);
-      output += char;
-    } else {
-      output += char;
-    }
-  }
-  return JSON.parse(output);
+for (const command of ['command *', 'exec *', 'builtin *', 'git -*', '*/git *', 'dangerouslyDisableSandbox:true']) retired.add(`Bash(${command})`)
+function configureClaude(text, home = os.homedir()) {
+  const errors = []
+  const settings = text.trim() ? require('jsonc-parser').parse(text, errors, { allowTrailingComma: true }) : {}
+  if (errors.length) throw Error('Invalid Claude settings JSON')
+  const oldRoots = [path.join(home, 'Code'), path.join(home, 'orca/workspaces')]
+  const permissions = settings.permissions || {}
+  for (const surface of ['allow', 'ask', 'deny']) if (permissions[surface]) permissions[surface] = permissions[surface].filter(rule => !retired.has(rule))
+  if (permissions.additionalDirectories) permissions.additionalDirectories = permissions.additionalDirectories.filter(value => !oldRoots.includes(value))
+  settings.permissions = permissions
+  const sandbox = settings.sandbox || {}
+  if (sandbox.filesystem?.allowWrite) sandbox.filesystem.allowWrite = sandbox.filesystem.allowWrite.filter(value => !oldRoots.includes(value))
+  settings.sandbox = { ...sandbox, enabled: true, autoAllowBashIfSandboxed: true, failIfUnavailable: true, allowUnsandboxedCommands: false }
+  settings.attribution = { ...settings.attribution, commit: '' }
+  return JSON.stringify(settings, null, 2) + '\n'
 }
-
-function configureClaude(text) {
-  const settings = text.trim() ? parseJsonc(text) : {};
-  const trustedRoots = [pathModule.join(os.homedir(), "Code"), pathModule.join(os.homedir(), "orca/workspaces")];
-  settings.sandbox = {
-    ...settings.sandbox,
-    enabled: true,
-    autoAllowBashIfSandboxed: true,
-    allowUnsandboxedCommands: settings.sandbox?.allowUnsandboxedCommands === false ? false : true,
-    failIfUnavailable: true,
-    filesystem: {
-      ...settings.sandbox?.filesystem,
-      allowWrite: [...new Set([...(settings.sandbox?.filesystem?.allowWrite ?? []), ...trustedRoots])],
-    },
-  };
-  settings.permissions = {
-    ...settings.permissions,
-    ask: [...new Set([...(settings.permissions?.ask ?? []).filter((rule) => !LEGACY_ASK_RULES.includes(rule)), ...ASK_RULES])],
-    deny: [...new Set([...(settings.permissions?.deny ?? []).filter((rule) => rule !== CLAUDE_YOLO_ONLY_DENY), ...DENY_RULES])],
-    additionalDirectories: [...new Set([...(settings.permissions?.additionalDirectories ?? []), ...trustedRoots])],
-  };
-  settings.attribution = { ...settings.attribution, commit: "" };
-  return `${JSON.stringify(settings, null, 2)}\n`;
-}
-
-function configurePi(text, toolkitDir, piAgentDir, piWebConfigDir) {
-  const paths = [toolkitDir, piAgentDir, piWebConfigDir];
-  if (paths.some((value) => !pathModule.isAbsolute(value))) throw new Error("Pi safety paths must be absolute");
-  if (paths.some((value) => /[*?]/.test(value))) throw new Error("Pi safety paths cannot contain permission glob characters");
-
-  const settings = JSON.parse(text);
-  const home = os.homedir();
-  const toolkit = canonicalPath(toolkitDir);
-  const agentDir = canonicalPath(piAgentDir);
-  const webConfigDir = canonicalPath(piWebConfigDir);
-  settings.yoloMode = false;
-  settings.permission.external_directory = { "*": "deny" };
-  for (const root of [pathModule.join(home, "Code"), pathModule.join(home, "orca/workspaces"), pathModule.join(home, "Code/.agent-toolkit-reports")]) {
-    settings.permission.external_directory[root] = "allow";
-    settings.permission.external_directory[pathModule.join(root, "*")] = "allow";
-  }
-  settings.piInfrastructureReadPaths = [
-    pathModule.join(toolkit, "codex/skills"),
-    pathModule.join(toolkit, "pi/skills"),
-    pathModule.join(agentDir, "git/github.com/DietrichGebert/ponytail/skills"),
-    pathModule.join(home, ".agents/skills"),
-    pathModule.join(home, ".claude/skills"),
-    pathModule.join(home, ".codex/skills"),
-  ];
-  for (const protectedPath of [
-    pathModule.join(agentDir, "auth.json"),
-    pathModule.join(agentDir, "auth-profiles"),
-    pathModule.join(agentDir, "auth-profiles/*"),
-    pathModule.join(agentDir, "codex-fast.json"),
-    pathModule.join(webConfigDir, "web-search.json"),
-  ]) settings.permission.path[protectedPath] = "deny";
-  return `${JSON.stringify(settings, null, 2)}\n`;
-}
-
 function configureCodex(text) {
-  if (text.includes("'''") || text.includes('\"\"\"')) {
-    throw new Error("refusing to rewrite Codex TOML containing multiline strings");
-  }
-  const table = text.search(/^[ \t]*\[{1,2}[^\]\r\n]+\]{1,2}[ \t]*(?:#[^\r\n]*)?$/m);
-  let head = table < 0 ? text : text.slice(0, table);
-  const tail = table < 0 ? "" : text.slice(table);
-  if (/^[ \t]*(?:(?:default_permissions|permission_profile|profile)|["'](?:default_permissions|permission_profile|profile)["'])[ \t]*=/m.test(head)) {
-    throw new Error("refusing Codex permission profiles; configure the selected profile directly");
-  }
-  if (/^[ \t]*["'](?:sandbox_mode|approval_policy)["'][ \t]*=/m.test(head)) {
-    throw new Error("refusing quoted Codex safety keys");
-  }
-
-  if (/^[ \t]*sandbox_mode\s*=\s*(["'])read-only\1[ \t]*(?:#[^\r\n]*)?$/m.test(head)) {
-    // Preserve a stricter user policy.
-  } else if (/^[ \t]*sandbox_mode\s*=/m.test(head)) {
-    head = head.replace(/^[ \t]*sandbox_mode\s*=.*$/m, 'sandbox_mode = "workspace-write"');
-  } else {
-    head = `sandbox_mode = "workspace-write"\n${head}`;
-  }
-
-  if (/^[ \t]*approval_policy\s*=\s*(["'])untrusted\1[ \t]*(?:#[^\r\n]*)?$/m.test(head) || /^[ \t]*approval_policy\s*=\s*\{/m.test(head)) {
-    // Preserve stricter or granular user policies.
-  } else if (/^[ \t]*approval_policy\s*=/m.test(head)) {
-    head = head.replace(/^[ \t]*approval_policy\s*=.*$/m, 'approval_policy = "on-request"');
-  } else {
-    head = `approval_policy = "on-request"\n${head}`;
-  }
-
-  return `${head.replace(/\s+$/, "")}\n\n${tail.replace(/^\s+/, "")}`.replace(/\n+$/, "\n");
+  const settings = parse(text)
+  const permissions = settings.sandbox_mode === 'read-only' ? ':read-only' : ':workspace'
+  delete settings.sandbox_mode
+  delete settings.sandbox_workspace_write
+  if (!settings.default_permissions) settings.default_permissions = permissions
+  if (!settings.approval_policy || ['never', 'untrusted'].includes(settings.approval_policy)) settings.approval_policy = 'on-request'
+  return stringify(settings)
 }
-
-if (process.argv[2] === "--self-test") {
-  const claude = JSON.parse(configureClaude('{// keep values\n"permissions":{"ask":["Bash(custom *)","Bash(git -*)",],},}'));
-  assert.equal(claude.sandbox.enabled, true);
-  assert.equal(claude.attribution.commit, "");
-  assert.deepEqual(claude.permissions.ask, ["Bash(custom *)", ...ASK_RULES]);
-  assert.equal(claude.permissions.deny.includes("Bash(rm *)"), true);
-  assert.equal(claude.permissions.deny.includes(CLAUDE_YOLO_ONLY_DENY), false);
-  assert.equal(claude.sandbox.allowUnsandboxedCommands, true);
-  assert.equal(claude.permissions.deny.includes("Bash(git -* clean*)"), true);
-  assert.equal(claude.permissions.deny.includes("Bash(git push -f*)"), true);
-  assert.equal(claude.permissions.deny.includes("Bash(git push *-f*)"), false);
-  assert.equal(claude.permissions.additionalDirectories.some((value) => value.endsWith("/Code")), true);
-  assert.equal(claude.sandbox.filesystem.allowWrite.some((value) => value.endsWith("/orca/workspaces")), true);
-  const piDefaults = fs.readFileSync(pathModule.join(__dirname, "pi-permission-system.json"), "utf8");
-  const pi = JSON.parse(configurePi(piDefaults, "/toolkit", "/pi-agent", "/pi-config"));
-  assert.deepEqual(pi.piInfrastructureReadPaths.slice(0, 2), [
-    "/toolkit/codex/skills",
-    "/toolkit/pi/skills",
-  ]);
-  assert.equal(pi.piInfrastructureReadPaths.includes("/pi-agent/git/github.com/DietrichGebert/ponytail/skills"), true);
-  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/.agents/skills")), true);
-  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/Code")), false);
-  assert.equal(pi.piInfrastructureReadPaths.some((value) => value.endsWith("/orca/workspaces")), false);
-  assert.equal(pi.yoloMode, false);
-  assert.equal(pi.permission.bash['*'], 'allow');
-  for (const command of ['node -e*', 'node -p*', 'node -pe*', 'node -ep*', 'node --eval*', 'node --print*', 'node * -e*', 'node * -p*', 'node * --eval*', 'node * --print*', '*/node -e*', '*/node -p*', '*/node -pe*', '*/node -ep*', '*/node --eval*', '*/node --print*', '*/node * -e*', '*/node * -p*', '*/node * --eval*', '*/node * --print*', 'bash -*c*', 'sh -*c*', 'dash -*c*', 'zsh -*c*', 'ksh -*c*', '*/bash -*c*', '*/sh -*c*', '*/dash -*c*', '*/zsh -*c*', '*/ksh -*c*', 'eval *', 'pi', 'pi *', 'pi-yolo*', '*/pi', '*/pi *', '*/pi-yolo*', '{ *', '*()*', '!*', 'time *', 'coproc *', 'select *', 'if *', 'while *', 'until *', 'for *', 'case *', 'function *']) assert.equal(pi.permission.bash[command], 'deny');
-  assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'Code', '*')], 'allow');
-  assert.equal(pi.permission.external_directory[pathModule.join(os.homedir(), 'orca/workspaces', '*')], 'allow');
-  assert.equal(pi.permission.path["*.env"], "deny");
-  assert.equal(pi.permission.path["*/.git/config"], "deny");
-  assert.equal(pi.permission.path["*/.pi/settings.json"], "deny");
-  assert.equal(pi.permission.path["*/.pi/extensions/*"], "deny");
-  assert.equal(pi.permission.path["*/.pi/agents*"], "deny");
-  assert.equal(pi.permission.path["/pi-agent/auth.json"], "deny");
-  assert.equal(pi.permission.path["/pi-agent/auth-profiles"], "deny");
-  assert.equal(pi.permission.path["/pi-agent/auth-profiles/*"], "deny");
-  assert.equal(pi.permission.path["/pi-agent/codex-fast.json"], "deny");
-  assert.equal(pi.permission.path["/pi-config/web-search.json"], "deny");
-  const canonicalRoot = fs.mkdtempSync(pathModule.join(os.tmpdir(), "agent-safety-canonical-"));
-  const canonicalAgent = pathModule.join(canonicalRoot, "agent");
-  const agentAlias = pathModule.join(canonicalRoot, "agent-alias");
-  fs.mkdirSync(canonicalAgent);
-  fs.symlinkSync(canonicalAgent, agentAlias);
-  const canonicalPi = JSON.parse(configurePi(piDefaults, "/toolkit", pathModule.join(agentAlias, "missing"), "/pi-config"));
-  assert.equal(canonicalPi.permission.path[pathModule.join(canonicalAgent, "missing/auth.json")], "deny");
-  assert.throws(() => configurePi(piDefaults, "/tool?kit", "/pi-agent", "/pi-config"));
-  assert.match(configureCodex('sandbox_mode = "danger-full-access"\napproval_policy = "never"\n\n[features]\nhooks = true\n'), /^sandbox_mode = "workspace-write"\napproval_policy = "on-request"/);
-  assert.match(configureCodex("  sandbox_mode = 'read-only' # keep\n  approval_policy = 'untrusted' # keep\n"), /sandbox_mode = 'read-only' # keep\n  approval_policy = 'untrusted' # keep/);
-  assert.match(configureCodex('[profiles.unsafe] # local\nsandbox_mode = "danger-full-access"\n'), /^approval_policy = "on-request"\nsandbox_mode = "workspace-write"/);
-  assert.throws(() => configureCodex('note = """\nsandbox_mode = "read-only"\n"""\n'));
-  assert.throws(() => configureCodex('permission_profile = "default"\n'));
-  assert.throws(() => configureCodex('profile = "unsafe"\n[profiles.unsafe]\nsandbox_mode = "danger-full-access"\n'));
-  assert.throws(() => configureCodex("'profile' = 'unsafe'\n[profiles.unsafe]\nsandbox_mode = 'danger-full-access'\n"));
-  assert.throws(() => configureCodex("'sandbox_mode' = 'read-only'\n"));
-  assert.match(configureCodex('[mcp_servers.foo.env]\nprofile = "dev"\n'), /^approval_policy = "on-request"\nsandbox_mode = "workspace-write"/);
-  console.log("agent-safety configure self-test passed");
-  process.exit(0);
+module.exports = { configureClaude, configureCodex }
+if (require.main === module) {
+  const [host, target] = process.argv.slice(2)
+  try {
+    if (!['claude', 'codex'].includes(host) || !target) throw Error('Usage: configure.cjs claude|codex <configuration file>')
+    const text = fs.readFileSync(target, 'utf8')
+    fs.writeFileSync(target, host === 'claude' ? configureClaude(text) : configureCodex(text))
+  } catch (error) { console.error(error.message); process.exitCode = 1 }
 }
-
-const [, , host, path, extra, piAgentDir, piWebConfigDir] = process.argv;
-if (!path || !["claude", "codex", "pi"].includes(host) || (host === "pi" && (!extra || !piAgentDir || !piWebConfigDir))) {
-  console.error("usage: configure.cjs <claude|codex|pi> <path> [toolkit-dir pi-agent-dir pi-web-config-dir]");
-  process.exit(2);
-}
-const text = fs.readFileSync(path, "utf8");
-const configured = host === "claude" ? configureClaude(text) : host === "codex" ? configureCodex(text) : configurePi(text, extra, piAgentDir, piWebConfigDir);
-fs.writeFileSync(path, configured);

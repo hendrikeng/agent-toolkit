@@ -2,15 +2,12 @@
 set -euo pipefail
 
 system_home=$(node -p 'require("node:os").userInfo().homedir')
-trusted_roots=()
-for root in "$system_home/Code" "$system_home/orca/workspaces"; do
-  [[ ! -d $root ]] || trusted_roots+=("$root")
-done
+policy_helper=$system_home/.local/libexec/agent-toolkit/development-policy.cjs
 
 verify_agent_rules() {
   agent_rules=$system_home/.local/libexec/agent-toolkit/AGENTS.md
   marker=$agent_rules.agent-toolkit.sha256
-  [[ -f $agent_rules && -f $marker ]] || { printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1; }
+  [[ -f $agent_rules && ! -L $agent_rules && -f $marker && ! -L $marker ]] || { printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1; }
   [[ $(<"$marker") == "$(shasum -a 256 "$agent_rules" | awk '{print $1}')" ]] || {
     printf '%s: installed agent rules failed their integrity check\n' "${0##*/}" >&2
     exit 1
@@ -26,26 +23,22 @@ start_pg_test_session() {
   fi
 }
 
-enable_git_guard() {
-  guard=$system_home/.local/libexec/agent-toolkit/git
-  marker=$guard.agent-toolkit.sha256
-  [[ -x $guard && -f $marker ]] || { printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1; }
-  [[ $(<"$marker") == "$(shasum -a 256 "$guard" | awk '{print $1}')" ]] || {
-    printf '%s: installed Git guard failed its integrity check\n' "${0##*/}" >&2
-    exit 1
+prepare_development() {
+  marker=$policy_helper.agent-toolkit.sha256
+  [[ -f $policy_helper && ! -L $policy_helper && -f $marker && ! -L $marker && $(shasum -a 256 "$policy_helper" | awk '{print $1}') == "$(<"$marker")" ]] || {
+    printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1;
   }
-  # These inherited transport settings are already fixed arguments in the managed guard.
-  # Leave every other override untouched so the guard continues to reject it.
-  if [[ ${GIT_CONFIG_COUNT:-} == 2 && ${GIT_CONFIG_VALUE_0:-} == false && ${GIT_CONFIG_VALUE_1:-} == false ]] &&
-     { [[ ${GIT_CONFIG_KEY_0:-} == credential.interactive && ${GIT_CONFIG_KEY_1:-} == credential.guiPrompt ]] ||
-       [[ ${GIT_CONFIG_KEY_1:-} == credential.interactive && ${GIT_CONFIG_KEY_0:-} == credential.guiPrompt ]]; }; then
-    grep -q '^GIT_TERMINAL_PROMPT=0 exec .* -c credential.interactive=false -c credential.guiPrompt=false ' "$guard" || {
-      printf '%s: installed Git guard must preserve non-interactive credentials; update it first\n' "${0##*/}" >&2
-      exit 1
-    }
-    unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
-  fi
-  PATH="${guard%/git}:$PATH"
+  AGENT_TOOLKIT_WORKSPACE=$(node "$policy_helper" workspace "$system_home")
+  AGENT_TOOLKIT_SESSION_DIR=$(node "$policy_helper" prepare "$system_home")
+  export AGENT_TOOLKIT_WORKSPACE AGENT_TOOLKIT_SESSION_DIR
+  export TMPDIR=$AGENT_TOOLKIT_SESSION_DIR/tmp XDG_CACHE_HOME=$AGENT_TOOLKIT_SESSION_DIR/cache
+  export npm_config_cache=$XDG_CACHE_HOME/npm UV_CACHE_DIR=$XDG_CACHE_HOME/uv PIP_CACHE_DIR=$XDG_CACHE_HOME/pip
+  export COREPACK_HOME=$XDG_CACHE_HOME/corepack PLAYWRIGHT_BROWSERS_PATH=$XDG_CACHE_HOME/playwright
+  export AGENT_TOOLKIT_REVIEW_ROOT=$AGENT_TOOLKIT_SESSION_DIR/reviews
+  GIT_CONFIG_GLOBAL=$(node "$policy_helper" git-config "$AGENT_TOOLKIT_SESSION_DIR" "$system_home")
+  export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM=1 xcrun_nocache=1
+  cd "$AGENT_TOOLKIT_WORKSPACE"
+  start_pg_test_session
 }
 
 case ${0##*/} in
@@ -53,7 +46,7 @@ case ${0##*/} in
     [[ $# -eq 0 ]] || { printf 'pg18-fresh-yolo: arguments are disabled\n' >&2; exit 2; }
     helper=$system_home/.local/libexec/agent-toolkit/pg18-fresh-yolo
     marker=$helper.agent-toolkit.sha256
-    [[ -x $helper && -f $marker ]] || { printf 'pg18-fresh-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    [[ -x $helper && ! -L $helper && -f $marker && ! -L $marker ]] || { printf 'pg18-fresh-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
     [[ $(<"$marker") == "$(shasum -a 256 "$helper" | awk '{print $1}')" ]] || {
       printf 'pg18-fresh-yolo: installed helper failed its integrity check\n' >&2
       exit 1
@@ -64,7 +57,7 @@ case ${0##*/} in
     [[ $# -eq 0 ]] || { printf 'autoreview-yolo: arguments are disabled\n' >&2; exit 2; }
     helper=$system_home/.local/libexec/agent-toolkit/autoreview
     marker=$helper.agent-toolkit.sha256
-    [[ -x $helper && -f $marker ]] || { printf 'autoreview-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
+    [[ -x $helper && ! -L $helper && -f $marker && ! -L $marker ]] || { printf 'autoreview-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
     [[ $(<"$marker") == "$(shasum -a 256 "$helper" | awk '{print $1}')" ]] || {
       printf 'autoreview-yolo: installed helper failed its integrity check\n' >&2
       exit 1
@@ -81,78 +74,29 @@ case ${0##*/} in
     ;;
   codex-yolo)
     verify_agent_rules
-    start_pg_test_session
-    shared_rules=$system_home/.codex/rules/agent-safety.rules
-    [[ -f $shared_rules ]] || { printf 'codex-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
-    rules=${CODEX_HOME:-$HOME/.codex}/rules/agent-safety.rules
-    # Orca and account profiles set their own CODEX_HOME. Codex loads rules only from there and skips symlinks.
-    if [[ -L $rules ]] || ! cmp -s "$shared_rules" "$rules"; then
-      mkdir -p "${rules%/*}" && rm -f "$rules" && cp "$shared_rules" "$rules" && chmod 600 "$rules"
+    prepare_development
+    node "$policy_helper" validate-codex "$@"
+    node "$policy_helper" check-codex-config "$AGENT_TOOLKIT_WORKSPACE" "$system_home" "${CODEX_HOME:-$system_home/.codex}"
+    node "$policy_helper" check-engine codex
+    rules=${CODEX_HOME:-$system_home/.codex}/rules/agent-toolkit-development.rules
+    shared_rules=$system_home/.local/libexec/agent-toolkit/development.rules
+    if [[ -e $rules || -L $rules ]]; then
+      [[ ! -L $rules ]] && cmp -s "$shared_rules" "$rules" || { printf 'codex-yolo: unexpected development rules; run install.sh from a trusted terminal\n' >&2; exit 1; }
+    else
+      mkdir -p "${rules%/*}"
+      cp "$shared_rules" "$rules"
+      chmod 600 "$rules"
     fi
-    [[ -f $rules && ! -L $rules ]] || { printf 'codex-yolo: missing safety policy %s\n' "$rules" >&2; exit 1; }
-    codex execpolicy check --rules "$rules" -- rm -rf yolo-policy-check | grep -q '"decision":"forbidden"' || {
-      printf 'codex-yolo: installed safety policy failed its self-check\n' >&2
-      exit 1
-    }
-    if ! codex_instructions=$(node - "$agent_rules" <<'NODE'
-const fs = require("node:fs");
-process.stdout.write(JSON.stringify(fs.readFileSync(process.argv[2], "utf8")));
-NODE
-    ); then
-      printf 'codex-yolo: could not load installed agent rules\n' >&2
-      exit 1
-    fi
-    enable_git_guard
-    args=(--ask-for-approval never --sandbox workspace-write -c "developer_instructions=$codex_instructions")
-    for root in "${trusted_roots[@]}"; do args+=(--add-dir "$root"); done
-    PATH=$PATH exec codex "${args[@]}" "$@"
+    [[ ! -e ${rules%/*}/agent-safety.rules ]] || { printf 'codex-yolo: remove the retired agent-safety.rules through the reviewed installer\n' >&2; exit 1; }
+    codex_instructions=$(node "$policy_helper" instructions "$agent_rules")
+    native_profile=$(node "$policy_helper" codex "$AGENT_TOOLKIT_WORKSPACE" "$AGENT_TOOLKIT_SESSION_DIR" "$system_home")
+    exec codex --ask-for-approval never --no-daemon -c 'default_permissions="agent_toolkit"' -c "permissions.agent_toolkit=$native_profile" -c features.network_proxy=true -c 'shell_environment_policy.exclude=["*TOKEN*","*PASSWORD*","*SECRET*","*API_KEY*","*CREDENTIAL*","DATABASE_URL","PGHOST","PGPORT","PGUSER","PGDATABASE","SSH_AUTH_SOCK","DOCKER_HOST","DOCKER_CONTEXT"]' -c "developer_instructions=$codex_instructions" "$@"
     ;;
   claude-yolo)
     verify_agent_rules
-    start_pg_test_session
-    settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
-    if ! claude_settings=$(node - "$settings" <<'NODE'
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-if (settings.sandbox?.enabled !== true || settings.sandbox?.failIfUnavailable !== true || !settings.permissions?.deny?.includes("Bash(rm *)")) process.exit(1);
-const network = { allowedDomains: ["localhost", "127.0.0.1"], allowLocalBinding: true };
-// Go tools such as gh verify TLS through trustd, which the macOS sandbox blocks. Go 1.27+ honors this CA file
-// instead; older Go builds ignore it on macOS and still fail.
-const env = process.platform === "darwin" ? { SSL_CERT_FILE: "/etc/ssl/cert.pem" } : {};
-if (process.platform === "darwin") {
-  const uid = process.getuid();
-  const userData = path.resolve(process.env.ORCA_USER_DATA_PATH || path.join(os.homedir(), "Library", "Application Support", "orca"));
-  network.allowUnixSockets = [path.join("/private/tmp", `claude-${uid}`, `tsx-${uid}`)];
-  try {
-    const metadata = JSON.parse(fs.readFileSync(path.join(userData, "orca-runtime.json"), "utf8"));
-    const transport = [...(metadata.transports ?? []), metadata.transport].find((entry) => entry?.kind === "unix");
-    const endpoint = transport?.endpoint && path.resolve(transport.endpoint);
-    if (endpoint && path.dirname(endpoint) === userData) network.allowUnixSockets.push(endpoint);
-  } catch {}
-}
-process.stdout.write(JSON.stringify({
-  env,
-  permissions: { deny: ["Bash(dangerouslyDisableSandbox:true)", "Bash(*/git *)"] },
-  sandbox: {
-    allowUnsandboxedCommands: false,
-    excludedCommands: [
-      "autoreview-yolo", "pg18-fresh-yolo",
-      "pg-test start", "pg-test start --postgres-version 17", "pg-test start --postgres-version 18",
-      "pg-test start-migration", "pg-test start-migration --postgres-version 17", "pg-test start-migration --postgres-version 18",
-      "pg-test start-admin", "pg-test start-admin --postgres-version 17", "pg-test start-admin --postgres-version 18",
-      "pg-test status *", "pg-test stop *", "pg-test gc",
-    ],
-    network,
-    filesystem: { disabled: false },
-  },
-}));
-NODE
-    ); then
-      printf 'claude-yolo: run agent-toolkit/install.sh first\n' >&2
-      exit 1
-    fi
+    prepare_development
+    node "$policy_helper" check-engine claude
+    node "$policy_helper" claude "$AGENT_TOOLKIT_WORKSPACE" "$AGENT_TOOLKIT_SESSION_DIR" "${CLAUDE_CONFIG_DIR:-$system_home/.claude}/settings.json" "$system_home"
     claude_has_model=false
     claude_has_effort=false
     for argument in "$@"; do
@@ -160,19 +104,17 @@ NODE
       case $argument in
       --model|--model=*) claude_has_model=true ;;
       --effort|--effort=*) claude_has_effort=true ;;
-      --permission-mode|--permission-mode=*|--settings|--settings=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions)
+      --permission-mode|--permission-mode=*|--settings|--settings=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions|--add-dir|--add-dir=*|--worktree|--worktree=*|-w|--tools|--tools=*|--allowedTools|--allowedTools=*|--allowed-tools|--allowed-tools=*|--setting-sources|--setting-sources=*)
         printf 'claude-yolo: safety overrides are disabled\n' >&2
         exit 2
         ;;
       esac
     done
-    export AGENT_TOOLKIT_REVIEW_ROOT=${AGENT_TOOLKIT_REVIEW_ROOT:-$system_home/Code/.agent-toolkit-reports}
-    claude_args=(--permission-mode bypassPermissions --settings "$claude_settings" --append-system-prompt-file "$agent_rules")
+    claude_args=(--restricted --tools Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,AskUserQuestion,Agent,TodoWrite,Skill --permission-mode acceptEdits --settings "$AGENT_TOOLKIT_SESSION_DIR/claude.json" --append-system-prompt-file "$agent_rules")
     [[ $claude_has_model == true ]] || claude_args+=(--model opus)
     [[ $claude_has_effort == true ]] || claude_args+=(--effort medium)
     claude_args+=("$@")
-    enable_git_guard
-    PATH=$PATH exec claude "${claude_args[@]}"
+    exec claude "${claude_args[@]}"
     ;;
   pi-yolo)
     verify_agent_rules
@@ -180,26 +122,18 @@ NODE
     source_web_config_dir=$system_home/.pi
     policy=$source_agent_dir/extensions/pi-permission-system/config.json
     [[ -f $policy ]] || { printf 'pi-yolo: run agent-toolkit/install.sh first\n' >&2; exit 1; }
-    python_guard=$source_agent_dir/extensions/python-inline-guard/index.ts
-    [[ -f $python_guard && ! -L $python_guard && -f $python_guard.agent-toolkit.sha256 ]] &&
-      [[ $(<"$python_guard.agent-toolkit.sha256") == "$(shasum -a 256 "$python_guard" | awk '{print $1}')" ]] || {
-      printf 'pi-yolo: Python argument guard is missing or changed; run agent-toolkit/install.sh first\n' >&2
-      exit 1
-    }
-    working_dir=$(pwd -P)
-    case $working_dir in
-      "$system_home/Code"|"$system_home/Code/"*|"$system_home/orca/workspaces"|"$system_home/orca/workspaces/"*) ;;
-      *) printf 'pi-yolo: start inside ~/Code or ~/orca/workspaces\n' >&2; exit 1 ;;
-    esac
-    host_tmp=$(node -p 'require("node:os").tmpdir()')
-    [[ -d $host_tmp ]] || { printf 'pi-yolo: host temporary directory is unavailable\n' >&2; exit 1; }
-    host_tmp=$(cd -P "$host_tmp" && pwd -P)
-    scratch_root=$system_home/Code/.agent-toolkit-scratch
-    mkdir -p "$scratch_root"
-    scratch_root=$(cd -P "$scratch_root" && pwd -P)
-    case $scratch_root in "$system_home/Code/"*) ;; *) printf 'pi-yolo: scratch path escaped ~/Code\n' >&2; exit 1 ;; esac
-    export HOME=$system_home TMPDIR=$scratch_root
-    start_pg_test_session
+    prepare_development
+    export HOME=$system_home
+    node "$policy_helper" check-codex-config "$AGENT_TOOLKIT_WORKSPACE" "$system_home" "${CODEX_HOME:-$system_home/.codex}"
+    node "$policy_helper" check-engine codex
+    node "$policy_helper" check-pi "$(command -v pi)"
+    for argument in "$@"; do
+      [[ $argument != -- ]] || break
+      case $argument in
+        --no-extensions|--no-extensions=*|-ne|--extension|--extension=*|-e|--approve|--approve=*|-a|--no-context-files|-nc|--system-prompt|--system-prompt=*)
+          printf 'pi-yolo: sandbox and shared-instruction overrides are disabled\n' >&2; exit 2 ;;
+      esac
+    done
 
     account_profile=
     pinned_account=false
@@ -249,8 +183,8 @@ NODE
       fi
     fi
     unset AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64 AGENT_TOOLKIT_CODEX_ACCOUNT_ID AGENT_TOOLKIT_CODEX_PROFILE_SHA256
-    agent_dir=$(mktemp -d "$host_tmp/agent-toolkit-pi-session.XXXXXX")
-    agent_dir=$(cd -P "$agent_dir" && pwd -P)
+    agent_dir=$AGENT_TOOLKIT_SESSION_DIR/pi
+    mkdir "$agent_dir"
     if [[ -n $account_profile ]]; then
       profile_dir=$source_agent_dir/auth-profiles/$account_profile
       profile_auth=$profile_dir/auth.json
@@ -343,89 +277,11 @@ NODE
       done
       mkdir "$agent_dir/extensions/pi-permission-system"
     fi
-    node - "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$source_agent_dir" "$system_home" "$host_tmp" <<'NODE'
-const fs = require("node:fs");
-const path = require("node:path");
-const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-for (const pattern of ["rm*", "git clean *", "git reset --hard", "command *", "exec *", "node -e*", "node -p*", "node -pe*", "node -ep*", "node --eval*", "node --print*", "node * -e*", "node * -p*", "node * --eval*", "node * --print*", "*/node -e*", "*/node -p*", "*/node -pe*", "*/node -ep*", "*/node --eval*", "*/node --print*", "*/node * -e*", "*/node * -p*", "*/node * --eval*", "*/node * --print*", "bash -*c*", "sh -*c*", "dash -*c*", "zsh -*c*", "ksh -*c*", "*/bash -*c*", "*/sh -*c*", "*/dash -*c*", "*/zsh -*c*", "*/ksh -*c*", "eval *", "pi", "pi *", "pi-yolo*", "*/pi", "*/pi *", "*/pi-yolo*", "{ *", "*()*", "if *", "while *", "for *", "case *"]) {
-  if (config.permission?.bash?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy: ${pattern}`);
-}
-for (const pattern of ["*/.pi/settings.json", "*/.pi/extensions", "*/.pi/extensions/*", "*/.pi/agent/pi-permissions.jsonc", "*/.pi/agents*"]) {
-  if (config.permission?.path?.[pattern] !== "deny") throw new Error(`unsafe Pi yolo policy path: ${pattern}`);
-}
-const managedAgentDir = fs.realpathSync(process.argv[4]);
-const runtimeAgentDir = fs.realpathSync(path.resolve(process.argv[3], "../../.."));
-const home = fs.realpathSync(process.argv[5]);
-for (const protectedPath of [
-  path.join(runtimeAgentDir, "auth.json"),
-  path.join(runtimeAgentDir, "codex-runtimes", "*", "auth.json"),
-  path.join(runtimeAgentDir, "extensions"),
-  path.join(runtimeAgentDir, "extensions/pi-permission-system"),
-  path.join(runtimeAgentDir, "extensions/pi-permission-system/*"),
-  path.join(managedAgentDir, "extensions/pi-permission-system"),
-  path.join(managedAgentDir, "extensions/pi-permission-system/*"),
-  path.join(runtimeAgentDir, "extensions/python-inline-guard"),
-  path.join(runtimeAgentDir, "extensions/python-inline-guard/*"),
-  path.join(managedAgentDir, "extensions/python-inline-guard"),
-  path.join(managedAgentDir, "extensions/python-inline-guard/*"),
-]) config.permission.path[protectedPath] = "deny";
-const temporaryDir = fs.realpathSync(process.argv[6]);
-const reviewRoot = path.join(home, "Code/.agent-toolkit-reports");
-fs.mkdirSync(reviewRoot, { recursive: true, mode: 0o700 });
-if (fs.lstatSync(reviewRoot).isSymbolicLink()) throw new Error("Review results directory must not be a symlink");
-const probe = path.join(reviewRoot, ".read-probe.txt");
-const probeText = "Pi review results read access is available.\n";
-try { fs.writeFileSync(probe, probeText, { flag: "wx", mode: 0o600 }); }
-catch (error) { if (error.code !== "EEXIST") throw error; }
-if (!fs.lstatSync(probe).isFile() || fs.lstatSync(probe).isSymbolicLink() || fs.readFileSync(probe, "utf8") !== probeText) throw new Error("Invalid review read-access probe");
-config.piInfrastructureReadPaths = [...new Set([
-  ...(config.piInfrastructureReadPaths ?? []),
-  fs.realpathSync(reviewRoot),
-  path.join(runtimeAgentDir, "extensions"),
-  path.join(runtimeAgentDir, "skills"),
-  path.join(managedAgentDir, "extensions"),
-  path.join(managedAgentDir, "skills"),
-  path.join(home, ".agents/skills"),
-  path.join(home, ".claude/skills"),
-  path.join(home, ".codex/skills"),
-  path.join(temporaryDir, "orca-paste-*"),
-  path.join(temporaryDir, "pi-clipboard-*"),
-  path.join(temporaryDir, "codex-clipboard-*"),
-])];
-for (const name of ["pg-test"]) {
-  try {
-    for (const directory of [".local/bin", ".local/libexec/agent-toolkit"]) {
-      const helper = path.join(home, directory, name);
-      for (const file of [helper, `${helper}.agent-toolkit.sha256`]) {
-        const stat = fs.lstatSync(file);
-        if (!stat.isFile() || stat.isSymbolicLink()) throw Error("Unmanaged fixture helper");
-      }
-      fs.accessSync(helper, fs.constants.X_OK);
-      if (fs.readFileSync(`${helper}.agent-toolkit.sha256`, "utf8").trim() !== require("node:crypto").createHash("sha256").update(fs.readFileSync(helper)).digest("hex")) throw Error("Changed fixture helper");
+    sandbox_extension=$source_agent_dir/extensions/workspace-sandbox/index.ts
+    [[ -f $sandbox_extension && ! -L $sandbox_extension && -f $sandbox_extension.agent-toolkit.sha256 && ! -L $sandbox_extension.agent-toolkit.sha256 && $(shasum -a 256 "$sandbox_extension" | awk '{print $1}') == "$(<"$sandbox_extension.agent-toolkit.sha256")" ]] || {
+      printf 'pi-yolo: install the workspace sandbox from a trusted terminal\n' >&2; exit 1;
     }
-  } catch {
-    for (const pattern of [name, `${name} *`, `*/${name}`, `*/${name} *`]) config.permission.bash[pattern] = "deny";
-  }
-}
-try {
-  const helper = path.join(home, ".local/bin/repo-delete");
-  const marker = `${helper}.agent-toolkit.sha256`;
-  for (const file of [helper, marker]) {
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw Error("Unmanaged deletion helper");
-  }
-  fs.accessSync(helper, fs.constants.X_OK);
-  if (fs.readFileSync(marker, "utf8").trim() !== require("node:crypto").createHash("sha256").update(fs.readFileSync(helper)).digest("hex")) throw Error("Changed deletion helper");
-} catch {
-  for (const pattern of ["repo-delete", "repo-delete *", "*/repo-delete", "*/repo-delete *"]) config.permission.bash[pattern] = "deny";
-}
-const output = process.argv[3];
-const temporary = `${output}.${process.pid}`;
-fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
-fs.renameSync(temporary, output);
-NODE
-
-    enable_git_guard
+    node "$policy_helper" pi "$policy" "$agent_dir/extensions/pi-permission-system/config.json" "$system_home"
     if [[ -n $account_profile ]]; then
       export AGENT_TOOLKIT_CODEX_PROFILE_HOME=$codex_home
     else
@@ -449,8 +305,8 @@ NODE
       AGENT_TOOLKIT_CODEX_ACCOUNT=$account_profile \
       AGENT_TOOLKIT_PI_AGENT_DIR=$source_agent_dir \
       AGENT_TOOLKIT_PI_WEB_CONFIG_DIR=$source_web_config_dir \
-      AGENT_TOOLKIT_REVIEW_ROOT="$system_home/Code/.agent-toolkit-reports" \
-      TMPDIR="$scratch_root" \
+      AGENT_TOOLKIT_REVIEW_ROOT="$AGENT_TOOLKIT_SESSION_DIR/reviews" \
+      TMPDIR="$AGENT_TOOLKIT_SESSION_DIR/tmp" \
       PI_CODING_AGENT_DIR=$agent_dir \
       pi "${pi_args[@]}"
     ;;

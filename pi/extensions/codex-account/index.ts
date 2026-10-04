@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
@@ -501,13 +501,20 @@ export function activateCodexProfile(
 	const profileHome = codexProfileHome(profile, root)
 	if (!existsSync(join(profileHome, "auth.json"))) return { error: "login-required" }
 
-	const sharedPolicy = join(sharedHome, "rules", "agent-safety.rules")
+	const sharedPolicy = join(sharedHome, "rules", "agent-toolkit-development.rules")
 	if (!existsSync(sharedPolicy)) return { error: "safety-policy-missing" }
 
 	const profileRules = join(profileHome, "rules")
-	mkdirSync(profileRules, { recursive: true, mode: 0o700 })
-	const profilePolicy = join(profileRules, "agent-safety.rules")
-	if (!existsSync(profilePolicy)) symlinkSync(sharedPolicy, profilePolicy)
+	try {
+		mkdirSync(profileRules, { recursive: true, mode: 0o700 })
+		if (lstatSync(profileRules).isSymbolicLink()) return { error: "safety-policy-missing" }
+		const profilePolicy = join(profileRules, "agent-toolkit-development.rules")
+		if (!existsSync(profilePolicy)) copyFileSync(sharedPolicy, profilePolicy, constants.COPYFILE_EXCL)
+		if (!lstatSync(profilePolicy).isFile() || lstatSync(profilePolicy).isSymbolicLink() || !readFileSync(profilePolicy).equals(readFileSync(sharedPolicy))) return { error: "safety-policy-missing" }
+		chmodSync(profilePolicy, 0o600)
+	} catch {
+		return { error: "safety-policy-missing" }
+	}
 
 	process.env.CODEX_HOME = profileHome
 	return { home: profileHome }
@@ -599,7 +606,7 @@ export default function codexAccountExtension(pi: ExtensionAPI) {
 			ctx.ui.notify(
 				activated.error === "login-required"
 					? "The Codex login is incomplete. Run /account add to authenticate."
-					: "The Codex safety policy is missing. Run agent-toolkit/install.sh.",
+					: "The Codex safety policy is missing or changed. Run agent-toolkit/install.sh.",
 				"warning",
 			)
 			return

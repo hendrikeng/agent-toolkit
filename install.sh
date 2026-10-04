@@ -3,10 +3,10 @@ set -euo pipefail
 
 repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 # Validate complete files with the system Bash before changing any installed copy.
-for script in "$repo_dir/install.sh" "$repo_dir/shared/agent-safety/agent-yolo" "$repo_dir/shared/agent-safety/git-yolo-guard"; do
+for script in "$repo_dir/install.sh" "$repo_dir/shared/agent-safety/agent-yolo"; do
   /bin/bash -n "$script"
 done
-for script in "$repo_dir/shared/agent-safety/pg-test.cjs" "$repo_dir/shared/agent-safety/pg18-fresh-yolo.cjs"; do
+for script in "$repo_dir/shared/agent-safety/development-policy.cjs" "$repo_dir/shared/agent-safety/configure.cjs" "$repo_dir/shared/agent-safety/pg-test.cjs" "$repo_dir/shared/agent-safety/pg18-fresh-yolo.cjs"; do
   node --check "$script"
 done
 timestamp=$(date +%Y%m%d-%H%M%S)
@@ -119,6 +119,33 @@ install_managed_copy() {
   printf '%s\n' "$source_hash" >"$marker"
   chmod 600 "$marker"
   printf 'installed managed policy %s\n' "$target"
+}
+
+retire_managed_copy() {
+  local target=$1
+  local reviewed_hash=${2:-}
+  local reviewed_link=${3:-}
+  local marker="$target.agent-toolkit.sha256"
+  [[ -e $target || -L $target || -e $marker || -L $marker ]] || return 0
+  if [[ -L $target ]]; then
+    [[ -n $reviewed_link && $(readlink "$target") == "$reviewed_link" && ! -e $marker && ! -L $marker ]] || {
+      printf 'refusing to retire unverified symlink %s\n' "$target" >&2; return 1;
+    }
+  else
+    [[ -f $target ]] || { printf 'refusing to retire unexpected path %s\n' "$target" >&2; return 1; }
+    local actual_hash
+    actual_hash=$(shasum -a 256 "$target" | awk '{print $1}')
+    if [[ -f $marker && ! -L $marker ]]; then
+      [[ $actual_hash == "$(<"$marker")" ]] || { printf 'refusing to retire changed managed file %s\n' "$target" >&2; return 1; }
+    else
+      [[ -n $reviewed_hash && $actual_hash == "$reviewed_hash" ]] || { printf 'refusing to retire unverified file %s\n' "$target" >&2; return 1; }
+    fi
+  fi
+  local backup="$backup_root/${target#"$HOME"/}"
+  mkdir -p "$(dirname "$backup")"
+  mv "$target" "$backup"
+  [[ ! -e $marker ]] || mv "$marker" "$backup.agent-toolkit.sha256"
+  printf 'retired %s (backup: %s)\n' "$target" "$backup"
 }
 
 configure_agent_file() {
@@ -297,7 +324,7 @@ install_pi_packages() {
 }
 
 install_agent_safety() {
-  local version policy_temp
+  local version codex_home rules_temp
 
   if command -v claude >/dev/null 2>&1; then
     configure_agent_file claude "$HOME/.claude/settings.json"
@@ -307,7 +334,16 @@ install_agent_safety() {
 
   if command -v codex >/dev/null 2>&1; then
     configure_agent_file codex "$HOME/.codex/config.toml"
-    install_managed_copy "$repo_dir/shared/agent-safety/codex.rules" "$HOME/.codex/rules/agent-safety.rules"
+    for codex_home in "$HOME/.codex" "$HOME/.codex-accounts"/*; do
+      [[ -d $codex_home && ! -L $codex_home ]] || continue
+      [[ $codex_home == "$HOME/.codex" || ! -f $codex_home/config.toml ]] || configure_agent_file codex "$codex_home/config.toml"
+      retire_managed_copy "$codex_home/rules/agent-safety.rules" 20fb691d5c46e1386d88d3a52f5e430c9873dc75b9d558ea2dcb6415162cea3a "$HOME/.codex/rules/agent-safety.rules"
+    done
+    rules_temp=$(mktemp "${TMPDIR:-/tmp}/agent-toolkit-native-rules.XXXXXX")
+    node "$repo_dir/shared/agent-safety/development-policy.cjs" rules >"$rules_temp"
+    install_managed_copy "$rules_temp" "$HOME/.local/libexec/agent-toolkit/development.rules" 600
+    install_managed_copy "$rules_temp" "$HOME/.codex/rules/agent-toolkit-development.rules" 600
+    rm "$rules_temp"
   else
     printf 'skipped Codex agent safety (codex not found)\n'
   fi
@@ -315,11 +351,7 @@ install_agent_safety() {
   if command -v pi >/dev/null 2>&1; then
     version=$(<"$repo_dir/shared/agent-safety/PI_PERMISSION_SYSTEM_VERSION")
     install_pi_package "npm:@gotgenes/pi-permission-system@$version"
-    policy_temp=$(mktemp "${TMPDIR:-/tmp}/agent-toolkit-pi-policy.XXXXXX")
-    cp "$repo_dir/shared/agent-safety/pi-permission-system.json" "$policy_temp"
-    node "$repo_dir/shared/agent-safety/configure.cjs" pi "$policy_temp" "$repo_dir" "$pi_agent_dir" "$pi_web_config_dir"
-    install_managed_copy "$policy_temp" "$pi_agent_dir/extensions/pi-permission-system/config.json"
-    rm "$policy_temp"
+    install_managed_copy "$repo_dir/shared/agent-safety/pi-permission-system.json" "$pi_agent_dir/extensions/pi-permission-system/config.json"
   else
     printf 'skipped Pi agent safety (pi not found)\n'
   fi
@@ -386,6 +418,10 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 printf 'installing pinned toolkit dependencies…\n'
+(
+  cd "$repo_dir/shared/agent-safety"
+  npm ci --ignore-scripts --no-audit --no-fund
+)
 (
   cd "$repo_dir/pi/skills/react-doctor"
   npm ci --ignore-scripts --no-audit --no-fund
@@ -462,7 +498,10 @@ install_link "$repo_dir/pi/skills/react-doctor" "$HOME/.claude/skills/react-doct
 install_link "$repo_dir/pi/extensions/simple-english" "$HOME/.claude/skills/simple-english"
 install_link "$repo_dir/pi/skills/test-audit" "$HOME/.claude/skills/test-audit"
 install_link "$repo_dir/pi/skills/vue" "$HOME/.claude/skills/vue"
-install_managed_copy "$repo_dir/shared/agent-safety/git-yolo-guard" "$HOME/.local/libexec/agent-toolkit/git" 700
+install_managed_copy "$repo_dir/shared/agent-safety/development-policy.cjs" "$HOME/.local/libexec/agent-toolkit/development-policy.cjs" 600
+install_managed_copy "$repo_dir/shared/agent-safety/package.json" "$HOME/.local/libexec/agent-toolkit/package.json" 600
+install_managed_copy "$repo_dir/shared/agent-safety/package-lock.json" "$HOME/.local/libexec/agent-toolkit/package-lock.json" 600
+npm ci --prefix "$HOME/.local/libexec/agent-toolkit" --ignore-scripts --no-audit --no-fund
 legacy_git_test="$HOME/.local/libexec/agent-toolkit/git-test"
 legacy_git_test_marker="$legacy_git_test.agent-toolkit.sha256"
 if [[ -e $legacy_git_test || -L $legacy_git_test || -e $legacy_git_test_marker || -L $legacy_git_test_marker ]]; then
@@ -474,10 +513,7 @@ if [[ -e $legacy_git_test || -L $legacy_git_test || -e $legacy_git_test_marker |
     exit 1
   fi
 fi
-install_managed_copy "$repo_dir/shared/agent-safety/repo-delete.cjs" "$HOME/.local/bin/repo-delete" 700
 install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/bin/pg-test" 700
-# ponytail: keep the legacy copy while deployed permission-bundle launchers still validate this path.
-install_managed_copy "$repo_dir/shared/agent-safety/pg-test.cjs" "$HOME/.local/libexec/agent-toolkit/pg-test" 700
 install_managed_copy "$repo_dir/shared/agent-safety/pg18-fresh-yolo.cjs" "$HOME/.local/libexec/agent-toolkit/pg18-fresh-yolo" 700
 install_managed_copy "$repo_dir/codex/skills/autoreview/scripts/autoreview" "$HOME/.local/libexec/agent-toolkit/autoreview" 700
 review_root="$HOME/Code/.agent-toolkit-reports"
@@ -503,7 +539,7 @@ install_link "$repo_dir/pi/extensions/git-push" "$pi_agent_dir/extensions/git-pu
 install_link "$repo_dir/pi/extensions/legacy-session-filter" "$pi_agent_dir/extensions/legacy-session-filter"
 install_link "$repo_dir/pi/extensions/orca-permission-bell" "$pi_agent_dir/extensions/orca-permission-bell"
 install_link "$repo_dir/pi/extensions/project-blueprint" "$pi_agent_dir/extensions/project-blueprint"
-install_managed_copy "$repo_dir/pi/extensions/python-inline-guard/index.ts" "$pi_agent_dir/extensions/python-inline-guard/index.ts" 600
+install_managed_copy "$repo_dir/pi/extensions/workspace-sandbox/index.ts" "$pi_agent_dir/extensions/workspace-sandbox/index.ts" 600
 install_link "$repo_dir/pi/extensions/review-mode" "$pi_agent_dir/extensions/review-mode"
 install_link "$repo_dir/pi/extensions/simple-english" "$pi_agent_dir/extensions/simple-english"
 install_link "$repo_dir/pi/extensions/side-question" "$pi_agent_dir/extensions/side-question"
@@ -536,17 +572,11 @@ install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bi
 install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pg18-fresh-yolo" 700
 configure_pi_settings
 
-target="$HOME/.local/bin/pi-yolo"
-if [[ -L $target ]]; then
-  case $(realpath "$target") in
-    "$HOME/.local/libexec/agent-toolkit/permission-bundles/"*/dispatch)
-      mkdir -p "$backup_root/.local/bin"
-      cp -P "$target" "$backup_root/.local/bin/pi-yolo"
-      rm "$target"
-      ;;
-  esac
-fi
-install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$target" 700
+install_managed_copy "$repo_dir/shared/agent-safety/agent-yolo" "$HOME/.local/bin/pi-yolo" 700
+retire_managed_copy "$HOME/.local/libexec/agent-toolkit/git"
+retire_managed_copy "$HOME/.local/bin/repo-delete"
+retire_managed_copy "$HOME/.local/libexec/agent-toolkit/pg-test"
+retire_managed_copy "$pi_agent_dir/extensions/python-inline-guard/index.ts"
 
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
   printf '\nInstallation complete. Restart the current pi-yolo session and any Codex or Claude sessions to load newly installed resources.\n'

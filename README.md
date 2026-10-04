@@ -6,7 +6,10 @@ Agent Toolkit installs shared skills, Pi extensions, safety policy, and launcher
 
 - Node.js 24
 - Git
-- At least one supported agent CLI
+- Codex CLI 0.160.0 or later for Codex and Pi sandboxing
+- Claude Code 2.1.289 or later for managed Claude sessions
+- Pi with `createBashToolDefinition` and `createLocalBashOperations` in its public SDK
+- macOS or Linux with the native sandbox dependencies
 - Orca for supervised worker orchestration
 
 ## Install
@@ -62,25 +65,41 @@ Pi, Codex, and Claude receive the same shared guidance for FastAPI, Fastify, Pyt
 
 Test Audit applies while an agent writes, changes, reviews, or audits tests. It does not trigger an independent AI review.
 
-`claude-yolo` starts Claude Opus with medium effort unless you supply overrides. It enforces the toolkit sandbox and Git guard.
+`claude-yolo` starts Claude Opus with medium effort unless you supply model or effort overrides. It uses restricted file tools and the native Bash sandbox.
 
-All three managed launchers load the same toolkit rules without replacing `~/.codex/AGENTS.md` or `~/.claude/CLAUDE.md`. Repository instructions still apply after the shared defaults.
+All three managed launchers load the same toolkit rules without replacing `~/.codex/AGENTS.md` or `~/.claude/CLAUDE.md`. Agents must read repository instructions before work.
 
 ## Permission model
 
-Pi uses the pinned stock `@gotgenes/pi-permission-system` package with one managed global policy. The toolkit does not patch that package, replace Pi's Bash tool, maintain permission bundles, or manage Docker resource scopes.
+Each launcher selects one repository or folder under `~/Code` or `~/orca/workspaces`. Neither development root is a writable session scope. Home and workspace paths cannot contain permission glob characters.
 
-The policy allows ordinary development under `~/Code` and `~/orca/workspaces`. It denies sensitive credentials, destructive commands, direct publication, system administration, and existing database administration. A `pi-yolo` session disables project trust because trusted project code can bypass any in-process policy.
+The session receives private scratch, cache, and review directories. Builds, tests, inline programs, and generated-file cleanup work inside this scope. Other projects do not receive automatic write access.
 
-Orca owns worker orchestration and worktree selection. Start each worker in its target worktree rather than routing Bash calls across repositories.
+Codex uses a native permission profile and its network proxy. Claude uses restricted file tools and its native Bash sandbox. Pi uses the stock permission package for file tools and an overridden Bash backend through `codex sandbox`.
 
-The permission extension is a decision layer, not an operating-system sandbox. Allowed scripts and hooks run as the local account. Keep irreplaceable data in versioned backups.
+The shell policy permits package registries, source downloads, and loopback development services. Credential directories and private `.env` files remain blocked. The public `.env.example` file remains readable. Loopback access supports HTTP, raw TCP clients, and local server binding.
+
+Sessions copy Git identity and the initial branch preference into a private settings file. They do not expose global Git credentials or credential helpers.
+
+Claude sessions disable executable hooks but retain installed skill guidance. Pi sessions disable project trust and reject flags that disable the sandbox extension. The old Git wrapper, inline-interpreter guard, and restricted deletion helper are removed.
+
+### Boundary limits
+
+These settings constrain development tools, not the whole host application. Installed extensions, MCP servers, frontend services, and authentication helpers remain trusted host programs.
+
+Local services remain reachable through loopback access. The sandbox does not authorize existing database administration. Agents can remove files inside their assigned workspace, so versioned backups remain necessary.
+
+Raw terminal and Docker brokers can run commands outside a development sandbox. The toolkit does not grant these brokers an automatic socket exception. Frontend orchestration requires its own trusted, bounded tool interface.
+
+Native permission profiles are a beta Codex feature. Unsupported engines fail before the session starts. Launchers refuse retired sandbox settings in the selected account and project settings. These settings otherwise override native permission profiles.
+
+On Linux, native secret-glob enforcement uses a startup snapshot with a 64-level scan limit. The current boundary checks cover macOS, not Linux.
 
 ### Git and publication
 
-The managed Git guard blocks force pushes, destructive history operations, executable overrides, credential helpers, and remote configuration changes. Direct `git push` and mutating `gh` shell commands remain blocked.
+Ordinary Git inspection and index operations use the real Git executable. Native rules request approval for common publication and destructive commands. These rules are safeguards, not the filesystem boundary.
 
-After an explicit user request, `/push` and `/pr` provide bounded publication flows. Use the GitHub inspection tools for pull requests, reviews, checks, and failed Actions logs.
+After an explicit user request, Pi provides the confirmed `/push` and `/pr` flows. Other clients require their confirmed publication controls or a trusted human terminal. Shell commands do not receive publication credentials automatically.
 
 ### Disposable PostgreSQL
 
@@ -114,7 +133,9 @@ Garbage collection runs before each start and after a managed session ends. It s
 
 The `status` and `stop` commands also find clusters in the older temporary-directory roots. If an ID exists in more than one root, these commands refuse it.
 
-When you finish with a fixture, run `pg-test stop <id>`. This command is important for fixtures started outside a managed session. In managed Claude sessions, the `pg-test` start, `status`, `stop`, and `gc` commands run outside the sandbox. This exception applies only when `pg-test` is the complete command. Do not put `pg-test` in a pipeline, an `&&` chain, `$(...)`, or a script. In those forms, the sandbox blocks `/bin/ps` and `pg-test` fails. The launcher also stops its fixtures when the session exits.
+When you finish with a fixture, run `pg-test stop <id>`. This command is important for fixtures started outside a managed session. For the bounded host exception in Claude, use the absolute path: `~/.local/bin/pg-test`. Pi also accepts the direct `pg-test` command. Use the helper as the complete command. Pipelines, redirects, and compound commands remain sandboxed. The launcher also stops its fixtures when the session exits.
+
+Managed Codex sessions cannot run host helpers with the denied-read profile. Run these helpers from a trusted human terminal. Keep the sandbox enabled.
 
 ## Reviews
 
@@ -217,6 +238,14 @@ The script confirms the upstream, fast-forwards the current branch, updates pinn
 ./verify.sh
 ```
 
+The focused boundary checks use disposable files and an owned loopback server. They run the real Codex sandbox without a model request.
+
+```sh
+node --test shared/agent-safety/native-permissions.test.cjs shared/agent-safety/shared-launcher.test.cjs
+```
+
+After installation, validate Claude file tools and Pi tool loading in fresh managed sessions. Launcher fixtures do not prove these native client boundaries. Do not treat the source rewrite as an installed security upgrade.
+
 ## Repository layout
 
 | Path | Contents |
@@ -224,7 +253,7 @@ The script confirms the upstream, fast-forwards the current branch, updates pinn
 | `pi/extensions/` | Pi commands and integrations |
 | `pi/skills/` | Shared task guidance |
 | `codex/skills/` | Autoreview |
-| `shared/agent-safety/` | Launchers, Git guard, and permission policy |
+| `shared/agent-safety/` | Launchers, native permission profiles, and fixture helpers |
 | `shared/ponytail/` | Ponytail version and configuration |
 | `shared/pi-web-access/` | Web-tool defaults |
 | `vendor/agent-project-blueprint/` | Pinned project blueprint |
