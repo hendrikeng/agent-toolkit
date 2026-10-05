@@ -80,6 +80,33 @@ test('Pi policy permits ordinary shell syntax but confines file tools and protec
   assert.equal(fs.statSync(f.session).mode & 0o777, 0o700)
 })
 
+test('generated Pi policy offers read approval for Orca clipboard PNGs, without granting temporary-directory or write access', { skip: process.platform !== 'darwin' }, () => {
+  const temporary = spawnSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8' })
+  assert.equal(temporary.status, 0)
+  const clipboard = path.join(fs.realpathSync(temporary.stdout.trim()), 'orca-paste-*.png')
+  for (const owner of ['orca', 'paseo', 'none']) {
+    const f = fixture()
+    const target = path.join(f.session, 'permissions.json')
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'development-policy.cjs'), 'pi', path.join(__dirname, 'pi-permission-system.json'), target, f.home], {
+      cwd: f.root,
+      env: { ...process.env, AGENT_TOOLKIT_ORCHESTRATION_HOST: owner, AGENT_TOOLKIT_WORKSPACE: f.root, AGENT_TOOLKIT_SESSION_DIR: f.session, TMPDIR: path.join(f.session, 'tmp') },
+      encoding: 'utf8',
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const generated = JSON.parse(fs.readFileSync(target, 'utf8'))
+    if (owner === 'orca') {
+      assert.deepEqual(generated.permission.external_directory_read, { ...generated.permission.external_directory, [clipboard]: 'ask' })
+    } else {
+      assert.equal(generated.permission.external_directory_read, undefined)
+    }
+    assert.equal(generated.permission.external_directory['*'], 'deny')
+    assert.equal(generated.permission.external_directory_write, undefined)
+    assert.equal(generated.yoloMode, false)
+    assert.equal(generated.piInfrastructureReadPaths.includes(clipboard), false)
+    assert.equal(generated.permission.path[path.join(f.home, '.ssh')], 'deny')
+  }
+})
+
 test('the real native sandbox allows development, but denies sibling writes, secret reads, and symlink escapes', { skip: !['darwin', 'linux'].includes(process.platform) }, () => {
   const version = spawnSync('codex', ['--version'], { encoding: 'utf8' })
   assert.equal(version.status, 0, 'Codex CLI 0.160+ is required for this boundary test')

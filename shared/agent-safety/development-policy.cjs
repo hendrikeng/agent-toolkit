@@ -49,6 +49,17 @@ function readRoots(home = os.homedir()) {
 function secretPaths(home) {
   return [...new Set([...SECRET_PATHS.map(value => canonical(path.join(home, value))), ...[process.env.CODEX_HOME, process.env.CLAUDE_CONFIG_DIR, process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME].filter(Boolean).map(canonical)])]
 }
+function orchestrationHost(env = process.env) {
+  const selected = env.AGENT_TOOLKIT_ORCHESTRATION_HOST
+  if (selected !== undefined) {
+    if (!['orca', 'paseo', 'none'].includes(selected)) throw Error('AGENT_TOOLKIT_ORCHESTRATION_HOST must be orca, paseo, or none')
+    return selected
+  }
+  const paseo = Boolean(env.PASEO_AGENT_ID)
+  const orca = Boolean(env.ORCA_WORKSPACE_ID || env.ORCA_WORKTREE_ID || env.ORCA_TERMINAL_HANDLE)
+  if (paseo && orca) throw Error('Both Orca and Paseo launch contexts are present; set AGENT_TOOLKIT_ORCHESTRATION_HOST explicitly before launch')
+  return paseo ? 'paseo' : orca ? 'orca' : 'none'
+}
 function sessionDirectory(home = os.homedir()) {
   const root = path.join(home, 'Code/.agent-toolkit-scratch')
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
@@ -100,6 +111,7 @@ function profile(root, session, home = os.homedir()) {
   filesystem[path.join(session, 'claude.json')] = 'deny'
   filesystem[path.join(session, 'native-profile.json')] = 'read'
   filesystem[path.join(session, 'gitconfig')] = 'read'
+  filesystem[path.join(session, 'AGENTS.md')] = 'read'
   filesystem['/Library/Keychains'] = 'deny'
   // Linked worktrees share Git metadata, not write access to the other checkout.
   for (const metadata of gitMetadata(root, home)) {
@@ -139,7 +151,7 @@ function claudeSettings(root, session, home = os.homedir(), env = process.env) {
   if (denyRead.some(value => within(value, root))) throw Error('Credential storage must remain separate from the workspace')
   const readOnly = readRoots(home)
   const metadata = gitMetadata(root, home)
-  const protectedWrites = [...readOnly, path.join(session, 'claude.json'), path.join(session, 'gitconfig'), ...metadata.flatMap(value => [path.join(value, 'config'), path.join(value, 'hooks')]), ...['.claude', '.codex', '.pi'].map(value => path.join(root, value))]
+  const protectedWrites = [...readOnly, path.join(session, 'claude.json'), path.join(session, 'gitconfig'), path.join(session, 'AGENTS.md'), ...metadata.flatMap(value => [path.join(value, 'config'), path.join(value, 'hooks')]), ...['.claude', '.codex', '.pi'].map(value => path.join(root, value))]
   const absolute = value => '/' + value
   return {
     env: { CLAUDE_CODE_TMPDIR: path.join(session, 'tmp'), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1', SSL_CERT_FILE: '/etc/ssl/cert.pem' },
@@ -156,8 +168,16 @@ function claudeSettings(root, session, home = os.homedir(), env = process.env) {
 function piPolicy(base, root, session, home = os.homedir()) {
   root = workspace(root, home)
   base.permission.external_directory = { '*': 'deny', [root]: 'allow', [`${root}/*`]: 'allow', [session]: 'allow', [`${session}/*`]: 'allow' }
+  if (process.platform === 'darwin' && orchestrationHost() === 'orca') {
+    // TMPDIR points to private session scratch, not Orca's clipboard directory.
+    const result = spawnSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 5000 })
+    const temporary = result.stdout?.trim()
+    if (result.status !== 0 || !temporary || !path.isAbsolute(temporary) || /[*?\[\]{}]/.test(temporary)) throw Error('Cannot resolve the Orca clipboard directory')
+    // Ask for a specific image read; never grant the temporary directory or writes.
+    base.permission.external_directory_read = { ...base.permission.external_directory, [path.join(canonical(temporary), 'orca-paste-*.png')]: 'ask' }
+  }
   base.piInfrastructureReadPaths = readRoots(home)
-  base.permission.path_write = { ...base.permission.path_write, [path.join(session, 'gitconfig')]: 'deny', ...Object.fromEntries(readRoots(home).flatMap(target => [[target, 'deny'], [`${target}/*`, 'deny']])) }
+  base.permission.path_write = { ...base.permission.path_write, [path.join(session, 'gitconfig')]: 'deny', [path.join(session, 'AGENTS.md')]: 'deny', ...Object.fromEntries(readRoots(home).flatMap(target => [[target, 'deny'], [`${target}/*`, 'deny']])) }
   for (const target of [path.join(session, 'native-profile.json'), path.join(session, 'pi/extensions'), path.join(session, 'pi/settings.json'), path.join(session, 'pi/codex-runtimes'), path.join(home, '.pi/agent/extensions'), path.join(home, '.pi/agent/settings.json')]) {
     base.permission.path[target] = 'deny'
     base.permission.path[`${target}/*`] = 'deny'
@@ -222,6 +242,11 @@ if (require.main === module) {
       fs.writeFileSync(path.join(args[1], 'claude.json'), JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 })
     }
     else if (action === 'rules') process.stdout.write(codexRules())
+    else if (action === 'orchestration-host') console.log(orchestrationHost())
+    else if (action === 'session-rules') {
+      const owner = { orca: 'Orca', paseo: 'Paseo', none: 'none' }[orchestrationHost()]
+      fs.writeFileSync(args[1], `Orchestration host: ${owner}\n\n${fs.readFileSync(args[0], 'utf8')}`, { mode: 0o600, flag: 'wx' })
+    }
     else if (action === 'instructions') console.log(JSON.stringify(fs.readFileSync(args[0], 'utf8')))
     else if (action === 'validate-codex') validateCodex(args)
     else if (action === 'check-engine') requireEngine(args[0])

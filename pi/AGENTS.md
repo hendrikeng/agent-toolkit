@@ -2,23 +2,51 @@
 
 Read repository instructions before work. For coding tasks, load Ponytail and keep its requested mode active. Load Test Audit for test changes. Do not depend on executable plugin hooks to supply this guidance.
 
-## Orca CLI
+## Orchestration owner
+
+Use the launch's injected `Orchestration host: Orca | Paseo | none` as the session owner. Managed terminal launches also export `AGENT_TOOLKIT_ORCHESTRATION_HOST`. The opt-in native Paseo bridge supplies the shared rules through `daemon.appendSystemPrompt` and explicitly selects Paseo in Claude/Codex provider environments; it does not replace provider commands or install the managed terminal launchers' sandbox. Keep the injected owner for the session. Use launch context, never installed binaries, discoverable skills, or the checkout's location. `PASEO_AGENT_ID` identifies a Paseo agent; `ORCA_WORKSPACE_ID`, `ORCA_WORKTREE_ID`, or `ORCA_TERMINAL_HANDLE` identifies an Orca context. If both appear, require an explicit launch-time choice. A human can select `orca`, `paseo`, or `none` with `AGENT_TOOLKIT_ORCHESTRATION_HOST` before launch. If the owner is missing or ambiguous, stop before host operations; do not guess.
+
+Only the selected host's delegation, handoff, browser, and cleanup procedures apply. Never fall back to the other host after a failure. Neither host may clean up the other's resources. Native provider launches must receive this contract through a validated per-session instruction path; finding a host's skills does not prove that integration is configured. On resume, preserve the original owner; do not transfer a provider session between hosts implicitly.
+
+Read repository instructions and apply Ponytail, Test Audit, and the review policy in every coordinator and worker. Honor explicit provider, model, reasoning, and account choices. Give each worker scope, edit ownership, constraints, and observable acceptance criteria. Preserve results before cleanup. Do not delegate a simple task merely because workers are available. Native provider helpers are not host-managed workers and do not need a new agent or worktree by default.
+
+## Orca CLI (Orca sessions only)
 
 Resolve the Orca executable without a shell wrapper. On macOS, use `orca` directly. If the platform or executable is unclear, run each required probe as a separate Bash call: `uname -s`, `printenv ORCA_CLI_COMMAND`, or `printenv ORCA_DEV_REPO_ROOT`. Never use `if`, `case`, loops, shell variables, command substitution, or `printf` to select the executable. Write the selected executable directly in every Orca command.
 
 ## Browser control
 
-When an agent runs in Orca, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. Do not use Computer Use for browser interaction unless the user explicitly requests a browser outside Orca or the Orca browser is unavailable. Use web search and fetch tools for non-interactive research.
+In Orca sessions, use the Orca CLI and its embedded browser for browser interaction. Load the version-matched `orca-cli` guide first. In Paseo sessions, use Paseo's workspace-scoped browser tools and read its current browser documentation first. Paseo browser tools require enabled tool injection, enabled browser tools, and a connected desktop browser host; report missing capabilities rather than switching to Orca. Do not use Computer Use for browser interaction unless the user explicitly requests an external browser or the selected host's browser is unavailable. Use web search and fetch tools for non-interactive research.
 Use the GitHub CLI inspection commands and the bounded pull-request tools for GitHub pull requests and Actions. Do not open a browser for these tasks unless the user explicitly asks for it.
 Pass static browser values as direct quoted arguments. For example, use `orca fill ... --value '/runtime'` directly. Do not grant raw host-control sockets access through a development sandbox. A host terminal broker can run commands outside that sandbox.
 
-## Agent delegation
+## Agent delegation: Orca sessions only
 
 Use managed yolo launchers for spawned task workers and full handoffs. Pi workers use `pi-yolo` and default to `openai-codex/gpt-6.1-sol` with high thinking. When the user explicitly requests Claude, use `claude-yolo`; it defaults to Claude Opus with medium effort. An explicit user-selected worker model or reasoning level overrides these defaults. The coordinator's model and reasoning level do not propagate to workers unless the user requests that behavior.
 
 Never invoke `pi-yolo` or `claude-yolo` directly through Bash from a running agent session. The runtime policy may deny recursive agent launches. In Orca, execute `orca` and pass the selected wrapper as the command for `terminal create` in the target worktree. Use `pi-yolo --model provider/model --thinking level` for Pi or `claude-yolo --model model --effort level` for Claude. Then deliver the task with the version-matched handoff or orchestration guide. For supervised work, use the guide's custom-argv topology so Orca owns the external terminal and lifecycle. Preserve any account-pinning requirements from the active workflow. Do not copy launcher examples from generic guides, launch plain `pi` or `claude`, or use generic `--agent` launchers that bypass the managed wrappers. If Orca or the selected wrapper cannot launch, report the blocker rather than falling back to another agent.
 
-Review exception: `autoreview` uses its Codex CLI engine with `gpt-6.1-sol` at high thinking and retries `gpt-5.6-sol` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
+Keep Orca's existing settlement, reuse, retention, and release lifecycle. Follow the version-matched guide; a missing runtime or uncertain worker state is not permission to launch through Paseo or delete a worktree.
+
+## Agent delegation: Paseo sessions only
+
+Use the installed official `paseo` skill for delegation and supervision, and `paseo-handoff` for ownership transfers. Do not copy, rewrite, or overwrite those skills. Use Paseo's supported native tools and provider launch path, not Orca terminals or the Orca-only worker defaults above. A human enables the native instruction bridge with `./install.sh --paseo` in the toolkit checkout, targeting the daemon's local `PASEO_HOME`, then reloads that daemon and starts fresh agents. The installer preserves official skills, provider commands, model/account settings, and provider-specific tool restrictions. Rerun the opt-in installation after toolkit rule updates to refresh the managed prompt block; plain installation leaves Paseo untouched. Missing browser tools still require the host's explicit browser opt-in. Do not replace Paseo provider commands with terminal launchers until provider discovery, instruction delivery, tool availability, account/model preservation, workers, and resume have been validated for that provider. If tools or a validated launch path are missing, report the blocker; do not silently launch an unguided raw CLI.
+
+Before choosing a worker, call `list_profiles` and read every profile's notes. Honor a requested profile and explicit settings; otherwise select the profile that fits the work. Materialize its provider/model, mode, thinking option, and features as the official skill describes. If a model is absent, use provider discovery. If no profile fits, tell the user and use discovery rather than guessing. Preserve account-specific provider aliases; never substitute another account when a selected provider fails.
+
+For investigation or read-only review, use the current workspace and prohibit edits in the brief. For independent parallel edits, first create separate worktree-backed workspaces with explicit base refs and disjoint edit ownership. For the initial trial, the human should configure `worktrees.root` under `~/Code/paseo-worktrees`; do not widen permissions for Paseo's default home-directory worktrees. Reuse an existing worker for follow-up work when appropriate. Leave finish notifications enabled and follow the official asynchronous waiting rules instead of polling.
+
+Before reporting supervised work complete: collect each result and its check evidence, preserve or integrate required changes, archive disposable finished agents, explicitly archive temporary editing workspaces, and report anything retained and why. Cross-workspace children remain subagents; archiving a parent is not proof that those workspaces were removed. Never archive the coordinator's current workspace, a handoff recipient, or a user-retained resource as disposable cleanup. If a worker is blocked, integration fails, or changes remain unresolved, retain the affected workspace and report it. Do not add timer-based deletion or a separate garbage collector. Handoffs report the receiving agent/workspace and leave detachment to the user, as the official skill requires.
+
+`paseo-advisor` and `paseo-committee` are available for explicitly requested second opinions. Their triggers do not authorize automatic AI review outside the review policy below.
+
+## Agent delegation: sessions without a host
+
+Do not invoke Orca or Paseo orchestration. Report that host-managed delegation requires a new launch with an explicit owner and a validated integration. Ordinary local work and native provider helpers remain available within the session's permissions.
+
+## Review engine
+
+`autoreview` uses its Codex CLI engine with `gpt-6.1-sol` at high thinking and retries `gpt-5.6-sol` only for an account-access failure. This exception is for review, not implementation workers, and does not change the risk-gated review rules below.
 
 ## Permission denials
 

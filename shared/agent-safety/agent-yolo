@@ -28,9 +28,13 @@ prepare_development() {
   [[ -f $policy_helper && ! -L $policy_helper && -f $marker && ! -L $marker && $(shasum -a 256 "$policy_helper" | awk '{print $1}') == "$(<"$marker")" ]] || {
     printf '%s: run agent-toolkit/install.sh first\n' "${0##*/}" >&2; exit 1;
   }
+  AGENT_TOOLKIT_ORCHESTRATION_HOST=$(node "$policy_helper" orchestration-host)
+  export AGENT_TOOLKIT_ORCHESTRATION_HOST
   AGENT_TOOLKIT_WORKSPACE=$(node "$policy_helper" workspace "$system_home")
   AGENT_TOOLKIT_SESSION_DIR=$(node "$policy_helper" prepare "$system_home")
   export AGENT_TOOLKIT_WORKSPACE AGENT_TOOLKIT_SESSION_DIR
+  session_rules=$AGENT_TOOLKIT_SESSION_DIR/AGENTS.md
+  node "$policy_helper" session-rules "$agent_rules" "$session_rules"
   export TMPDIR=$AGENT_TOOLKIT_SESSION_DIR/tmp XDG_CACHE_HOME=$AGENT_TOOLKIT_SESSION_DIR/cache
   export npm_config_cache=$XDG_CACHE_HOME/npm UV_CACHE_DIR=$XDG_CACHE_HOME/uv PIP_CACHE_DIR=$XDG_CACHE_HOME/pip
   export COREPACK_HOME=$XDG_CACHE_HOME/corepack PLAYWRIGHT_BROWSERS_PATH=$XDG_CACHE_HOME/playwright
@@ -88,7 +92,7 @@ case ${0##*/} in
       chmod 600 "$rules"
     fi
     [[ ! -e ${rules%/*}/agent-safety.rules ]] || { printf 'codex-yolo: remove the retired agent-safety.rules through the reviewed installer\n' >&2; exit 1; }
-    codex_instructions=$(node "$policy_helper" instructions "$agent_rules")
+    codex_instructions=$(node "$policy_helper" instructions "$session_rules")
     native_profile=$(node "$policy_helper" codex "$AGENT_TOOLKIT_WORKSPACE" "$AGENT_TOOLKIT_SESSION_DIR" "$system_home")
     exec codex --ask-for-approval never --no-daemon -c 'default_permissions="agent_toolkit"' -c "permissions.agent_toolkit=$native_profile" -c features.network_proxy=true -c 'shell_environment_policy.exclude=["*TOKEN*","*PASSWORD*","*SECRET*","*API_KEY*","*CREDENTIAL*","DATABASE_URL","PGHOST","PGPORT","PGUSER","PGDATABASE","SSH_AUTH_SOCK","DOCKER_HOST","DOCKER_CONTEXT"]' -c "developer_instructions=$codex_instructions" "$@"
     ;;
@@ -110,7 +114,7 @@ case ${0##*/} in
         ;;
       esac
     done
-    claude_args=(--restricted --tools Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,AskUserQuestion,Agent,TodoWrite,Skill --permission-mode acceptEdits --settings "$AGENT_TOOLKIT_SESSION_DIR/claude.json" --append-system-prompt-file "$agent_rules")
+    claude_args=(--restricted --tools Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,AskUserQuestion,Agent,TodoWrite,Skill --permission-mode acceptEdits --settings "$AGENT_TOOLKIT_SESSION_DIR/claude.json" --append-system-prompt-file "$session_rules")
     [[ $claude_has_model == true ]] || claude_args+=(--model opus)
     [[ $claude_has_effort == true ]] || claude_args+=(--effort medium)
     claude_args+=("$@")
@@ -185,6 +189,7 @@ NODE
     unset AGENT_TOOLKIT_CODEX_ACCOUNT_EMAIL_B64 AGENT_TOOLKIT_CODEX_ACCOUNT_ID AGENT_TOOLKIT_CODEX_PROFILE_SHA256
     agent_dir=$AGENT_TOOLKIT_SESSION_DIR/pi
     mkdir "$agent_dir"
+    ln -s "$session_rules" "$agent_dir/AGENTS.md"
     if [[ -n $account_profile ]]; then
       profile_dir=$source_agent_dir/auth-profiles/$account_profile
       profile_auth=$profile_dir/auth.json
@@ -259,7 +264,7 @@ NODE
       chmod 600 "$agent_dir/auth.json"
       for source in "$source_agent_dir"/*; do
         name=${source##*/}
-        [[ $name == auth.json || $name == auth-profiles || $name == extensions ]] || ln -s "$source" "$agent_dir/$name"
+        [[ $name == AGENTS.md || $name == auth.json || $name == auth-profiles || $name == extensions ]] || ln -s "$source" "$agent_dir/$name"
       done
       mkdir "$agent_dir/extensions"
       for source in "$source_agent_dir/extensions"/*; do
@@ -269,7 +274,7 @@ NODE
       mkdir "$agent_dir/extensions/pi-permission-system"
     else
       for source in "$source_agent_dir"/*; do
-        [[ ${source##*/} == extensions ]] || ln -s "$source" "$agent_dir/${source##*/}"
+        [[ ${source##*/} == AGENTS.md || ${source##*/} == extensions ]] || ln -s "$source" "$agent_dir/${source##*/}"
       done
       mkdir "$agent_dir/extensions"
       for source in "$source_agent_dir/extensions"/*; do

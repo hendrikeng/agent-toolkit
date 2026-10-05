@@ -27,7 +27,17 @@ else
   pi_web_config_dir=$HOME/.pi
 fi
 
-[[ $# -eq 0 ]] || { printf 'Usage: ./install.sh\n' >&2; exit 2; }
+install_paseo=false
+if [[ $# -eq 1 && $1 == --paseo ]]; then
+  install_paseo=true
+  [[ -z ${PASEO_HOST:-} ]] || { printf 'Paseo installation targets a local daemon home; unset PASEO_HOST and select PASEO_HOME explicitly.\n' >&2; exit 2; }
+  paseo_home=${PASEO_HOME:-$HOME/.paseo}
+  [[ $paseo_home == /* && -f $paseo_home/config.json ]] || { printf 'Select an existing local Paseo daemon home with an absolute PASEO_HOME.\n' >&2; exit 2; }
+  command -v paseo >/dev/null 2>&1 || { printf 'Paseo is required for --paseo.\n' >&2; exit 2; }
+elif [[ $# -ne 0 ]]; then
+  printf 'Usage: ./install.sh [--paseo]\n' >&2
+  exit 2
+fi
 printf 'Installing development access for %s/Code and %s/orca/workspaces. Secrets, unbounded deletion, publication, deployment and existing database administration remain restricted.\n' "$HOME" "$HOME"
 
 initialize_blueprint_submodule() {
@@ -176,7 +186,7 @@ configure_agent_file() {
     printf 'backed up %s -> %s\n' "$target" "$backup"
   fi
   mv "$temporary" "$target"
-  printf 'configured %s agent safety\n' "$host"
+  printf 'configured %s agent settings\n' "$host"
 }
 
 claude_ponytail_marketplace_source() {
@@ -431,6 +441,14 @@ printf 'installing pinned toolkit dependencies…\n'
   npm ci --ignore-scripts --no-audit --no-fund
 )
 
+if [[ $install_paseo == true ]]; then
+  paseo --version | node -e '
+const version = require("node:fs").readFileSync(0, "utf8").match(/(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number);
+if (!version || version[0] * 1000000 + version[1] * 1000 + version[2] < 10003) { console.error("Paseo 0.10.3 or later is required"); process.exit(1); }
+'
+  node "$repo_dir/shared/agent-safety/configure.cjs" paseo "$paseo_home/config.json" --check
+fi
+
 legacy_simple_english="$pi_agent_dir/skills/simple-english"
 if [[ -L "$legacy_simple_english" && $(readlink "$legacy_simple_english") == "$repo_dir/pi/skills/simple-english" ]]; then
   backup="$backup_root/${legacy_simple_english#"$HOME"/}"
@@ -578,9 +596,19 @@ retire_managed_copy "$HOME/.local/bin/repo-delete"
 retire_managed_copy "$HOME/.local/libexec/agent-toolkit/pg-test"
 retire_managed_copy "$pi_agent_dir/extensions/python-inline-guard/index.ts"
 
+if [[ $install_paseo == true ]]; then
+  configure_agent_file paseo "$paseo_home/config.json"
+fi
+
 if [[ -n ${AGENT_TOOLKIT_PI_AGENT_DIR:-} && ${PI_CODING_AGENT_DIR:-} != "$pi_agent_dir" ]]; then
   printf '\nInstallation complete. Restart the current pi-yolo session and any Codex or Claude sessions to load newly installed resources.\n'
 else
   printf '\nInstallation complete. Start fresh managed agent sessions to load the updated rules, skills, and policy.\n'
 fi
 printf 'On first Codex start, review and trust Ponytail hooks when prompted (or open /hooks).\n'
+
+if [[ $install_paseo == true ]]; then
+  printf '\nNative Paseo coding guidance and tool injection saved for %s. Provider commands, accounts, models, permissions, profiles, and installed Paseo skills are unchanged.\n' "$paseo_home"
+  printf 'From a trusted terminal, run paseo --home "%s" reload --json, check its applied/restart-required paths, then start fresh native agents. Do not restart a daemon with active work blindly.\n' "$paseo_home"
+  printf 'This instruction bridge does not install the managed terminal launchers\047 sandbox for native Paseo agents.\n'
+fi
