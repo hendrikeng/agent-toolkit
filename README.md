@@ -73,7 +73,7 @@ All three managed launchers load the same toolkit rules without replacing `~/.co
 
 Each launcher selects one repository or folder under `~/Code` or `~/orca/workspaces`. Neither development root is a writable session scope. Home and workspace paths cannot contain permission glob characters.
 
-The session receives private scratch, cache, and review directories. Builds, tests, inline programs, and generated-file cleanup work inside this scope. Other projects do not receive automatic write access.
+The session receives private scratch, cache, and review directories. Ordinary shell commands run inside this scope, subject to the boundary limits. Other projects do not receive automatic write access.
 
 Codex uses a native permission profile and its network proxy. Claude uses restricted file tools and its native Bash sandbox. Pi uses the stock permission package for file tools and an overridden Bash backend through `codex sandbox`.
 
@@ -92,6 +92,8 @@ Local services remain reachable through loopback access. The sandbox does not au
 Raw terminal and Docker brokers can run commands outside a development sandbox. The toolkit does not grant these brokers an automatic socket exception. Frontend orchestration requires its own trusted, bounded tool interface.
 
 Native permission profiles are a beta Codex feature. Unsupported engines fail before the session starts. Launchers refuse retired sandbox settings in the selected account and project settings. These settings otherwise override native permission profiles.
+
+On macOS, scoped secret globs in the Codex profile block directory deletion and rename. Pi provides a checked filesystem operation for standalone `rmdir ./name` commands at the workspace root. It removes only empty, unprotected directories with simple names. It rejects symlinks and does not run a host shell. Nested paths, recursive deletion, and compound commands remain sandboxed. Private session temporary directories permit scratch cleanup.
 
 On Linux, native secret-glob enforcement uses a startup snapshot with a 64-level scan limit. The current boundary checks cover macOS, not Linux.
 

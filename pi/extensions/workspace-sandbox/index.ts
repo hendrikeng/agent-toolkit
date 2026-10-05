@@ -17,6 +17,8 @@ export function createWorkspaceOperations(): BashOperations {
       const require = createRequire(join(home, ".local/libexec/agent-toolkit/package.json"))
       const policy = require("./development-policy.cjs")
       if (!policy.within(policy.canonical(process.env.AGENT_TOOLKIT_WORKSPACE), policy.canonical(cwd))) throw new Error("Command working directory is outside the assigned workspace")
+      options.signal?.throwIfAborted()
+      if (process.platform === "darwin" && policy.removeEmptyWorkspaceDirectory(command, cwd, process.env.AGENT_TOOLKIT_WORKSPACE, home)) return { exitCode: 0 }
       const env = { ...process.env, ...options.env }
       const hostHelper = helperPattern.test(command.trim())
       for (const name of Object.keys(env)) {

@@ -86,6 +86,10 @@ test('the real native sandbox allows development, but denies sibling writes, sec
   const f = fixture()
   assert.equal(spawnSync('/usr/bin/git', ['init', '-q'], { cwd: f.root }).status, 0)
   fs.writeFileSync(path.join(f.home, '.gitconfig'), '[user]\nname=Fixture\nemail=fixture@example.invalid\n[http]\nextraHeader=fixture-secret-header\n')
+  fs.mkdirSync(path.join(f.home, '.config/git'), { recursive: true })
+  fs.writeFileSync(path.join(f.home, '.config/git/ignore'), 'ignored-global.log\n')
+  fs.writeFileSync(path.join(f.home, '.config/git/attributes'), '*.txt fixture-attribute\n')
+  fs.writeFileSync(path.join(f.home, '.config/git/config'), '[http]\nextraHeader=fixture-secret-header\n')
   const gitConfig = policy.gitConfiguration(f.session, f.home)
   assert.doesNotMatch(fs.readFileSync(gitConfig, 'utf8'), /fixture-secret-header/)
   fs.writeFileSync(path.join(f.home, '.ssh/key'), 'fixture credential')
@@ -108,6 +112,16 @@ const deny = operation => assert.throws(operation, error => ['EPERM', 'EACCES'].
 fs.writeFileSync('generated', 'ok');
 fs.rmSync('generated');
 fs.writeFileSync('development.txt', 'fixture development');
+fs.writeFileSync('ignored-global.log', 'generated');
+const status = spawnSync('/usr/bin/git', ['status', '--short'], { encoding: 'utf8' });
+assert.equal(status.status, 0, status.stderr);
+assert.doesNotMatch(status.stderr, /unable to access.*(?:ignore|attributes)/);
+assert.doesNotMatch(status.stdout, /ignored-global\\.log/);
+const attributes = spawnSync('/usr/bin/git', ['check-attr', 'fixture-attribute', '--', 'development.txt'], { encoding: 'utf8' });
+assert.equal(attributes.status, 0, attributes.stderr);
+assert.match(attributes.stdout, /fixture-attribute: set/);
+deny(() => fs.readFileSync(${JSON.stringify(path.join(f.home, '.config/git/config'))}));
+deny(() => fs.writeFileSync(${JSON.stringify(path.join(f.home, '.config/git/ignore'))}, 'bad'));
 for (const args of [['add', 'development.txt'], ['commit', '-qm', 'fixture']]) { const result = spawnSync('/usr/bin/git', args, { encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); }
 assert.equal(fs.readFileSync('.env.example', 'utf8'), 'example');
 for (const name of ['.env', '.env.custom', '.env.e', '.env.example.local', 'private.pem', 'private.key', '.npmrc', '.pypirc', '.netrc', '.git-credentials']) deny(() => fs.readFileSync(name));
@@ -126,7 +140,7 @@ assert.notEqual(nested.status, 0);
 assert.match(nested.stderr, /EPERM|EACCES/);
 console.log('native boundary passed');
 `)
-  const env = { ...process.env, HOME: f.home, CODEX_HOME: path.join(f.home, '.codex'), TMPDIR: path.join(f.session, 'tmp'), xcrun_nocache: '1' }
+  const env = { ...process.env, HOME: f.home, XDG_CONFIG_HOME: path.join(f.home, '.config'), CODEX_HOME: path.join(f.home, '.codex'), TMPDIR: path.join(f.session, 'tmp'), xcrun_nocache: '1' }
   for (const name of Object.keys(env)) if (/^(GIT_|AGENT_TOOLKIT_CODEX)/.test(name)) delete env[name]
   Object.assign(env, { GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: '1' })
   const result = spawnSync('codex', ['sandbox', '-P', policy.PROFILE, '-C', f.root, ...policy.codexArgs(f.root, f.session, f.home), '--sandbox-state-disable-network', '--', process.execPath, child], { cwd: f.root, env, encoding: 'utf8', timeout: 30000 })

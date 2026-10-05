@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process')
 const PROFILE = 'agent_toolkit'
 const DOMAINS = ['localhost', '127.0.0.1', 'registry.npmjs.org', 'registry.yarnpkg.com', 'pypi.org', 'files.pythonhosted.org', 'github.com', '*.github.com', '*.githubusercontent.com', 'nodejs.org', 'crates.io', '*.crates.io', 'static.rust-lang.org', 'proxy.golang.org', 'sum.golang.org', 'dl.google.com', '*.playwright.dev', '*.playwright.microsoft.com', 'storage.googleapis.com']
 const SECRET_PATHS = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.config/gcloud', '.docker/config.json', '.npmrc', '.pypirc', '.netrc', '.git-credentials', 'Library/Keychains', '.claude/.credentials.json', '.codex/auth.json', '.codex-accounts', '.pi/agent/auth.json', '.pi/agent/auth-profiles']
-const TOOL_PATHS = ['.local/bin', '.local/libexec/agent-toolkit', '.local/share/fnm', '.local/share/uv/python', '.nvm/versions', '.rustup/toolchains', '.cargo/bin', '.local/share/pnpm', '.agents/skills', '.claude/skills', '.codex/skills', '.pi/agent/skills', '.pi/agent/extensions']
+const TOOL_PATHS = ['.local/bin', '.local/libexec/agent-toolkit', '.local/share/fnm', '.local/share/uv/python', '.nvm/versions', '.rustup/toolchains', '.cargo/bin', '.local/share/pnpm', '.agents/skills', '.claude/skills', '.codex/skills', '.pi/agent/skills', '.pi/agent/extensions', '.config/git/ignore', '.config/git/attributes']
 // Native deny globs override exact grants. Exclude only the public .env.example name.
 const ENV_DENIES = ['**/.env', '**/.env.', ...Array.from('example').flatMap((letter, index) => [...(index ? [`**/.env.${'example'.slice(0, index)}`] : []), `**/.env.${'example'.slice(0, index)}[!${letter}]*`]), '**/.env.example?*']
 const SECRET_FILE_DENIES = [...ENV_DENIES, '**/*.pem', '**/*.key', '**/*.credentials.json', ...['.npmrc', '.pypirc', '.netrc', '.git-credentials'].map(name => `**/${name}`)]
@@ -119,6 +119,20 @@ function sandboxCommand(command, cwd, session = process.env.AGENT_TOOLKIT_SESSIO
   const selected = JSON.parse(fs.readFileSync(path.join(session, 'native-profile.json'), 'utf8'))
   return ['exec', 'codex', 'sandbox', '-P', PROFILE, '-C', cwd, ...codexArgs(root, session, home, selected), '--', '/bin/bash', '-c', command].map(quote).join(' ')
 }
+function removeEmptyWorkspaceDirectory(command, cwd, root, home = os.homedir()) {
+  const match = /^(?:\/bin\/)?rmdir (['"]?)(?:\.\/)?([A-Za-z0-9_.][A-Za-z0-9._-]*)\1$/.exec(command.trim())
+  if (!match || canonical(cwd) !== canonical(root)) return false
+  const name = match[2]
+  const target = path.join(canonical(root), name)
+  // Case variants can identify the same protected directory on macOS.
+  const identifier = name.toLowerCase()
+  const resource = target.toLowerCase()
+  if (['.', '..', '.git', '.pi', '.claude', '.codex'].includes(identifier) || SECRET_FILE_DENIES.some(pattern => path.matchesGlob(identifier, pattern) || (pattern.startsWith('**/*.') && identifier.endsWith(pattern.slice(4)))) || readRoots(home).some(value => within(resource, value.toLowerCase()) || within(value.toLowerCase(), resource))) throw Error('Cannot remove a protected workspace directory')
+  // ponytail: direct children only, so no mutable parent symlinks; nested cleanup waits for a native sandbox fix.
+  // rmdir is atomic: nonempty directories and final-component symlinks cannot be removed.
+  fs.rmdirSync(target)
+  return true
+}
 function claudeSettings(root, session, home = os.homedir(), env = process.env) {
   root = workspace(root, home)
   const denyRead = secretPaths(home)
@@ -190,7 +204,7 @@ function validateCodex(args) {
     }
   }
 }
-module.exports = { PROFILE, DOMAINS, workspace, sessionDirectory, profile, codexArgs, sandboxCommand, claudeSettings, piPolicy, toml, canonical, within, validateCodex, codexRules, readRoots, assertModernCodex, gitConfiguration }
+module.exports = { PROFILE, DOMAINS, workspace, sessionDirectory, profile, codexArgs, sandboxCommand, claudeSettings, piPolicy, toml, canonical, within, validateCodex, codexRules, readRoots, assertModernCodex, gitConfiguration, removeEmptyWorkspaceDirectory }
 if (require.main === module) {
   const [action, ...args] = process.argv.slice(2)
   try {
