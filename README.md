@@ -249,6 +249,8 @@ Both hosts require explicit ownership for handoffs. A resumed session keeps its 
 
 The [central Paseo worktree guide](docs/paseo-worktrees.md) covers project setup, cross-repository workers, previews, and cleanup.
 Each project keeps its native `paseo.json`. The shared workflow stays in this Toolkit guide.
+The generic `paseo-service` command records explicit cross-workspace service pairs and resolves current ports at consumer startup.
+See the guide for environment-loader ordering, small application integration, and required restarts.
 
 ### Recommended native Paseo profiles
 

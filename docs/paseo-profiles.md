@@ -70,6 +70,32 @@ The adapter's threshold is Codex `0.115.0`.
 That host default is different from the mode named Default Permissions.
 An explicit saved choice avoids dependence on the host's current default.
 
+### Protected writes and denial reports
+
+Workspace write access does not imply permission to write protected Git metadata.
+If the active sandbox protects authorized Git metadata writes, request supported native escalation before execution.
+For example, `git hash-object -w --stdin` writes into `.git/objects`.
+Default Permissions can route the request to a human. Auto-review can route eligible requests to the approval reviewer.
+An approved native escalation can permit execution outside the sandbox. Managed policy can still prohibit the operation.
+
+Keep these outcomes distinct:
+
+- A filesystem or sandbox denial reports failed execution. It does not create an approval request.
+- A native approval request waits for the designated human or approval reviewer.
+- An approval-review rejection rejects the requested action. Stop that action and report the stated reason.
+- An explicit task prohibition remains binding until the user explicitly lifts it.
+
+If the active policy and task permit escalation after a filesystem or sandbox denial, use supported native escalation.
+Do not repeat the command under unchanged sandbox conditions or bypass the denial through another tool, path, worker, or mode.
+General publication approval does not lift an explicit no-Git-write-retries restriction.
+Do not change live permissions or grant yourself access.
+
+Record the command, target, agent, effective permission mode, and denial type in the task report.
+In the reported incident, the diagnostics worker in Default Permissions failed at `git hash-object -w --stdin`.
+The write target was `.git/objects`. The publication worker stopped under the earlier no-Git-write-retries restriction.
+A separate Full Access PostgreSQL worker succeeded. That result does not establish Git publication permission.
+Do not attribute the diagnostics denial to either of those workers.
+
 ### The separate Plan feature
 
 Codex uses `featureValues.plan_mode`, not a fourth entry in the permission-mode selector.

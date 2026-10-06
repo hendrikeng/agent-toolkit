@@ -189,8 +189,12 @@ test('permission-preserving install and repeat install preserve configuration, i
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.home, '.pi/web-search.json'), 'utf8')), { apiKey: 'fixture-keep', allowBrowserCookies: true, workflow: 'none' })
   for (const [file, content] of Object.entries(untouched)) assert.equal(fs.readFileSync(path.join(f.home, file), 'utf8'), content, file)
   assert.equal(fs.existsSync(path.join(f.home, '.local/bin/pi-yolo')), false)
-  for (const command of ['pg-test', 'pg18-fresh']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
+  for (const command of ['pg-test', 'pg18-fresh', 'paseo-service']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
   assert.equal(fs.readFileSync(path.join(f.home, '.local/bin/pg-test'), 'utf8'), fs.readFileSync(path.join(repo, 'shared/postgres/pg-test.cjs'), 'utf8'))
+  const pairing = spawnSync(process.execPath, [path.join(f.home, '.local/bin/paseo-service')], { encoding: 'utf8', env: { PATH: process.env.PATH } })
+  assert.equal(pairing.status, 1)
+  assert.match(pairing.stderr, /Usage: paseo-service/)
+  assert.equal(fs.readFileSync(path.join(f.home, '.local/share/agent-toolkit/resources/docs/paseo-worktrees.md'), 'utf8'), fs.readFileSync(path.join(repo, 'docs/paseo-worktrees.md'), 'utf8'))
   fs.appendFileSync(installedSkill, '\nUser installed edit\n')
   assert.throws(f.plan, /Manual reconciliation/)
   assert.ok(fs.readFileSync(installedSkill, 'utf8').endsWith('User installed edit\n'))
@@ -203,7 +207,7 @@ for (const provider of [
 ]) test(`switching ${provider.option} preserves other installed homes and scopes obsolete-link cleanup`, t => {
   const f = fixture(t)
   const checkout = path.join(f.home, 'checkout')
-  for (const directory of ['skills', 'pi/extensions', 'shared', 'paseo/tool-trust', 'vendor/agent-project-blueprint']) {
+  for (const directory of ['skills', 'pi/extensions', 'shared', 'paseo/tool-trust', 'vendor/agent-project-blueprint', 'docs/paseo-worktrees.md']) {
     fs.cpSync(path.join(repo, directory), path.join(checkout, directory), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
   }
   const obsoleteSource = f.put(`checkout/${provider.source}/retired-fixture/${provider.entry}`, provider.entry === 'SKILL.md' ? '---\nname: retired-fixture\ndescription: Fixture skill\n---\nFixture body\n' : 'export default function () {}\n')
@@ -375,7 +379,7 @@ test('missing Pi permits shared installation and repeat installation without tou
 test('a deployed executable is a copy; changes made during staging are preserved; failed replacement restores original files', t => {
   const f = fixture(t)
   const checkout = path.join(f.home, 'checkout')
-  for (const directory of ['skills', 'pi/extensions', 'shared', 'paseo/tool-trust', 'vendor/agent-project-blueprint']) {
+  for (const directory of ['skills', 'pi/extensions', 'shared', 'paseo/tool-trust', 'vendor/agent-project-blueprint', 'docs/paseo-worktrees.md']) {
     fs.cpSync(path.join(repo, directory), path.join(checkout, directory), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
   }
   const options = { repo: checkout, home: f.home, installPi: true }

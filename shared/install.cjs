@@ -248,10 +248,10 @@ function planInstall(options) {
   }
   for (const name of ['codex-yolo', 'claude-yolo', 'autoreview-yolo', 'pg18-fresh-yolo', 'repo-delete']) marked(path.join(home, '.local/bin', name))
   for (const name of ['autoreview', 'development-policy.cjs', 'development.rules', 'pg18-fresh-yolo', 'repository-trust.cjs', 'git', 'open', 'pg-test', 'package.json', 'package-lock.json']) marked(path.join(legacy, name))
-  for (const [command, filename] of [['pg-test', 'pg-test.cjs'], ['pg18-fresh', 'pg18-fresh.cjs']]) {
+  for (const [command, filename] of [['pg-test', 'shared/postgres/pg-test.cjs'], ['pg18-fresh', 'shared/postgres/pg18-fresh.cjs'], ['paseo-service', 'shared/paseo-service.cjs']]) {
     const file = path.join(home, '.local/bin', command)
     if (exists(file)?.isFile()) marked(file)
-    link(file, path.join(resources, 'shared/postgres', filename), [])
+    link(file, path.join(resources, filename), [])
   }
   if (process.platform === 'darwin') for (const command of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
     const file = path.join(home, '.local/bin', command)
@@ -315,6 +315,9 @@ function install(plan, run = execFileSync) {
       else if (exists(source)) fs.cpSync(source, path.join(stage, directory), { recursive: true })
     }
     fs.copyFileSync(path.join(repo, 'shared/AGENTS.md'), path.join(stage, 'shared/AGENTS.md'))
+    fs.copyFileSync(path.join(repo, 'shared/paseo-service.cjs'), path.join(stage, 'shared/paseo-service.cjs'))
+    fs.mkdirSync(path.join(stage, 'docs'), { recursive: true })
+    fs.copyFileSync(path.join(repo, 'docs/paseo-worktrees.md'), path.join(stage, 'docs/paseo-worktrees.md'))
     run('npm', ['ci', '--prefix', path.join(stage, 'skills/react-doctor'), '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
     treeHash(stage) // Reject source symlinks before changing an installed resource.
     // Re-read after staging: preserve edits made while npm ran.

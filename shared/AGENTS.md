@@ -16,7 +16,19 @@ Use blockquotes only for quotations or an explicit user request.
 Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if these boundaries are unclear.
 For disposable PostgreSQL 18 tests, use `pg-test` with the least-privileged role profile.
 Use only its returned fixture URL, keep credentials out of committed files, and run `pg-test stop <id>` when finished.
-A hard permission denial is not an approval prompt. Do not retry the unchanged command or evade the denial through another tool.
+
+## Permission boundaries
+
+Distinguish execution denials, native approval requests, approval-review rejections, and explicit task prohibitions.
+If the active sandbox protects an authorized operation, request supported native escalation before execution.
+For example, protected Git metadata writes need this approval in Codex workspace-write mode.
+A filesystem or sandbox denial is not itself an approval request.
+If the active policy and task permit it, request native approval after an execution denial.
+Do not repeat the command under unchanged sandbox conditions or bypass a denial through another tool, path, worker, or mode.
+After an approval-review rejection, stop the rejected action and report the stated reason.
+Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
+Record the command, target, agent, effective permission mode, and denial type. Attribute each denial to its originating agent.
+Never change live permission settings or grant access that managed policy forbids.
 
 ## Reviews
 

@@ -48,6 +48,10 @@ Include the coordinator workspace ID and shared task name in each worker's brief
 Create workers through the current agent's native interface with the target `workspaceId` so they remain its subagents.
 Do not detach workers or launch independent top-level sessions merely because they work in another repository.
 Shared names and recorded workspace IDs associate the workspaces. They do not create a native workspace hierarchy or share uncommitted files.
+For services across workspaces, record an explicit ID pairing with the Toolkit's `paseo-service` helper.
+Select a task-owned backend or an explicitly authorized shared dev backend. Do not infer the backend from similar names.
+Launch the consumer through the helper after environment loading.
+Read the [central worktree guide](../../docs/paseo-worktrees.md) for application integration and required restarts.
 For independent parallel edits, create separate worktree-backed workspaces in each target repository with explicit base refs.
 Pass the target checkout as `create_workspace.path`. Omitting it also inherits the coordinator's workspace.
 Pass the selected workspace's `workspaceId` explicitly to `create_agent`. An omitted value inherits the coordinator's workspace.
