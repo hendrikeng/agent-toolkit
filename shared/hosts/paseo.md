@@ -29,6 +29,9 @@ Use the existing AutoReview helper for change-bundle reviews. Paseo profiles do 
 Before launching an editing worker, identify the repository that owns its assigned files.
 Choose the worker's workspace from that repository, not from the coordinator's current location.
 For cross-repository tasks, split edit ownership by repository and launch each worker in its repository's workspace.
+Apply this rule to every repository, including small fixes and checks that write or generate files.
+Do not edit another repository through sibling paths, temporary scripts, or shell directory changes from the coordinator session.
+Read-only cross-repository inspection can remain in the coordinator workspace.
 For example, launch a web worker in the web repository and an API worker in the API repository.
 The coordinator can remain in the web workspace and integrate both results.
 Discover the target repository and its workspaces through the official native interfaces.
@@ -45,6 +48,9 @@ Use Paseo's workspace browser tools and current browser documentation. Browser t
 Report missing capabilities. Do not switch to Orca. Use web search/fetch for research and GitHub CLI inspection for PRs and Actions.
 
 Collect results and check evidence, integrate required changes, then archive disposable agents and temporary editing workspaces explicitly.
+After a task branch is merged and its results are safely delivered, archive its completed disposable workspaces.
+A merged branch alone does not remove its worktree. Paseo removes an owned worktree after its last active workspace reference is archived.
+Verify removal through the native workspace list and the returned worktree path. Report cleanup failures instead of leaving them silent.
 Retain blocked or unresolved workspaces. Never archive the coordinator workspace, a handoff recipient, or user-retained resources.
 Cross-workspace children remain subagents. Archiving a parent does not prove that child workspaces were removed.
 Handoffs name the receiving agent/workspace and leave detachment to the user. No timer-based cleanup or separate lifecycle collector.
