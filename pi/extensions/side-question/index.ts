@@ -7,7 +7,6 @@ import {
 	convertToLlm,
 	copyToClipboard,
 	createAgentSession,
-	DefaultPackageManager,
 	DefaultResourceLoader,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
@@ -38,6 +37,8 @@ import {
 	SIDE_BOUNDARY_PROMPT,
 	SIDE_SYSTEM_PROMPT,
 } from "./side-core.ts"
+
+import { restoreReviewMode, reviewModeInstructions } from "../review-mode/index.ts"
 
 const SIDE_TOOLS = ["read", "grep", "find", "ls", "bash", "edit", "write"]
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
@@ -357,30 +358,18 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 	async function startSideSession(ctx: ExtensionCommandContext): Promise<AgentSession> {
 		const agentDir = getAgentDir()
 		const settingsManager = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: ctx.isProjectTrusted() })
-		const resources = await new DefaultPackageManager({ cwd: ctx.cwd, agentDir, settingsManager }).resolve(async () => "skip")
-		const permissionExtensions = resources.extensions.filter(
-			(resource) => resource.enabled && resource.metadata.source.includes("pi-permission-system"),
-		)
-		if (permissionExtensions.length === 0) throw new Error("The Pi permission extension is required for side conversations")
-
-		const extensionPaths = resources.extensions
-			.filter(
-				(resource) =>
-					resource.enabled
-					&& (resource.metadata.source.includes("pi-permission-system") || resource.path.includes("codex-fast")),
-			)
-			.map((resource) => resource.path)
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: ctx.cwd,
 			agentDir,
 			settingsManager,
-			additionalExtensionPaths: [...new Set(extensionPaths)],
-			noExtensions: true,
+			noExtensions: false,
 			noPromptTemplates: true,
 			noThemes: true,
-			appendSystemPrompt: [SIDE_SYSTEM_PROMPT],
+			extensionsOverride: (base) => ({ ...base, extensions: base.extensions.filter(extension => !extension.resolvedPath.includes("/review-mode/")) }),
+			appendSystemPrompt: [SIDE_SYSTEM_PROMPT, reviewModeInstructions(restoreReviewMode(ctx.sessionManager.getEntries()))],
 		})
 		await resourceLoader.reload()
+		if (resourceLoader.getExtensions().errors.length) throw new Error("Side extensions failed to load; preserve the configured permissions and fix the reported extension error")
 
 		const { session } = await createAgentSession({
 			cwd: ctx.cwd,
@@ -392,6 +381,17 @@ export default function sideQuestionExtension(pi: ExtensionAPI): void {
 			sessionManager: SessionManager.inMemory(ctx.cwd),
 			settingsManager,
 		})
+		const failures: string[] = []
+		let shutdown = false
+		await session.bindExtensions({
+			mode: ctx.mode, uiContext: ctx.ui,
+			onError: error => failures.push(error.error),
+			shutdownHandler: () => { shutdown = true },
+		})
+		if (shutdown || failures.length) {
+			session.dispose()
+			throw new Error("Side extension startup failed: " + (failures.join("; ") || "shutdown requested"))
+		}
 		const main = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId())
 		const reference: UserMessage = {
 			role: "user",

@@ -3,25 +3,11 @@ import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import {
-	activateCodexProfile,
-	codexProfileEmail,
-	codexProfileHome,
-	defaultPiAccount,
-	fetchCodexUsage,
-	formatCodexUsage,
-	mergeCodexUsage,
-	reserveAccountProfile,
-	parseCodexResetCreditsPayload,
-	parseCodexUsage,
-	parseCodexUsagePayload,
-	persistDefaultPiAccount,
-	persistPiAccount,
-	piAccountEmail,
-	piAccounts,
-	piProfileAccountId,
-	prepareCodexRuntime,
-	switchPiAccount,
+import codexAccountExtension, {
+	codexProfileEmail, codexProfileHome, defaultPiAccount, fetchCodexUsage,
+	formatCodexUsage, mergeCodexUsage, reserveAccountProfile, parseCodexResetCreditsPayload,
+	parseCodexUsage, parseCodexUsagePayload, piAccountEmail, piAccounts,
+	importCodexAccount, accountProvider,
 } from "../index.ts"
 
 test("formats Codex response limits and reset times compactly", () => {
@@ -130,199 +116,144 @@ test("discovers account profiles by email", async () => {
 	}
 })
 
-test("reads a Pi profile account ID", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pi-account-id-test-"))
-	const profile = "account-1"
+
+// Use the installed SDK for credential refresh/locking; the provider's network
+// exchange is the only substituted boundary. No live credentials or model calls.
+test("native Pi account stores refresh independently without erasing Codex credentials", async t => {
+	const { execFileSync } = await import("node:child_process")
+	const { registerHooks } = await import("node:module")
+	const { pathToFileURL } = await import("node:url")
+	const globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim()
+	const packageRoot = join(globalRoot, "@earendil-works/pi-coding-agent")
+	try { await lstat(join(packageRoot, "dist/index.js")) }
+	catch (error: any) { if (error.code !== "ENOENT") throw error; t.skip("Pi SDK absent; native credential behavior unverified"); return }
+	const hooks = registerHooks({ resolve(specifier, context, next) {
+		if (specifier === "@earendil-works/pi-coding-agent") return { url: pathToFileURL(join(packageRoot, "dist/index.js")).href, shortCircuit: true }
+		if (specifier === "@earendil-works/pi-ai") return { url: pathToFileURL(join(packageRoot, "node_modules/@earendil-works/pi-ai/dist/index.js")).href, shortCircuit: true }
+		return next(specifier, context)
+	} })
+	const root = await mkdtemp(join(tmpdir(), "native-pi-accounts-"))
 	try {
-		await mkdir(join(root, "auth-profiles", profile), { recursive: true })
-		await writeFile(join(root, "auth-profiles", profile, "auth.json"), JSON.stringify({ "openai-codex": { accountId: "pi-account" } }))
-		assert.equal(piProfileAccountId(profile, root), "pi-account")
-	} finally {
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test("imports a Codex login when Pi switches the active profile", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pi-account-import-test-"))
-	const agentDir = join(root, "agent")
-	const runtimeDir = join(root, "runtime")
-	const codexRoot = join(root, "codex-accounts")
-	const originalProfile = process.env.AGENT_TOOLKIT_CODEX_ACCOUNT
-	const originalCodexHome = process.env.CODEX_HOME
-	const originalProfileHome = process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME
-	try {
-		await mkdir(agentDir, { recursive: true })
-		await mkdir(runtimeDir)
-		await mkdir(join(codexRoot, "personal"), { recursive: true })
-		await writeFile(join(agentDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "keep" } }))
-		await writeFile(join(runtimeDir, "auth.json"), "{}")
-		const access = `header.${Buffer.from(JSON.stringify({
-			email: "jhw@envest.vc",
-			exp: Math.floor(Date.now() / 1000) + 3600,
-			"https://api.openai.com/auth": { chatgpt_account_id: "account-123" },
-		})).toString("base64url")}.signature`
-		const idToken = `header.${Buffer.from(JSON.stringify({ email: "jhw@envest.vc" })).toString("base64url")}.signature`
-		await writeFile(join(codexRoot, "personal", "auth.json"), JSON.stringify({
-			tokens: { access_token: access, refresh_token: "refresh-123", id_token: idToken, account_id: "account-123" },
-		}))
-		process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = "personal"
-
-		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal", defaultPersisted: true })
-		const runtime = JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))
-		assert.equal(runtime["openai-codex"].access, access)
-		assert.equal(runtime["openai-codex"].refresh, "refresh-123")
-		assert.equal(runtime["openai-codex"].accountId, "account-123")
-
-		const replacementAccess = `header.${Buffer.from(JSON.stringify({
-			email: "jhw@envest.vc",
-			exp: Math.floor(Date.now() / 1000) + 7200,
-			"https://api.openai.com/auth": { chatgpt_account_id: "account-123" },
-		})).toString("base64url")}.signature`
-		await writeFile(join(codexRoot, "personal", "auth.json"), JSON.stringify({
-			tokens: { access_token: replacementAccess, refresh_token: "replacement-refresh", id_token: idToken, account_id: "account-123" },
-		}))
-		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal", defaultPersisted: true })
-		assert.equal(JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))["openai-codex"].access, replacementAccess)
-
-		runtime["openai-codex"].access = "refreshed-access"
-		runtime["openai-codex"].refresh = "refreshed-refresh"
-		await writeFile(join(runtimeDir, "auth.json"), JSON.stringify(runtime))
-		assert.equal(persistPiAccount("personal", agentDir, runtimeDir), true)
-
-		const laterAccess = `header.${Buffer.from(JSON.stringify({
-			email: "jhw@envest.vc",
-			exp: Math.floor(Date.now() / 1000) + 10_800,
-			"https://api.openai.com/auth": { chatgpt_account_id: "account-123" },
-		})).toString("base64url")}.signature`
-		const later = JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))
-		later["openai-codex"] = { ...later["openai-codex"], access: laterAccess, expires: Date.now() + 10_800_000 }
-		await writeFile(join(runtimeDir, "auth.json"), JSON.stringify(later))
-		assert.equal(persistPiAccount("personal", agentDir, runtimeDir), true)
-		assert.deepEqual(switchPiAccount("personal", agentDir, runtimeDir, codexRoot), { profile: "personal", defaultPersisted: true })
-		assert.equal(JSON.parse(await readFile(join(runtimeDir, "auth.json"), "utf8"))["openai-codex"].access, laterAccess)
-
-		const codex = JSON.parse(await readFile(join(codexRoot, "personal", "auth.json"), "utf8"))
-		assert.equal(codex.tokens.access_token, undefined)
-		assert.equal(codex.tokens.refresh_token, undefined)
-		assert.equal(codex.tokens.id_token, idToken)
-		const codexRuntime = prepareCodexRuntime("personal", agentDir, runtimeDir, codexRoot)
-		assert.ok(codexRuntime)
-		const subprocessAuth = JSON.parse(await readFile(join(codexRuntime, "auth.json"), "utf8"))
-		assert.equal(subprocessAuth.tokens.access_token, laterAccess)
-		assert.equal(subprocessAuth.tokens.refresh_token, "replacement-refresh")
-		assert.equal(process.env.CODEX_HOME, codexRuntime)
-	} finally {
-		if (originalProfile === undefined) delete process.env.AGENT_TOOLKIT_CODEX_ACCOUNT
-		else process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = originalProfile
-		if (originalCodexHome === undefined) delete process.env.CODEX_HOME
-		else process.env.CODEX_HOME = originalCodexHome
-		if (originalProfileHome === undefined) delete process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME
-		else process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME = originalProfileHome
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test("switches one Pi runtime without changing another instance", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pi-account-switch-test-"))
-	const agentDir = join(root, "agent")
-	const firstRuntime = join(root, "runtime-one")
-	const secondRuntime = join(root, "runtime-two")
-	const original = {
-		agentDir: process.env.AGENT_TOOLKIT_PI_AGENT_DIR,
-		runtimeDir: process.env.PI_CODING_AGENT_DIR,
-		profile: process.env.AGENT_TOOLKIT_CODEX_ACCOUNT,
-		codexHome: process.env.CODEX_HOME,
-		profileHome: process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME,
-	}
-
-	try {
-		await mkdir(join(agentDir, "auth-profiles", "personal"), { recursive: true })
-		await mkdir(join(agentDir, "auth-profiles", "business"), { recursive: true })
-		await mkdir(firstRuntime)
-		await mkdir(secondRuntime)
-		const personalToken = `header.${Buffer.from(JSON.stringify({ email: "personal@example.com" })).toString("base64url")}.signature`
-		const businessToken = `header.${Buffer.from(JSON.stringify({ email: "business@example.com" })).toString("base64url")}.signature`
-		const personal = { "openai-codex": { type: "oauth", access: personalToken, refresh: "p", expires: 1 } }
-		const personalCurrent = { "openai-codex": { type: "oauth", access: personalToken, refresh: "p2", expires: 2 } }
-		const business = { "openai-codex": { type: "oauth", access: businessToken, refresh: "b", expires: 3 } }
-		await writeFile(join(agentDir, "auth-profiles", "personal", "auth.json"), JSON.stringify(personal))
-		await writeFile(join(agentDir, "auth-profiles", "business", "auth.json"), JSON.stringify(business))
-		await writeFile(join(firstRuntime, "auth.json"), JSON.stringify(personalCurrent))
-		await writeFile(join(secondRuntime, "auth.json"), JSON.stringify(personal))
-		process.env.AGENT_TOOLKIT_PI_AGENT_DIR = agentDir
-		process.env.PI_CODING_AGENT_DIR = firstRuntime
-		process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = "personal"
-
-		assert.deepEqual(switchPiAccount("business", agentDir, firstRuntime, join(root, "codex-accounts")), { profile: "business", defaultPersisted: true })
-		assert.equal(defaultPiAccount(agentDir), "business")
-		assert.equal(persistDefaultPiAccount("../invalid", agentDir), false)
-		assert.deepEqual(JSON.parse(await readFile(join(firstRuntime, "auth.json"), "utf8")), business)
-		assert.deepEqual(JSON.parse(await readFile(join(secondRuntime, "auth.json"), "utf8")), personal)
-		assert.deepEqual(
-			JSON.parse(await readFile(join(agentDir, "auth-profiles", "personal", "auth.json"), "utf8")),
-			personalCurrent,
-		)
-		assert.equal(process.env.AGENT_TOOLKIT_CODEX_ACCOUNT, "business")
-		const newerBusiness = { "openai-codex": { ...business["openai-codex"], access: businessToken, refresh: "new-b", expires: 100 } }
-		await writeFile(join(agentDir, "auth-profiles", "business", "auth.json"), JSON.stringify(newerBusiness))
-		await writeFile(join(firstRuntime, "auth.json"), JSON.stringify({ ...business, anthropic: { type: "api_key", key: "keep" } }))
-		assert.equal(persistPiAccount("business"), true)
-		const merged = { ...newerBusiness, anthropic: { type: "api_key", key: "keep" } }
-		assert.deepEqual(JSON.parse(await readFile(join(firstRuntime, "auth.json"), "utf8")), merged)
-		assert.deepEqual(JSON.parse(await readFile(join(agentDir, "auth-profiles", "business", "auth.json"), "utf8")), merged)
-		delete (merged as Record<string, unknown>).anthropic
-		await writeFile(join(firstRuntime, "auth.json"), JSON.stringify(merged))
-		assert.equal(persistPiAccount("business"), true)
-		assert.deepEqual(JSON.parse(await readFile(join(agentDir, "auth-profiles", "business", "auth.json"), "utf8")), merged)
-	} finally {
-		for (const [name, value] of Object.entries(original)) {
-			const key = name === "agentDir" ? "AGENT_TOOLKIT_PI_AGENT_DIR" : name === "runtimeDir" ? "PI_CODING_AGENT_DIR" : name === "profile" ? "AGENT_TOOLKIT_CODEX_ACCOUNT" : name === "profileHome" ? "AGENT_TOOLKIT_CODEX_PROFILE_HOME" : "CODEX_HOME"
-			if (value === undefined) delete process.env[key]
-			else process.env[key] = value
+		const agent = join(root, "pi"), codex = join(root, "codex"), account = join(codex, "one")
+		await mkdir(account, { recursive: true })
+		const access = `header.${Buffer.from(JSON.stringify({ exp: 1, email: "one@example.com" })).toString("base64url")}.signature`
+		const login = { tokens: { access_token: access, refresh_token: "one-refresh", account_id: "one-id" } }
+		await writeFile(join(account, "auth.json"), JSON.stringify(login))
+		importCodexAccount("one", agent, codex)
+		assert.deepEqual(JSON.parse(await readFile(join(account, "auth.json"), "utf8")), login, "Codex's login must remain intact")
+		const first = join(agent, "auth-profiles/one/auth.json"), second = join(agent, "auth-profiles/two/auth.json")
+		await mkdir(join(agent, "auth-profiles/two"))
+		await writeFile(second, JSON.stringify({ "openai-codex": { type: "oauth", access: `header.${Buffer.from(JSON.stringify({ email: "two@example.com" })).toString("base64url")}.signature`, refresh: "two-refresh", expires: 1 } }))
+		const refreshedOne = `header.${Buffer.from(JSON.stringify({ email: "one@example.com", refreshed: true })).toString("base64url")}.signature`
+		const refreshedTwo = `header.${Buffer.from(JSON.stringify({ email: "two@example.com", refreshed: true })).toString("base64url")}.signature`
+		const base = {
+			id: "openai-codex", name: "Test provider", getModels: () => [],
+			auth: { oauth: {
+				name: "Test OAuth", login: async () => { throw Error("No login in this check") },
+				refresh: async (credential: any) => ({ ...credential, access: `header.${Buffer.from(JSON.stringify({ email: credential.refresh.startsWith("one") ? "one@example.com" : "two@example.com", refreshed: true })).toString("base64url")}.signature`, expires: Date.now() + 3_600_000 }),
+				toAuth: async (credential: any) => ({ apiKey: credential.access }),
+			} },
 		}
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test("activates only a logged-in Codex profile", async () => {
-	const root = await mkdtemp(join(tmpdir(), "codex-account-test-"))
-	const original = process.env.CODEX_HOME
-
-	try {
-		const sharedHome = join(root, "shared")
-		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "login-required" })
-
-		const profileHome = codexProfileHome("personal", root)
-		await mkdir(profileHome, { recursive: true })
-		const idToken = `header.${Buffer.from(JSON.stringify({ email: "developer@example.com" })).toString("base64url")}.signature`
-		await writeFile(join(profileHome, "auth.json"), JSON.stringify({ tokens: { id_token: idToken } }), { mode: 0o600 })
-		assert.equal(codexProfileEmail("personal", root), "developer@example.com")
-		const piHome = join(root, "pi")
-		const piToken = `header.${Buffer.from(JSON.stringify({ "https://api.openai.com/profile": { email: "developer@example.com" } })).toString("base64url")}.signature`
-		await mkdir(piHome)
-		await writeFile(join(piHome, "auth.json"), JSON.stringify({ "openai-codex": { access: piToken } }))
-		assert.equal(piAccountEmail(piHome), "developer@example.com")
-		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "safety-policy-missing" })
-
-		const sharedPolicy = join(sharedHome, "rules", "agent-toolkit-development.rules")
-		await mkdir(join(sharedHome, "rules"), { recursive: true })
-		await writeFile(sharedPolicy, "policy")
-
-		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { home: profileHome })
-		const profilePolicy = join(profileHome, "rules", "agent-toolkit-development.rules")
-		assert.equal((await lstat(profilePolicy)).isSymbolicLink(), false)
-		assert.equal(await readFile(profilePolicy, "utf8"), "policy")
-		assert.equal(process.env.CODEX_HOME, profileHome)
-		await writeFile(profilePolicy, "changed policy")
-		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "safety-policy-missing" })
-		assert.equal(await readFile(profilePolicy, "utf8"), "changed policy")
-		await rm(profilePolicy)
-		await symlink(sharedPolicy, profilePolicy)
-		assert.deepEqual(activateCodexProfile("personal", root, sharedHome), { error: "safety-policy-missing" })
-		assert.equal(await readFile(sharedPolicy, "utf8"), "policy")
-	} finally {
-		if (original === undefined) delete process.env.CODEX_HOME
-		else process.env.CODEX_HOME = original
-		await rm(root, { recursive: true, force: true })
-	}
+		const { ModelRuntime, createAgentSession, DefaultResourceLoader, SettingsManager, SessionManager } = await import("@earendil-works/pi-coding-agent")
+		const mainPath = join(agent, "auth.json")
+		const main = JSON.stringify({ "openai-codex": { type: "oauth", access: "default", refresh: "default-refresh", expires: 1 } })
+		await writeFile(mainPath, main)
+		const sessions = await Promise.all([1, 2].map(() => ModelRuntime.create({ authPath: mainPath, modelsPath: null, refreshOnCreate: false })))
+		const nativeModels = sessions[0].getModels("openai-codex")
+		base.getModels = () => nativeModels
+		const [one, two] = await Promise.all([accountProvider(base, first), accountProvider(base, second)])
+		sessions[0].registerNativeProvider(one)
+		sessions[1].registerNativeProvider(two)
+		const [oneAuth, twoAuth] = await Promise.all([sessions[0].getAuth(one.id), sessions[1].getAuth(two.id)])
+		assert.equal(oneAuth?.auth.apiKey, refreshedOne)
+		assert.equal(twoAuth?.auth.apiKey, refreshedTwo)
+		assert.equal(await readFile(mainPath, "utf8"), main, "selecting accounts must not refresh or rewrite the default login")
+		assert.equal(JSON.parse(await readFile(first, "utf8"))["openai-codex"].access, refreshedOne)
+		assert.equal(JSON.parse(await readFile(second, "utf8"))["openai-codex"].access, refreshedTwo)
+		importCodexAccount("one", agent, codex)
+		assert.equal(JSON.parse(await readFile(first, "utf8"))["openai-codex"].access, refreshedOne, "a stale Codex login must not replace refreshed Pi credentials")
+		// Exercise extension startup and model changes through the native session.
+		const previousDirectory = process.env.PI_CODING_AGENT_DIR
+		const previousAccount = process.env.AGENT_TOOLKIT_CODEX_ACCOUNT
+		process.env.PI_CODING_AGENT_DIR = agent
+		process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = "one"
+		let session: any
+		try {
+			const runtime = await ModelRuntime.create({ authPath: mainPath, modelsPath: null, refreshOnCreate: false })
+			runtime.registerNativeProvider(base)
+			const settings = SettingsManager.inMemory({ packages: [], cacheWarming: { enabled: false } })
+			const resources = new DefaultResourceLoader({ cwd: root, agentDir: agent, settingsManager: settings, noSkills: true, noPromptTemplates: true, noThemes: true, extensionFactories: [codexAccountExtension] })
+			await resources.reload()
+			const created = await createAgentSession({ cwd: root, agentDir: agent, modelRuntime: runtime, model: nativeModels[0], thinkingLevel: "medium", tools: [], resourceLoader: resources, settingsManager: settings, sessionManager: SessionManager.inMemory(root) })
+			session = created.session
+			const errors: string[] = []
+			let stopped = false
+			await session.bindExtensions({ mode: "rpc", uiContext: { theme: { fg: (_color: string, text: string) => text }, setStatus: () => {}, notify: (message: string, level: string) => { if (level === "error") errors.push(message) } } as any, onError: (error: any) => errors.push(error.error), shutdownHandler: () => { stopped = true } })
+			assert.deepEqual(errors, [])
+			assert.equal(session.model.provider, "toolkit-openai-codex")
+			assert.equal(session.model.id, nativeModels[0].id)
+			assert.equal(session.thinkingLevel, "medium")
+			session.sessionManager.appendMessage({ role: "user", content: [{ type: "text", text: "Fixture conversation" }], timestamp: Date.now() })
+			const startupEntries = [session.sessionManager.getHeader(), ...session.sessionManager.getEntries()]
+			assert.equal((await runtime.getAuth(session.model))?.auth.apiKey, refreshedOne)
+			assert.equal(session.sessionManager.getBranch().some((entry: any) => entry.type === "custom" && entry.customType === "toolkit-account" && entry.data.profile === "one"), true, "startup selection must belong to this session")
+			await session.prompt("/account two@example.com")
+			assert.equal((await runtime.getAuth(session.model))?.auth.apiKey, refreshedTwo)
+			await session.setModel(nativeModels[1])
+			assert.equal(session.model.provider, "toolkit-openai-codex")
+			assert.equal(session.model.id, nativeModels[1].id)
+			assert.equal((await runtime.getAuth(session.model))?.auth.apiKey, refreshedTwo)
+			const selectedEntries = [session.sessionManager.getHeader(), ...session.sessionManager.getEntries()]
+			await session.reload()
+			assert.equal(stopped, false, "reloading must retain the selected account without an ownership error")
+			assert.deepEqual(errors, [])
+			assert.equal((await runtime.getAuth(session.model))?.auth.apiKey, refreshedTwo)
+			assert.equal(session.model.id, nativeModels[1].id)
+			for (const explicitThinking of [undefined, "low"] as const) {
+				const coldRuntime = await ModelRuntime.create({ authPath: join(root, "empty-auth.json"), modelsPath: null, refreshOnCreate: false })
+				coldRuntime.registerNativeProvider(base)
+				await coldRuntime.refresh({ allowNetwork: false })
+				const coldSettings = SettingsManager.inMemory({ packages: [], defaultProvider: "openai-codex", defaultModel: nativeModels[2].id, defaultThinkingLevel: "low", modelThinkingLevels: { [`openai-codex/${nativeModels[2].id}`]: "high" }, cacheWarming: { enabled: false } })
+				const coldResources = new DefaultResourceLoader({ cwd: root, agentDir: agent, settingsManager: coldSettings, noSkills: true, noPromptTemplates: true, noThemes: true, extensionFactories: [codexAccountExtension] })
+				await coldResources.reload()
+				const cold = await createAgentSession({ cwd: root, agentDir: agent, modelRuntime: coldRuntime, tools: [], resourceLoader: coldResources, settingsManager: coldSettings, sessionManager: SessionManager.inMemory(root) })
+				const previousArguments = process.argv
+				try {
+					if (explicitThinking) process.argv = [previousArguments[0], previousArguments[1], "--thinking", explicitThinking]
+					await cold.session.bindExtensions({ mode: "rpc", shutdownHandler: () => { stopped = true } })
+					assert.equal(cold.session.model?.provider, "toolkit-openai-codex", "profile-only login must initialize an authenticated model")
+					assert.equal(cold.session.model?.id, nativeModels[2].id)
+					assert.equal(cold.session.thinkingLevel, explicitThinking ?? "high", "cold startup must preserve explicit or saved per-model effort")
+					assert.equal((await coldRuntime.getAuth(cold.session.model!))?.auth.apiKey, refreshedTwo)
+				} finally { process.argv = previousArguments; cold.session.dispose() }
+			}
+			// Resume with a changed default and no provider entry registered yet.
+			for (const [entries, expectedToken, expectedModel, explicit] of [[startupEntries, refreshedOne, nativeModels[0], false], [selectedEntries, refreshedTwo, nativeModels[1], false], [selectedEntries, refreshedTwo, nativeModels[2], true]] as const) {
+				const resumedRuntime = await ModelRuntime.create({ authPath: mainPath, modelsPath: null, refreshOnCreate: false })
+				resumedRuntime.registerNativeProvider(base)
+				await resumedRuntime.refresh({ allowNetwork: false })
+				const resumedSettings = SettingsManager.inMemory({ packages: [], defaultProvider: "openai-codex", defaultModel: nativeModels[2].id, defaultThinkingLevel: "medium", cacheWarming: { enabled: false } })
+				const resumedResources = new DefaultResourceLoader({ cwd: root, agentDir: agent, settingsManager: resumedSettings, noSkills: true, noPromptTemplates: true, noThemes: true, extensionFactories: [codexAccountExtension] })
+				await resumedResources.reload()
+				const resumed = await createAgentSession({ cwd: root, agentDir: agent, modelRuntime: resumedRuntime, ...(explicit ? { model: expectedModel, thinkingLevel: "high" as const } : {}), tools: [], resourceLoader: resumedResources, settingsManager: resumedSettings, sessionManager: SessionManager.inMemory(root, undefined, entries) })
+				const previousArguments = process.argv
+				try {
+					if (explicit) process.argv = [previousArguments[0], previousArguments[1], "--model", expectedModel.id, "--thinking", "high"]
+					await resumed.session.bindExtensions({ mode: "rpc", shutdownHandler: () => { stopped = true } })
+					assert.equal(resumed.session.model?.id, expectedModel.id, "resume must restore the saved model instead of the changed default")
+					assert.equal((await resumedRuntime.getAuth(resumed.session.model!))?.auth.apiKey, expectedToken, "another session's default account must not replace the resumed account")
+					assert.equal(resumed.session.thinkingLevel, explicit ? "high" : "medium")
+				} finally { process.argv = previousArguments; resumed.session.dispose() }
+			}
+			assert.equal(await readFile(mainPath, "utf8"), main)
+			assert.equal(stopped, false)
+			assert.deepEqual(errors, [])
+		} finally {
+			session?.dispose()
+			if (previousDirectory === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousDirectory
+			if (previousAccount === undefined) delete process.env.AGENT_TOOLKIT_CODEX_ACCOUNT; else process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = previousAccount
+		}
+		await symlink(first, join(root, "credential-link"))
+		await assert.rejects(accountProvider(base, join(root, "credential-link")), /regular files/)
+	} finally { hooks.deregister(); await rm(root, { recursive: true, force: true }) }
 })

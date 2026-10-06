@@ -1,9 +1,13 @@
-import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { basename, dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
+import type { Provider } from "@earendil-works/pi-ai"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 
+const agentDirectory = () => process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent")
+
 const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+export const ACCOUNT_PROVIDER = "toolkit-openai-codex"
 
 export interface CodexAccount {
 	profile: string
@@ -143,11 +147,6 @@ function tokenExpires(token: unknown): number {
 	return Number.isFinite(expires) && expires > 0 ? expires : 0
 }
 
-function credentialExpires(credential: PiCredential | undefined): number {
-	const expires = Number(credential?.expires)
-	return Number.isFinite(expires) && expires > 0 ? expires : tokenExpires(credential?.access)
-}
-
 export function codexProfileEmail(profile: string, root?: string): string | undefined {
 	try {
 		const auth = JSON.parse(readFileSync(join(codexProfileHome(profile, root), "auth.json"), "utf8"))
@@ -157,93 +156,35 @@ export function codexProfileEmail(profile: string, root?: string): string | unde
 	}
 }
 
-export function piProfileAccountId(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-): string | undefined {
+
+function readPiAuth(file: string): Record<string, any> {
+	if (lstatSync(file).isSymbolicLink()) throw new Error("Account credentials must be regular files")
+	return JSON.parse(readFileSync(file, "utf8"))
+}
+
+function writePrivateJson(file: string, value: unknown, exclusive = false): void {
+	mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
+	if (lstatSync(dirname(file)).isSymbolicLink() || lstatSync(dirname(dirname(file))).isSymbolicLink()) throw new Error("Refusing a credential directory symlink")
+	if (existsSync(file) && lstatSync(file).isSymbolicLink()) throw new Error("Refusing a credential symlink")
+	const temporary = file + ".tmp-" + process.pid
+	let created = false
 	try {
-		const credential = readPiAuth(piProfileAuthPath(profile, agentDir))["openai-codex"]
-		const id = credential?.accountId ?? jwtClaims(credential?.access)?.["https://api.openai.com/auth"]?.chatgpt_account_id
-		return typeof id === "string" && id ? id : undefined
-	} catch {
-		return undefined
-	}
+		writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n", { flag: "wx", mode: 0o600 })
+		created = true
+		if (exclusive) {
+			try { linkSync(temporary, file) }
+			catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error }
+		} else renameSync(temporary, file)
+		if (!exclusive) chmodSync(file, 0o600)
+	} finally { if (created && existsSync(temporary)) unlinkSync(temporary) }
 }
 
-type PiCredential = {
-	type?: string
-	access?: string
-	refresh?: string
-	expires?: number
-	accountId?: string
-	[key: string]: unknown
-}
-type PiAuth = Record<string, PiCredential>
-
-function readPiAuth(path: string): PiAuth {
-	return JSON.parse(readFileSync(path, "utf8")) as PiAuth
-}
-
-function writePrivateJson(path: string, value: unknown): void {
-	const temporary = `${path}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`
-	try {
-		writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
-		renameSync(temporary, path)
-		chmodSync(path, 0o600)
-	} finally {
-		try {
-			unlinkSync(temporary)
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-		}
-	}
-}
-
-function writePiAuth(path: string, auth: PiAuth): void {
-	writePrivateJson(path, auth)
-}
-
-function withAuthLock<T>(authPath: string, action: () => T): T {
-	const lock = `${authPath}.lock`
-	mkdirSync(dirname(authPath), { recursive: true, mode: 0o700 })
-	for (let attempt = 0; ; attempt++) {
-		try {
-			mkdirSync(lock, { mode: 0o700 })
-			writeFileSync(join(lock, "pid"), String(process.pid), { mode: 0o600 })
-			break
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 100) throw error
-			let stale = false
-			try {
-				const pid = Number(readFileSync(join(lock, "pid"), "utf8"))
-				if (Number.isSafeInteger(pid) && pid > 0) process.kill(pid, 0)
-				else stale = Date.now() - statSync(lock).mtimeMs > 5_000
-			} catch (lockError) {
-				stale = (lockError as NodeJS.ErrnoException).code === "ESRCH"
-				if (!stale && existsSync(lock)) stale = Date.now() - statSync(lock).mtimeMs > 5_000
-			}
-			if (stale) rmSync(lock, { recursive: true, force: true })
-			else Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
-		}
-	}
-	try {
-		return action()
-	} finally {
-		rmSync(lock, { recursive: true, force: true })
-	}
-}
-
-export function piAccountEmail(agentDir = process.env.PI_CODING_AGENT_DIR): string | undefined {
-	if (!agentDir) return undefined
-	try {
-		return jwtEmail(readPiAuth(join(agentDir, "auth.json"))?.["openai-codex"]?.access)
-	} catch {
-		return undefined
-	}
+export function piAccountEmail(directory = agentDirectory()): string | undefined {
+	try { return jwtEmail(readPiAuth(join(directory, "auth.json"))["openai-codex"]?.access) } catch { return undefined }
 }
 
 export async function fetchCodexUsage(
-	agentDir = process.env.PI_CODING_AGENT_DIR,
+	agentDir = agentDirectory(),
 	fetcher: typeof fetch = fetch,
 ): Promise<CodexUsage | undefined> {
 	if (!agentDir) return undefined
@@ -274,490 +215,200 @@ export async function fetchCodexUsage(
 	}
 }
 
-export function piProfileAuthPath(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-): string {
-	return join(agentDir, "auth-profiles", profile, "auth.json")
+
+export function piProfileAuthPath(profile: string, directory = agentDirectory()): string {
+	if (!PROFILE_NAME.test(profile)) throw new Error("Invalid account profile")
+	return join(directory, "auth-profiles", profile, "auth.json")
 }
 
-export function defaultPiAccount(
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-): string | undefined {
-	try {
-		const profile = JSON.parse(readFileSync(join(agentDir, "active-codex-account.json"), "utf8"))?.profile
-		return typeof profile === "string" && PROFILE_NAME.test(profile) ? profile : undefined
-	} catch {
-		return undefined
-	}
+export function defaultPiAccount(directory = agentDirectory()): string | undefined {
+	const file = join(directory, "active-codex-account.json")
+	if (!existsSync(file)) return undefined
+	const profile = readPiAuth(file).profile
+	if (typeof profile !== "string" || !PROFILE_NAME.test(profile)) throw new Error("Invalid default account; restore active-codex-account.json from backup")
+	return profile
 }
 
-export function persistDefaultPiAccount(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-): boolean {
-	if (!PROFILE_NAME.test(profile)) return false
-	try {
-		writePrivateJson(join(agentDir, "active-codex-account.json"), { profile })
-		return true
-	} catch {
-		return false
-	}
-}
-
-function retireCodexAccount(profile: string, codexRoot = join(homedir(), ".codex-accounts")): boolean {
-	const path = join(codexProfileHome(profile, codexRoot), "auth.json")
-	try {
-		const auth = JSON.parse(readFileSync(path, "utf8"))
-		if (!auth.tokens) return false
-		delete auth.tokens.access_token
-		delete auth.tokens.refresh_token
-		writePrivateJson(path, auth)
-		return true
-	} catch {
-		return false
-	}
-}
-
-export function importCodexAccount(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-	codexRoot = join(homedir(), ".codex-accounts"),
-): boolean {
-	try {
-		const codexAuth = JSON.parse(readFileSync(join(codexProfileHome(profile, codexRoot), "auth.json"), "utf8"))
-		const access = codexAuth?.tokens?.access_token
-		const refresh = codexAuth?.tokens?.refresh_token
-		const claims = jwtClaims(access)
-		const accountId = codexAuth?.tokens?.account_id ?? claims?.["https://api.openai.com/auth"]?.chatgpt_account_id
-		if (typeof access !== "string" || typeof refresh !== "string" || typeof accountId !== "string") return false
-		const expires = Number(claims?.exp) * 1000
-		const target = piProfileAuthPath(profile, agentDir)
-		withAuthLock(target, () => {
-			let auth: PiAuth = {}
-			try {
-				auth = readPiAuth(target)
-			} catch {
-				try {
-					auth = Object.fromEntries(
-						Object.entries(readPiAuth(join(agentDir, "auth.json"))).filter(([, credential]) => credential.type !== "oauth"),
-					)
-				} catch {}
-			}
-			const imported: PiCredential = {
-				type: "oauth",
-				access,
-				refresh,
-				expires: Number.isFinite(expires) && expires > 0 ? expires : Date.now() + 300_000,
-				accountId,
-			}
-			if (!auth["openai-codex"]?.access || credentialExpires(imported) > credentialExpires(auth["openai-codex"])) {
-				auth["openai-codex"] = imported
-				writePiAuth(target, auth)
-			}
-		})
-		return retireCodexAccount(profile, codexRoot)
-	} catch {
-		return false
-	}
-}
-
-export function prepareCodexRuntime(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-	runtimeDir = process.env.PI_CODING_AGENT_DIR,
-	codexRoot = join(homedir(), ".codex-accounts"),
-): string | undefined {
-	if (!runtimeDir) return undefined
-	try {
-		const credential = readPiAuth(piProfileAuthPath(profile, agentDir))["openai-codex"]
-		if (!credential?.access || !credential.refresh || !credential.accountId) return undefined
-		const source = codexProfileHome(profile, codexRoot)
-		const home = join(runtimeDir, "codex-runtimes", profile)
-		mkdirSync(home, { recursive: true, mode: 0o700 })
-		for (const entry of readdirSync(source, { withFileTypes: true })) {
-			if (entry.name === "auth.json" || existsSync(join(home, entry.name))) continue
-			symlinkSync(join(source, entry.name), join(home, entry.name), entry.isDirectory() ? "dir" : "file")
+export function piAccounts(directory = agentDirectory(), codexRoot = join(homedir(), ".codex-accounts")): CodexAccount[] {
+	const profiles = new Set<string>()
+	for (const root of [join(directory, "auth-profiles"), codexRoot]) {
+		if (existsSync(root)) for (const entry of readdirSync(root, { withFileTypes: true })) {
+			if (entry.isDirectory() && PROFILE_NAME.test(entry.name)) profiles.add(entry.name)
 		}
-		let auth: any = {}
-		try { auth = JSON.parse(readFileSync(join(source, "auth.json"), "utf8")) } catch {}
-		auth.auth_mode = auth.auth_mode ?? "chatgpt"
-		auth.tokens = {
-			...(auth.tokens ?? {}),
-			id_token: auth.tokens?.id_token ?? credential.access,
-			access_token: credential.access,
-			refresh_token: credential.refresh,
-			account_id: credential.accountId,
-		}
-		auth.last_refresh = new Date().toISOString()
-		writePrivateJson(join(home, "auth.json"), auth)
-		process.env.CODEX_HOME = home
-		process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME = source
-		return home
-	} catch {
-		return undefined
 	}
-}
-
-function importCodexRuntime(profile: string, agentDir: string, runtimeDir: string, codexHome: string): boolean {
-	try {
-		const tokens = JSON.parse(readFileSync(join(codexHome, "auth.json"), "utf8"))?.tokens
-		if (typeof tokens?.access_token !== "string" || typeof tokens?.refresh_token !== "string") return false
-		const runtimePath = join(runtimeDir, "auth.json")
-		const auth = readPiAuth(runtimePath)
-		const current = auth["openai-codex"]
-		if (tokenExpires(tokens.access_token) <= credentialExpires(current)) return true
-		const claims = jwtClaims(tokens.access_token)
-		const accountId = tokens.account_id ?? claims?.["https://api.openai.com/auth"]?.chatgpt_account_id
-		if (typeof accountId !== "string") return false
-		auth["openai-codex"] = {
-			type: "oauth",
-			access: tokens.access_token,
-			refresh: tokens.refresh_token,
-			expires: tokenExpires(tokens.access_token),
-			accountId,
-		}
-		writePiAuth(runtimePath, auth)
-		return persistPiAccount(profile, agentDir, runtimeDir)
-	} catch {
-		return false
-	}
-}
-
-function ensurePiAccount(profile: string, agentDir: string, codexRoot: string): boolean {
-	const target = piProfileAuthPath(profile, agentDir)
-	let codexAccess: unknown
-	try {
-		codexAccess = JSON.parse(readFileSync(join(codexProfileHome(profile, codexRoot), "auth.json"), "utf8"))?.tokens?.access_token
-	} catch {}
-	if (typeof codexAccess === "string") {
-		try {
-			const credential = readPiAuth(target)["openai-codex"]
-			if (codexAccess === credential?.access || credential?.access && credentialExpires(credential) >= tokenExpires(codexAccess)) {
-				return retireCodexAccount(profile, codexRoot)
-			}
-		} catch {}
-		return importCodexAccount(profile, agentDir, codexRoot)
-	}
-	return existsSync(target) && Boolean(piAccountEmail(dirname(target)))
-}
-
-export function persistPiAccount(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-	runtimeDir = process.env.PI_CODING_AGENT_DIR,
-): boolean {
-	if (!runtimeDir) return false
-	try {
-		const runtimePath = join(runtimeDir, "auth.json")
-		const target = piProfileAuthPath(profile, agentDir)
-		withAuthLock(target, () => {
-			const runtime = readPiAuth(runtimePath)
-			let stored: PiAuth = {}
-			try { stored = readPiAuth(target) } catch {}
-			const current = runtime["openai-codex"]
-			const latest = stored["openai-codex"]
-			if (latest?.access && credentialExpires(latest) >= credentialExpires(current)) {
-				runtime["openai-codex"] = latest
-				writePiAuth(runtimePath, runtime)
-			}
-			writePiAuth(target, runtime)
-		})
-		return true
-	} catch {
-		return false
-	}
-}
-
-export function switchPiAccount(
-	profile: string,
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-	runtimeDir = process.env.PI_CODING_AGENT_DIR,
-	codexRoot = join(homedir(), ".codex-accounts"),
-): { profile: string; defaultPersisted: boolean } | { error: "codex-login-required" | "runtime-unavailable" | "persist-failed" } {
-	if (!runtimeDir) return { error: "runtime-unavailable" }
-	if (!ensurePiAccount(profile, agentDir, codexRoot)) return { error: "codex-login-required" }
-	const active = piProfile()
-	const target = piProfileAuthPath(profile, agentDir)
-
-	if (active && !persistPiAccount(active, agentDir, runtimeDir)) {
-		return { error: "persist-failed" }
-	}
-	try {
-		writePiAuth(join(runtimeDir, "auth.json"), readPiAuth(target))
-	} catch {
-		return { error: "runtime-unavailable" }
-	}
-	process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = profile
-	process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME = codexProfileHome(profile, codexRoot)
-	return { profile, defaultPersisted: persistDefaultPiAccount(profile, agentDir) }
-}
-
-export function activateCodexProfile(
-	profile: string,
-	root?: string,
-	sharedHome = join(homedir(), ".codex"),
-): { home: string } | { error: "login-required" | "safety-policy-missing" } {
-	const profileHome = codexProfileHome(profile, root)
-	if (!existsSync(join(profileHome, "auth.json"))) return { error: "login-required" }
-
-	const sharedPolicy = join(sharedHome, "rules", "agent-toolkit-development.rules")
-	if (!existsSync(sharedPolicy)) return { error: "safety-policy-missing" }
-
-	const profileRules = join(profileHome, "rules")
-	try {
-		mkdirSync(profileRules, { recursive: true, mode: 0o700 })
-		if (lstatSync(profileRules).isSymbolicLink()) return { error: "safety-policy-missing" }
-		const profilePolicy = join(profileRules, "agent-toolkit-development.rules")
-		if (!existsSync(profilePolicy)) copyFileSync(sharedPolicy, profilePolicy, constants.COPYFILE_EXCL)
-		if (!lstatSync(profilePolicy).isFile() || lstatSync(profilePolicy).isSymbolicLink() || !readFileSync(profilePolicy).equals(readFileSync(sharedPolicy))) return { error: "safety-policy-missing" }
-		chmodSync(profilePolicy, 0o600)
-	} catch {
-		return { error: "safety-policy-missing" }
-	}
-
-	process.env.CODEX_HOME = profileHome
-	return { home: profileHome }
-}
-
-function currentProfile(root = join(homedir(), ".codex-accounts")): string | undefined {
-	const configuredHome = process.env.AGENT_TOOLKIT_CODEX_PROFILE_HOME ?? process.env.CODEX_HOME
-	if (!configuredHome) return undefined
-	const home = resolve(configuredHome)
-	const profile = basename(home)
-	return dirname(home) === resolve(root) && PROFILE_NAME.test(profile) ? profile : undefined
-}
-
-function piProfile(): string | undefined {
-	const profile = process.env.AGENT_TOOLKIT_CODEX_ACCOUNT
-	return profile && PROFILE_NAME.test(profile) ? profile : undefined
+	return [...profiles].flatMap(profile => {
+		const email = piAccountEmail(dirname(piProfileAuthPath(profile, directory))) ?? codexProfileEmail(profile, codexRoot)
+		return email ? [{ profile, email }] : []
+	}).sort((a, b) => a.email.localeCompare(b.email))
 }
 
 export function reserveAccountProfile(codexRoot = join(homedir(), ".codex-accounts")): string {
 	mkdirSync(codexRoot, { recursive: true, mode: 0o700 })
 	for (let index = 1; ; index++) {
-		const profile = `account-${index}`
-		try {
-			mkdirSync(codexProfileHome(profile, codexRoot), { mode: 0o700 })
-			return profile
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-		}
+		const profile = "account-" + index
+		try { mkdirSync(codexProfileHome(profile, codexRoot), { mode: 0o700 }); return profile }
+		catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error }
 	}
 }
 
-export function piAccounts(
-	agentDir = process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
-	codexRoot = join(homedir(), ".codex-accounts"),
-): CodexAccount[] {
-	const profiles = new Set<string>()
-	for (const directory of [join(agentDir, "auth-profiles"), codexRoot]) {
-		try {
-			for (const entry of readdirSync(directory, { withFileTypes: true })) {
-				if (entry.isDirectory() && PROFILE_NAME.test(entry.name)) profiles.add(entry.name)
-			}
-		} catch {}
-	}
-	return [...profiles]
-		.flatMap((profile) => {
-			const email = codexProfileEmail(profile, codexRoot) ?? piAccountEmail(join(agentDir, "auth-profiles", profile))
-			return email ? [{ profile, email }] : []
-		})
-		.sort((a, b) => a.email.localeCompare(b.email))
+export function importCodexAccount(profile: string, directory = agentDirectory(), codexRoot = join(homedir(), ".codex-accounts")): void {
+	const target = piProfileAuthPath(profile, directory)
+	if (existsSync(target)) return // Existing Pi credentials (including refreshed tokens) remain authoritative.
+	const auth = readPiAuth(join(codexProfileHome(profile, codexRoot), "auth.json"))
+	const tokens = auth.tokens, claims = jwtClaims(tokens?.access_token)
+	const accountId = tokens?.account_id ?? claims?.["https://api.openai.com/auth"]?.chatgpt_account_id
+	if (typeof tokens?.access_token !== "string" || typeof tokens?.refresh_token !== "string" || typeof accountId !== "string") throw new Error("Complete /account add or restore this account's Pi profile from backup")
+	writePrivateJson(target, { "openai-codex": { type: "oauth", access: tokens.access_token, refresh: tokens.refresh_token, expires: tokenExpires(tokens.access_token), accountId } }, true)
+	// Do not erase or synchronize Codex credentials. Codex owns its own login/refresh lifecycle.
 }
 
-function updateStatus(ctx: ExtensionContext, usage?: CodexUsage): void {
-	const codex = currentProfile()
-	const pi = piProfile()
-	const yolo = Boolean(process.env.AGENT_TOOLKIT_PI_AGENT_DIR)
-	const piEmail = piAccountEmail()
-	const codexEmail = codex ? codexProfileEmail(codex) : undefined
-	const mismatch = Boolean(
-		piEmail && codexEmail ? piEmail !== codexEmail : pi && codex && pi !== codex,
-	)
-	const account = mismatch
-		? `PI ${piEmail ?? "EMAIL?"} ↔ CODEX ${codexEmail ?? "EMAIL?"}`
-		: piEmail ?? (codexEmail ? `CODEX ${codexEmail}` : yolo || pi || codex ? "EMAIL?" : undefined)
-	ctx.ui.setStatus("yolo-mode", undefined)
-	ctx.ui.setStatus("00-account", account ? ctx.ui.theme.fg(mismatch || !piEmail ? "warning" : "accent", account) : undefined)
-	const quota = formatCodexUsage(usage)
-	ctx.ui.setStatus("01-usage", quota ? ctx.ui.theme.fg("muted", `| ${quota}`) : undefined)
+// Pi's normal CLI has one auth.json per agent directory. Bind only authentication
+// to a selected profile; native Pi owns token refresh and locking. No runtime mirror.
+export async function accountProvider(base: Provider, authPath: string): Promise<Provider> {
+	if (!lstatSync(authPath).isFile() || lstatSync(authPath).isSymbolicLink() || lstatSync(dirname(authPath)).isSymbolicLink() || lstatSync(dirname(dirname(authPath))).isSymbolicLink()) throw new Error("Account credentials must be regular files")
+	const { ModelRuntime } = await import("@earendil-works/pi-coding-agent")
+	const models = await ModelRuntime.create({ authPath, modelsPath: null, refreshOnCreate: false })
+	models.registerNativeProvider(base)
+	// A distinct native entry avoids the default auth.json credential taking
+	// precedence. Requests still use the original transport and model identifiers.
+	return { ...base, id: ACCOUNT_PROVIDER, name: "OpenAI Codex (selected Pi account)",
+		getModels: () => base.getModels().map(model => ({ ...model, provider: ACCOUNT_PROVIDER })),
+		...(base.getAllModels ? { getAllModels: () => base.getAllModels!().map(model => ({ ...model, provider: ACCOUNT_PROVIDER })) } : {}),
+		stream: (model, context, options) => base.stream({ ...model, provider: base.id }, context, options),
+		streamSimple: (model, context, options) => base.streamSimple({ ...model, provider: base.id }, context, options),
+		auth: { apiKey: {
+		name: "Selected Pi account",
+		check: async () => (await models.listCredentials()).some(entry => entry.providerId === base.id) ? { type: "oauth", source: "Selected Pi account" } : undefined,
+		resolve: ({ signal }) => models.getAuth(base.id, { signal }),
+	} } }
 }
 
 export default function codexAccountExtension(pi: ExtensionAPI) {
+	let active: string | undefined
+	let base: Provider | undefined
+	let registeredProvider: Provider | undefined
 	let usage: CodexUsage | undefined
-	let usageFetchedAt = 0
-	let usageTimer: ReturnType<typeof setInterval> | undefined
-	const refreshUsage = async (ctx: ExtensionContext, force = false) => {
-		if (!force && Date.now() - usageFetchedAt < 60_000) return
-		usageFetchedAt = Date.now()
-		const profile = piProfile()
-		const fetched = await fetchCodexUsage()
-		if (profile !== piProfile()) return
-		if (fetched) {
-			usage = fetched
-			updateStatus(ctx, usage)
-		}
+	let timer: ReturnType<typeof setInterval> | undefined
+	const directory = agentDirectory()
+	const update = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) return
+		const email = piAccountEmail(active ? dirname(piProfileAuthPath(active, directory)) : directory)
+		ctx.ui.setStatus("00-account", email ? ctx.ui.theme.fg("accent", email) : undefined)
+		const quota = formatCodexUsage(usage)
+		ctx.ui.setStatus("01-usage", quota ? ctx.ui.theme.fg("muted", "| " + quota) : undefined)
 	}
-	const switchTo = async (profile: string, ctx: ExtensionContext) => {
-		const previousHome = process.env.CODEX_HOME
-		const activated = activateCodexProfile(profile)
-		if ("error" in activated) {
-			ctx.ui.notify(
-				activated.error === "login-required"
-					? "The Codex login is incomplete. Run /account add to authenticate."
-					: "The Codex safety policy is missing or changed. Run agent-toolkit/install.sh.",
-				"warning",
-			)
-			return
-		}
-		const switched = switchPiAccount(profile)
-		if ("error" in switched) {
-			if (previousHome === undefined) delete process.env.CODEX_HOME
-			else process.env.CODEX_HOME = previousHome
-			ctx.ui.notify(
-				switched.error === "codex-login-required"
-					? "The Codex login is incomplete. Run /account add to authenticate."
-					: switched.error === "persist-failed"
-						? "The current account could not be saved. The account did not change."
-						: "Pi account switching is available through pi-yolo.",
-				"warning",
-			)
-			return
-		}
-
+	const refreshUsage = async (ctx: ExtensionContext) => {
+		const profile = active
+		const result = await fetchCodexUsage(profile ? dirname(piProfileAuthPath(profile, directory)) : directory)
+		if (active !== profile) return
+		usage = result ?? usage
+		update(ctx)
+	}
+	const bindModel = async (ctx: ExtensionContext) => {
+		const cold = !ctx.model || ctx.model.provider === "unknown"
+		if (!cold && ctx.model?.provider !== "openai-codex") return
+		const settings = pi.getSettings()
+		const launch = cold ? (await import("@earendil-works/pi-coding-agent")).parseArgs(process.argv.slice(2)) : undefined
+		if (cold && (launch?.model || (launch?.provider && !["openai-codex", ACCOUNT_PROVIDER].includes(launch.provider)))) throw new Error("Requested native model is unavailable; choose a model explicitly")
+		const model = cold
+			? ((!settings.defaultProvider || ["openai-codex", ACCOUNT_PROVIDER].includes(settings.defaultProvider)) ? ctx.modelRegistry.find(ACCOUNT_PROVIDER, settings.defaultModel ?? "") : undefined) ?? ctx.modelRegistry.getAvailable().find(model => model.provider === ACCOUNT_PROVIDER)
+			: ctx.modelRegistry.find(ACCOUNT_PROVIDER, ctx.model!.id)
+		const thinking = cold && model
+			? launch?.thinking ?? settings.modelThinkingLevels?.[`${ACCOUNT_PROVIDER}/${model.id}`] ?? settings.modelThinkingLevels?.[`openai-codex/${model.id}`] ?? settings.defaultThinkingLevel ?? "medium"
+			: pi.getThinkingLevel()
+		if (!model || !await pi.setModel(model)) throw new Error("Selected account model is unavailable")
+		pi.setThinkingLevel(thinking)
+	}
+	const select = async (profile: string, ctx: ExtensionContext, persist: boolean) => {
+		if (!ctx.isIdle()) throw new Error("Wait for the current response before switching accounts")
+		const status = ctx.modelRegistry.getProviderAuthStatus(ACCOUNT_PROVIDER)
+		if ((status.configured && status.source !== "environment") || (!active && ctx.modelRegistry.getProvider(ACCOUNT_PROVIDER))) throw new Error("Reconcile the existing toolkit-openai-codex provider before selecting an account")
+		importCodexAccount(profile, directory)
+		base ??= ctx.modelRegistry.getProvider("openai-codex")
+		if (!base) throw new Error("The native openai-codex provider is unavailable")
+		const provider = await accountProvider(base, piProfileAuthPath(profile, directory))
+		pi.registerProvider(provider)
+		registeredProvider = provider
+		active = profile
 		usage = undefined
-		if (!prepareCodexRuntime(profile)) {
-			ctx.ui.notify("The Codex subprocess credential could not be prepared.", "warning")
-		}
-		const refreshed = await ctx.modelRegistry.refresh({ allowNetwork: false, providers: ["openai-codex"] })
-		const refreshError = refreshed.errors.get("openai-codex")
-		updateStatus(ctx, usage)
-		await refreshUsage(ctx, true)
-		const activeEmail = piAccountEmail()
-		ctx.ui.notify(
-			refreshError
-				? `Switched to ${activeEmail ?? profile}. Model refresh failed: ${refreshError.message}`
-				: !switched.defaultPersisted
-					? `Switched to ${activeEmail ?? profile}, but the default for new Pi sessions could not be saved.`
-					: `Account is now ${activeEmail ?? profile}`,
-			refreshError || !switched.defaultPersisted ? "warning" : "info",
-		)
-	}
-	const addAccount = async (ctx: ExtensionContext) => {
-		const profile = reserveAccountProfile()
-		const home = codexProfileHome(profile)
-		const previousHome = process.env.CODEX_HOME
-		process.env.CODEX_HOME = home
-		ctx.ui.notify("Complete the OpenAI login in the browser. Pi will continue when OAuth finishes.", "info")
-		ctx.ui.setWorkingMessage("Waiting for OpenAI OAuth…")
 		try {
-			const result = await pi.exec("codex", ["login"], { timeout: 15 * 60_000 })
-			if (result.code !== 0) {
-				ctx.ui.notify(result.stderr.trim() || "OpenAI login did not complete.", "error")
-				return
-			}
-			const email = codexProfileEmail(profile)
-			if (!email) {
-				ctx.ui.notify("OpenAI login completed without a readable account email.", "error")
-				return
-			}
-			await switchTo(profile, ctx)
-		} finally {
-			ctx.ui.setWorkingMessage()
-			if (process.env.AGENT_TOOLKIT_CODEX_ACCOUNT !== profile) {
-				if (previousHome === undefined) delete process.env.CODEX_HOME
-				else process.env.CODEX_HOME = previousHome
-			}
+			await ctx.modelRegistry.refresh({ allowNetwork: false })
+			await bindModel(ctx)
+		} catch (error) { ctx.shutdown(); throw error }
+		process.env.AGENT_TOOLKIT_CODEX_ACCOUNT = profile
+		if (persist || !ctx.sessionManager.getBranch().some(e => e.type === "custom" && e.customType === "toolkit-account")) pi.appendEntry("toolkit-account", { profile })
+		if (persist) {
+			writePrivateJson(join(directory, "active-codex-account.json"), { profile })
 		}
+		update(ctx)
 	}
-
 	pi.registerCommand("account", {
-		description: "Switch accounts by email or add an account with OAuth",
-		getArgumentCompletions: (prefix) =>
-			[{ value: "add", label: "add", description: "Add an account with OpenAI OAuth" }, ...piAccounts().map(({ email }) => ({ value: email, label: email }))]
-				.filter(({ value }) => value.toLowerCase().startsWith(prefix.toLowerCase())),
+		description: "Select a Pi account for this session, or add an OpenAI login",
 		handler: async (args, ctx) => {
-			const accounts = piAccounts()
-			let email = args.trim()
-			if (email.toLowerCase() === "add") {
-				await addAccount(ctx)
-				return
-			}
-			let selectedProfile: string | undefined
-			if (!email) {
-				const add = "Add account with OpenAI OAuth…"
-				const enter = "Enter email…"
-				const labels = new Map(accounts.map((account) => {
-					const duplicate = accounts.some((other) => other !== account && other.email.toLowerCase() === account.email.toLowerCase())
-					return [duplicate ? `${account.email} (${account.profile})` : account.email, account.profile]
-				}))
-				const selected = await ctx.ui.select("Account", [...labels.keys(), add, enter])
-				if (!selected) return
-				if (selected === add) {
-					await addAccount(ctx)
-					return
+			try {
+				if (!ctx.isIdle()) throw new Error("Wait for the current response before switching accounts")
+				let value = args.trim()
+				const accounts = piAccounts(directory)
+				if (!value) value = await ctx.ui.select("Account", [...accounts.map(a => a.profile + " — " + a.email), "add"]) ?? ""
+				if (!value) return
+				if (value === "add") {
+					const profile = reserveAccountProfile()
+					const result = await pi.exec("/usr/bin/env", ["CODEX_HOME=" + codexProfileHome(profile), "codex", "login"], { timeout: 15 * 60_000 })
+					if (result.code !== 0) throw new Error("OpenAI login did not complete")
+					await select(profile, ctx, true)
+				} else {
+					const matches = accounts.filter(a => a.email.toLowerCase() === value.toLowerCase() || a.profile + " — " + a.email === value)
+					if (matches.length !== 1) throw new Error("Select one account from /account, or use /account add")
+					await select(matches[0].profile, ctx, true)
 				}
-				selectedProfile = labels.get(selected)
-				email = selected === enter ? await ctx.ui.input("Account email", "name@example.com") ?? "" : selected
-			}
-			if (selectedProfile) {
-				await switchTo(selectedProfile, ctx)
-				return
-			}
-			if (!email) return
-			const matches = accounts.filter((account) => account.email.toLowerCase() === email.toLowerCase())
-			if (matches.length !== 1) {
-				if (matches.length > 1) ctx.ui.notify(`More than one account uses ${email}. Select it from /account.`, "warning")
-				else ctx.ui.notify(`No login found for ${email}. Run /account add first.`, "warning")
-				return
-			}
-			await switchTo(matches[0].profile, ctx)
+				ctx.ui.notify("Account selected for this Pi session. Codex CLI accounts are selected independently with CODEX_HOME.", "info")
+			} catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error") }
 		},
 	})
-
-	const persistActiveAccount = (ctx?: ExtensionContext) => {
-		const profile = piProfile()
-		if (profile && !persistPiAccount(profile)) ctx?.ui.notify("The active account could not be saved.", "warning")
-	}
-	pi.on("message_start", (event, ctx) => {
-		if (event.message.role === "assistant") persistActiveAccount(ctx)
-	})
-	pi.on("tool_call", (_event, ctx) => {
-		const profile = piProfile()
-		if (profile && persistPiAccount(profile)) prepareCodexRuntime(profile)
-	})
-	pi.on("tool_result", (_event, ctx) => {
-		const profile = piProfile()
-		const runtimeDir = process.env.PI_CODING_AGENT_DIR
-		if (profile && runtimeDir && process.env.CODEX_HOME) {
-			if (!importCodexRuntime(profile, process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? join(homedir(), ".pi", "agent"), runtimeDir, process.env.CODEX_HOME)) {
-				ctx.ui.notify("The Codex subprocess credential could not be saved.", "warning")
+	pi.on("session_start", async (_event, ctx) => {
+		if (timer) clearInterval(timer)
+		const entries = ctx.sessionManager.getBranch()
+		const saved = [...entries].reverse().find(e => e.type === "custom" && e.customType === "toolkit-account") as { data?: { profile?: string } } | undefined
+		try {
+			const profile = saved?.data?.profile ?? process.env.AGENT_TOOLKIT_CODEX_ACCOUNT ?? defaultPiAccount(directory)
+			if (profile) {
+				await select(profile, ctx, false)
+				// Pi chooses its initial model before this provider is registered.
+				// Restore its recorded selection unless native launch arguments override it.
+				const { parseArgs } = await import("@earendil-works/pi-coding-agent")
+				const launch = parseArgs(process.argv.slice(2))
+				const recorded = [...entries].reverse().find(e => e.type === "model_change")
+				if (recorded?.type === "model_change" && recorded.provider === ACCOUNT_PROVIDER && !launch.model && !launch.provider) {
+					const model = ctx.modelRegistry.find(ACCOUNT_PROVIDER, recorded.modelId)
+					if (!model || !await pi.setModel(model)) throw new Error("Saved account model is unavailable; choose a model explicitly")
+					const thinking = [...entries].reverse().find(e => e.type === "thinking_level_change")
+					pi.setThinkingLevel(launch.thinking ?? thinking?.thinkingLevel ?? pi.getThinkingLevel())
+				}
 			}
+		} catch (error) {
+			ctx.ui.notify("Selected account is unavailable; refusing account fallback. " + String(error), "error")
+			ctx.shutdown()
+			return
 		}
-	})
-	pi.on("turn_end", (_event, ctx) => persistActiveAccount(ctx))
-	pi.on("after_provider_response", async (event, ctx) => {
-		if (ctx.model?.provider !== "openai-codex") return
-		usage = mergeCodexUsage(usage, parseCodexUsage(event.headers))
-		updateStatus(ctx, usage)
-		void refreshUsage(ctx)
-	})
-	pi.on("session_shutdown", () => {
-		if (usageTimer) clearInterval(usageTimer)
-		usageTimer = undefined
-		persistActiveAccount()
-	})
-	pi.on("agent_settled", (_event, ctx) => updateStatus(ctx, usage))
-	pi.on("session_start", (_event, ctx) => {
-		const profile = piProfile()
-		if (profile) prepareCodexRuntime(profile)
-		updateStatus(ctx, usage)
-		setTimeout(() => updateStatus(ctx, usage), 0)
-		if (usageTimer) clearInterval(usageTimer)
+		update(ctx)
 		if (ctx.mode === "tui") {
-			void refreshUsage(ctx, true)
-			usageTimer = setInterval(() => void refreshUsage(ctx, true), 60_000)
+			void refreshUsage(ctx)
+			timer = setInterval(() => void refreshUsage(ctx), 60_000)
 		}
+	})
+	pi.on("model_select", async (_event, ctx) => {
+		if (!active) return
+		try { await bindModel(ctx) }
+		catch (error) { ctx.ui.notify("Selected account model is unavailable; refusing account fallback. " + String(error), "error"); ctx.shutdown() }
+	})
+	pi.on("after_provider_response", (event, ctx) => {
+		if (ctx.model?.provider !== "openai-codex" && ctx.model?.provider !== ACCOUNT_PROVIDER) return
+		usage = mergeCodexUsage(usage, parseCodexUsage(event.headers))
+		update(ctx)
+	})
+	pi.on("session_shutdown", (event, ctx) => {
+		if (timer) clearInterval(timer)
+		timer = undefined
+		if (event.reason === "reload" && registeredProvider && ctx.modelRegistry.getRegisteredNativeProvider(ACCOUNT_PROVIDER) === registeredProvider) pi.unregisterProvider(ACCOUNT_PROVIDER)
 	})
 }

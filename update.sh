@@ -51,7 +51,7 @@ safe_git=(
 )
 
 if [[ -n $("${safe_git[@]}" status --porcelain --untracked-files=all) ]]; then
-  printf 'Commit or discard agent-toolkit changes before updating.\n' >&2
+  printf 'Preserve your agent-toolkit changes before updating; the checkout must be clean.\n' >&2
   exit 1
 fi
 
@@ -70,7 +70,7 @@ printf -v display_ref '%q' "$merge_ref"
 printf -v display_url '%q' "$remote_url"
 
 printf 'Update Agent Toolkit?\n  checkout: %s\n  branch:   %s\n  upstream: %s %s\n  URL:      %s\n' "$display_repo" "$display_branch" "$display_remote" "$display_ref" "$display_url"
-printf 'This pulls remote code, runs install.sh, and updates global skills. Continue? [y/N] '
+printf 'This pulls remote code and installs its pinned resources; provider settings and official host skills are preserved. Continue? [y/N] '
 read -r answer
 if [[ $answer != "y" && $answer != "Y" ]]; then
   printf 'Update cancelled.\n'
@@ -86,11 +86,8 @@ if [[ -n $("${safe_git[@]}" status --porcelain --untracked-files=all) ]] ||
   exit 1
 fi
 "${safe_git[@]}" pull --ff-only --no-tags "$upstream_remote" "$merge_ref"
-global_status=0
-"$repo_dir/shared/update-global-skills" || global_status=$?
+"${safe_git[@]}" submodule update --init --recursive
+npm ci --prefix "$repo_dir/shared" --ignore-scripts --no-audit --no-fund
+"$repo_dir/verify.sh"
 "$repo_dir/install.sh"
-if ((global_status)); then
-  printf 'The toolkit is installed, but one or more global skills did not update.\n' >&2
-  exit "$global_status"
-fi
-printf 'Update complete. Restart active agent sessions if installation added a resource.\n'
+printf 'Update complete. Restart active agent sessions to use the installed snapshot.\n'

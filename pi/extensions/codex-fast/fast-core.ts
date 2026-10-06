@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { ACCOUNT_PROVIDER } from "../codex-account/index.ts"
 
 function configPath(): string {
 	return join(process.env.AGENT_TOOLKIT_PI_AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "codex-fast.json")
@@ -34,7 +35,7 @@ export function fastModeCostMultiplier(model: string): number {
 }
 
 export function applyFastMode(provider: string | undefined, enabled: boolean, payload: unknown): void {
-	if (provider !== "openai-codex" || !enabled || !payload || typeof payload !== "object") return
+	if ((provider !== "openai-codex" && provider !== ACCOUNT_PROVIDER) || !enabled || !payload || typeof payload !== "object") return
 	const body = payload as Record<string, unknown>
 	if (supportsFastMode(body.model)) body.service_tier = "priority"
 }

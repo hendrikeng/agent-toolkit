@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 
 export type SimpleEnglishRequest = {
@@ -34,9 +33,6 @@ export function simpleEnglishPrompt(request: SimpleEnglishRequest): string {
 }
 
 export default function simpleEnglishExtension(pi: ExtensionAPI): void {
-	const skill = readFileSync(new URL("./SKILL.md", import.meta.url), "utf8")
-	let pending: { prompt: string; instructions: string } | null = null
-
 	pi.registerCommand("simple-english", {
 		description: "Check or rewrite technical documentation with Simple English",
 		getArgumentCompletions(prefix) {
@@ -82,25 +78,7 @@ export default function simpleEnglishExtension(pi: ExtensionAPI): void {
 			const taskRule = request.action === "check"
 				? "This is a check only. Do not modify files."
 				: `Rewrite only the requested documentation in ${request.mode} mode.`
-			const prompt = simpleEnglishPrompt(request)
-			pending = {
-				prompt,
-				instructions: `Follow the Simple English skill for this turn. ${taskRule}\n\n${skill}`,
-			}
-			try {
-				pi.sendUserMessage(prompt)
-			} catch (error) {
-				pending = null
-				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error")
-			}
+			pi.sendUserMessage(`/skill:simple-english ${taskRule}\n\n${simpleEnglishPrompt(request)}`, { expandPromptTemplates: true })
 		},
-	})
-
-	pi.on("before_agent_start", (event) => {
-		if (!pending) return
-		const current = pending
-		pending = null
-		if (event.prompt !== current.prompt) return
-		return { systemPrompt: `${event.systemPrompt}\n\n${current.instructions}` }
 	})
 }

@@ -38,6 +38,9 @@ test("adds the priority tier only to enabled OpenAI Codex requests", () => {
 	const fast: Record<string, unknown> = { model: "gpt-6-astra" }
 	applyFastMode("openai-codex", true, fast)
 	assert.equal(fast.service_tier, "priority")
+	const selected: Record<string, unknown> = { model: "gpt-6-astra" }
+	applyFastMode("toolkit-openai-codex", true, selected)
+	assert.equal(selected.service_tier, "priority")
 
 	const normal: Record<string, unknown> = { model: "gpt-5.4-mini" }
 	applyFastMode("openai-codex", true, normal)
