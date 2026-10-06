@@ -259,14 +259,23 @@ class AutoreviewPriorityTests(unittest.TestCase):
                          ("gpt-6.1-sol", "high", "gpt-5.6-sol"))
 
     def test_explicit_review_settings_override_toolkit_defaults(self) -> None:
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(sys, "argv", [
-            "autoreview", "--max-priority", "P1", "--model", "custom-model", "--thinking", "low",
-        ]):
-            args = AUTOREVIEW.parse_args()
-            reviewer = AUTOREVIEW.reviewer_args(args)[0]
-        self.assertEqual(args.max_priority, "P1")
-        self.assertEqual((reviewer.model, reviewer.thinking, reviewer.fallback_model),
-                         ("custom-model", "low", None))
+        cases = (
+            ({}, ["--model", "custom-model"], "custom-model"),
+            ({}, ["--model", "gpt-6.1-sol"], "gpt-6.1-sol"),
+            ({}, ["--model", "codex=gpt-6.1-sol"], "gpt-6.1-sol"),
+            ({"AUTOREVIEW_MODEL": "gpt-6.1-sol"}, [], "gpt-6.1-sol"),
+            ({"AUTOREVIEW_CODEX_MODEL": "gpt-6.1-sol"}, [], "gpt-6.1-sol"),
+        )
+        for env, options, model in cases:
+            with self.subTest(env=env, options=options), mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(sys, "argv", [
+                        "autoreview", "--max-priority", "P1", "--thinking", "low", *options,
+                    ]):
+                args = AUTOREVIEW.parse_args()
+                reviewer = AUTOREVIEW.reviewer_args(args)[0]
+                self.assertEqual(args.max_priority, "P1")
+                self.assertEqual((reviewer.model, reviewer.thinking, reviewer.fallback_model),
+                                 (model, "low", None))
 
     def test_priority_filter_preserves_lower_findings_and_provider_verdict(self) -> None:
         report = copy.deepcopy(DRAFT_REPORT)

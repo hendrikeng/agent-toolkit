@@ -6742,7 +6742,9 @@ def reviewer_args(args: argparse.Namespace) -> list[argparse.Namespace]:
             or env_fallback_by_engine.get(engine)
             or env_global_fallback
         )
-    elif engine == "codex" and model == DEFAULT_MODEL_BY_ENGINE["codex"]:
+    elif engine == "codex" and not (
+        model_by_engine.get(engine) or global_model or env_model_by_engine.get(engine) or env_global_model
+    ):
         fallback_model = DEFAULT_CODEX_ACCESS_FALLBACK_MODEL
     else:
         fallback_model = None

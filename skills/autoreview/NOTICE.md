@@ -9,7 +9,8 @@ The upstream maintenance instructions are not included. Toolkit maintains this a
 
 ## Local differences
 
-- Codex defaults to `gpt-6.1-sol` with high reasoning. Account-access failures can retry once with `gpt-5.6-sol`.
+- Codex defaults to `gpt-6.1-sol` with high reasoning. Account-access failures can retry once with `gpt-5.6-sol` only without a model override.
+- Explicit CLI and environment model choices disable that retry, including an explicit selection of the default model. The existing override regression covers these choices.
 - The default threshold is P2, not P0. P3 findings remain in the audit output.
 - The skill retains Toolkit's risk gates and scope limits.
 - Default-value tests cover these settings.

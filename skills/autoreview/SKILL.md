@@ -111,7 +111,8 @@ parent-relative patch; otherwise leave the attribution unknown.
 ## Engines
 
 Codex is the default: `gpt-6.1-sol`, high reasoning, with a `gpt-5.6-sol` retry
-only for an account-access failure. Honor explicit engine and model choices. Do not
+only for an account-access failure when no model override is selected.
+Explicit CLI and environment model choices disable that retry. Honor explicit engine and model choices. Do not
 switch because a review is slow or rate-limited.
 
 Use `--model` and `--thinking` for one review. Use `AUTOREVIEW_CODEX_MODEL` and
