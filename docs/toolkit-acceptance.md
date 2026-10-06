@@ -399,7 +399,7 @@ These capabilities require their actual runtime. The shared skill trials do not 
 | Pi reviews | `/reviews off`, `/reviews`, `/reviews auto` | Deliberate session persistence and side-conversation inheritance. |
 | Pi web | `/web status`, `/web on`, one bounded lookup, `/web off` | Actual on-demand tools, preserved user settings, no cookie import. |
 | Pi publication | `/push` and `/pr` only in an explicitly authorized disposable remote | Confirmation and exact target. Explanation alone does not verify publication. |
-| PostgreSQL | `pg-test start`, returned URL, `pg-test status <id>`, `pg-test stop <id>` | PG18 fixture identity, least-privileged role, actual stop. Use only its URL. |
+| PostgreSQL | `pg-test start`, returned URL, `pg-test status <id>`, `pg-test stop <id>` | PG18 fixture identity, least-privileged role, actual stop, and removal of database files, socket, and log. Confirm repeated stop and status. Use only its URL. |
 | PostgreSQL profiles | Separately authorized migration/admin fixtures | Intended role permissions and cleanup, no production target. |
 | Fresh PostgreSQL suite | `pg18-fresh` only in its supported reviewed inventory-suite repository | Actual Docker isolation, bounded inventory, invocation-owned cleanup. Otherwise mark unavailable. |
 
@@ -410,3 +410,14 @@ Do not make a new database, publish a PR, or incur scan charges merely to mark a
 Record each result as passed, failed, or unverified, with its command, event, report, or effective settings.
 Report authentication and permission failures without switching accounts, broadening permissions, or copying credentials.
 The acceptance evidence determines which capabilities are ready to rely on.
+
+## PostgreSQL source-helper check: 2026-10-06
+
+These checks used the modified source helper, not a newly installed copy.
+
+- Codex Full Access: PG18 startup and restricted-role query passed. Stop removed the database files, socket, and log. Only a lifecycle record smaller than 1 KiB remained. Repeated stop and status passed.
+- Codex Default Worker: one startup attempt failed at `initdb`. PostgreSQL reported `could not create shared memory segment: Operation not permitted` for `shmget`. The worker stopped its failed fixture. No retry or bypass ran. The later cleanup change has deterministic coverage but was not retried in this denied mode.
+- Claude Default Worker: verification could not start. Its OAuth session had expired and could not be refreshed. PostgreSQL startup and cleanup in Claude remain unverified.
+
+Deterministic tests cover cleanup of stopped and failed fixtures, dead owners, and old ownerless clusters. They also cover preserved live owners, foreign sockets, symlink paths, changed records, and a live recorded postmaster with a missing PID file. An overlapping-collection test verifies protection of recent ownerless startups and later cleanup of abandoned setup files.
+A native permission denial still requires the provider approval path or a trusted human terminal. The helper does not broaden permissions.

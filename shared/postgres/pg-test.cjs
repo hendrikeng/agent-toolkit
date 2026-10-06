@@ -7,6 +7,7 @@ const net = require('node:net')
 const process = require('node:process')
 const { randomBytes } = require('node:crypto')
 const { execFileSync } = require('node:child_process')
+const { stripVTControlCharacters } = require('node:util')
 
 function directory(value) {
  const absolute = path.resolve(value)
@@ -66,7 +67,12 @@ function environment(root) {
  return { HOME: root, TMPDIR: root, PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' }
 }
 function run(bin, name, args, root, input) {
- return execFileSync(path.join(bin, name), args, { cwd: root, env: environment(root), input, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+ try {
+  return execFileSync(path.join(bin, name), args, { cwd: root, env: environment(root), input, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+ } catch (error) {
+  error.pgTestCommand = name
+  throw error
+ }
 }
 function file(root, name) {
  const target = path.join(root, name)
@@ -93,7 +99,13 @@ function identity(root, state, major) {
  if (!fs.existsSync(version) && !state.pid) return false
  if (fs.readFileSync(file(data, 'PG_VERSION'), 'utf8').trim() !== major) throw Error(`Not a PostgreSQL ${major} test cluster.`)
  const pidFile = path.join(data, 'postmaster.pid')
- if (!fs.existsSync(pidFile)) return false
+ if (!fs.existsSync(pidFile)) {
+  if (state.pid) {
+   try { ps(root, state.pid, 'command') } catch (error) { if (error.status === 1) return false; throw error }
+   throw Error('Recorded postmaster process still exists without its PID file. Preserve the cluster for inspection.')
+  }
+  return false
+ }
  let lines
  try {
   lines = fs.readFileSync(file(data, 'postmaster.pid'), 'utf8').split('\n')
@@ -153,9 +165,35 @@ function stop(root, state, major) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
  }
 }
+function releaseStoppedFiles(root, state, candidates) {
+ const data = path.join(root, 'data'), log = path.join(root, 'postgres.log')
+ const socketName = `agent-pg-${path.basename(root).slice(5)}`
+ const socket = path.resolve(state.socket ?? path.join(path.dirname(path.dirname(root)), socketName))
+ // Check every existing path before deleting any. Missing historical sockets need no action.
+ const exists = target => {
+  try { fs.lstatSync(target); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error }
+ }
+ const hasData = exists(data), hasLog = exists(log), hasSocket = exists(socket)
+ if (hasData) directory(data)
+ if (hasLog) file(root, 'postgres.log')
+ if (hasSocket) {
+  const socketRoots = new Set(candidates.map(fixtures => path.resolve(path.dirname(fixtures))))
+  if (path.basename(socket) !== socketName || !socketRoots.has(path.dirname(socket))) throw Error('Socket directory is outside the fixture roots.')
+  directory(socket)
+ }
+ const changed = hasData || hasLog || hasSocket || state.pid !== undefined || state.started !== undefined || state.owner !== undefined || state.ready !== false
+ // Persist the stopped identity first so a partial removal remains safe to repeat.
+ delete state.pid
+ delete state.started
+ delete state.owner
+ state.ready = false
+ if (changed) save(root, state)
+ if (hasSocket) fs.rmSync(socket, { recursive: true })
+ if (hasData) fs.rmSync(data, { recursive: true })
+ if (hasLog) fs.unlinkSync(log)
+}
 function garbageCollect(candidates) {
  const summary = { status: 'complete', checked: 0, stopped: [], deleted: [], preserved: [] }
- const socketRoots = new Set(candidates.map(fixtures => path.resolve(path.dirname(fixtures))))
  for (const candidate of candidates) {
   if (!fs.existsSync(candidate)) continue
   let fixtures
@@ -187,26 +225,21 @@ function garbageCollect(candidates) {
      }
      if (reclaim) {
       stop(root, state, major)
-      delete state.owner
-      save(root, state)
+      releaseStoppedFiles(root, state, candidates)
       summary.stopped.push({ id, path: root })
      }
      continue
     }
     if (state.owner) {
      if (ownerIsRunning(root, state.owner)) continue
-     delete state.owner
-     save(root, state)
+     releaseStoppedFiles(root, state, candidates)
      continue
     }
-    if (Date.now() - fs.statSync(record).mtimeMs <= 3 * 24 * 60 * 60 * 1000) continue
-    const socketName = `agent-pg-${id.slice(5)}`
-    const socket = path.resolve(state.socket ?? path.join(path.dirname(fixtures), socketName))
-    if (fs.existsSync(socket)) {
-     if (path.basename(socket) !== socketName || !socketRoots.has(path.dirname(socket))) throw Error('Socket directory is outside the fixture roots.')
-     directory(socket)
-     fs.rmSync(socket, { recursive: true })
-    }
+    const age = Date.now() - fs.statSync(record).mtimeMs
+    // Another ownerless start may still be creating its socket or running initdb.
+    if (!state.pid && !state.ready && age <= 2 * 60 * 60 * 1000) continue
+    releaseStoppedFiles(root, state, candidates)
+    if (age <= 3 * 24 * 60 * 60 * 1000) continue
     fs.rmSync(root, { recursive: true })
     summary.deleted.push({ id, path: root })
    } catch (error) {
@@ -242,12 +275,11 @@ async function main(args) {
   if (!validState(state, major)) throw Error('Invalid or changed test database record. Preserve it for inspection.')
   if (action === 'stop') {
    stop(root, state, major)
-   delete state.owner
-   save(root, state)
-   return { id, status: 'stopped', path: root, files: 'retained' }
+   releaseStoppedFiles(root, state, roots)
+   return { id, status: 'stopped', path: root, files: 'metadata only' }
   }
   const running = identity(root, state, major)
-  return { id, status: !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: 'retained' }
+  return { id, status: !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: !running && !fs.existsSync(path.join(root, 'data')) ? 'metadata only' : 'retained' }
  }
  garbageCollect(roots)
  const bin = binaries(major)
@@ -292,16 +324,26 @@ async function main(args) {
   operation = 'owner process check'
   if (state.owner && !ownerIsRunning(root, state.owner)) {
    stop(root, state, major)
-   delete state.owner
-   save(root, state)
+   releaseStoppedFiles(root, state, roots)
    throw Error('Fixture owner process ended during setup.')
   }
   // The URL is returned once, not stored in the lifecycle record or logged by the helper.
-  return { id: path.basename(root), status: 'running', path: root, profile: state.profile, database_url: `postgresql://${role}:${password}@127.0.0.1:${state.port}/toolkit_test`, files: 'retained until age-based garbage collection after stop' }
+  return { id: path.basename(root), status: 'running', path: root, profile: state.profile, database_url: `postgresql://${role}:${password}@127.0.0.1:${state.port}/toolkit_test`, files: 'database files removed on stop; metadata retained for three days' }
  } catch (error) {
   // Never delete an interrupted cluster or try another executable after an error.
   const code = typeof error.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? ` (${error.code})` : ''
-  throw Error(`Test database setup failed during ${operation}${code}. Files retained at ${root}. Use pg-test status ${path.basename(root)} or pg-test stop ${path.basename(root)}. No automatic restart or immediate deletion.`)
+  const exit = Number.isInteger(error.status) ? error.status : 'unavailable'
+  const signal = typeof error.signal === 'string' && /^SIG[A-Z0-9]+$/.test(error.signal) ? `; signal: ${error.signal}` : ''
+  let details = error.pgTestCommand ? ` Command: ${error.pgTestCommand}; exit status: ${exit}${signal}.` : ''
+  // initdb runs before credential generation. Never emit bootstrap stderr, SQL, argv, or the raw Error message.
+  if (operation === 'initdb' && error.stderr) {
+   const stderr = stripVTControlCharacters(String(error.stderr)).replace(/[^\x20-\x7e\n\t]/g, '?').trim()
+   if (stderr) details += `\ninitdb stderr: ${stderr.slice(0, 2048)}${stderr.length > 2048 ? '\n[truncated]' : ''}`
+   if (/could not create shared memory segment: (?:Operation not permitted|Permission denied)/.test(stderr)) {
+    details += '\nPostgreSQL shared-memory initialization was denied. Use the provider native approval path or run pg-test from a trusted human terminal. Do not retry through another tool or change server settings to bypass the denial.'
+   }
+  }
+  throw Error(`Test database setup failed during ${operation}${code}. Files retained at ${root}. Use pg-test status ${path.basename(root)} or pg-test stop ${path.basename(root)}. No automatic restart or immediate deletion.${details}`)
  }
 }
 module.exports = { main }

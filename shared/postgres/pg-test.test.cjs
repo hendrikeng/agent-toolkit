@@ -24,7 +24,7 @@ function fixture(major = '18') {
  const calls = [], processes = new Map()
  const owner = { session: '12345678-1234-1234-1234-123456789abc', pid: 3210, started: 'Tue Sep 29 12:00:00 2026' }
  const owners = new Map([[owner.pid, owner.started]])
- let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, ownerDiesOnReload = false, serverMajor = major, stopRace = false
+ let nextPid = 43210, failure = '', failureError, onInitdb, foreign = false, longSocket = false, missing = false, ownerDiesOnReload = false, serverMajor = major, stopRace = false
  const mockFs = { ...fs,
   chmodSync: (value, mode) => {
    if (!value.startsWith(shortTmp + path.sep)) throw Object.assign(Error('Fixture permission denial outside allowed temp'), { code: 'EPERM' })
@@ -44,6 +44,7 @@ function fixture(major = '18') {
     if (owners.has(pid)) return owners.get(pid)
     throw Object.assign(Error('process absent'), { status: 1 })
    }
+   if (!processes.has(pid)) throw Object.assign(Error('process absent'), { status: 1 })
    return foreign ? 'postgres -D /unrelated/database' : `${bin}/postgres -D ${processes.get(pid)}`
   }
   assert.equal(path.dirname(file), bin)
@@ -51,10 +52,11 @@ function fixture(major = '18') {
   assert.ok([scratch, legacy].some(root => options.cwd.startsWith(root + `/pg${major}-`)))
   assert.equal(options.env.HOME, options.cwd); assert.equal(options.env.TMPDIR, options.cwd)
   const program = path.basename(file)
-  if (failure === program) throw Error('simulated executable failure')
+  if (failure === program) throw failureError ?? Error('simulated executable failure')
   if (program === 'postgres') { assert.deepEqual(Array.from(args), ['--version']); return `postgres (PostgreSQL) ${serverMajor}.1` }
   const data = args.includes('-D') ? args[args.indexOf('-D') + 1] : undefined
   if (program === 'initdb') {
+   if (onInitdb) onInitdb()
    fs.mkdirSync(data)
    for (const name of ['postgresql.conf', 'pg_hba.conf']) fs.writeFileSync(path.join(data, name), '')
    fs.writeFileSync(path.join(data, 'PG_VERSION'), `${major}\n`)
@@ -108,12 +110,14 @@ function fixture(major = '18') {
   main: module.exports.main, calls, home, legacy, owner, scratch, shortTmp, darwinTmp, moveToLegacy, existingCluster,
   set managed(value) { if (value) Object.assign(mockProcess.env, { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }); else { delete mockProcess.env.AGENT_TOOLKIT_SESSION_ID; delete mockProcess.env.AGENT_TOOLKIT_SESSION_PID } },
   set missing(value) { missing = value },
+  set failureError(value) { failureError = value },
+  set onInitdb(value) { onInitdb = value },
   set ownerAlive(value) { if (value) owners.set(owner.pid, owner.started); else owners.delete(owner.pid) },
   set ownerDiesOnReload(value) { ownerDiesOnReload = value }, set serverMajor(value) { serverMajor = value }, set stopRace(value) { stopRace = value }, set longSocket(value) { longSocket = value }, set failure(value) { failure = value }, set foreign(value) { foreign = value }
  }
 }
 
-test('default PG18 fixture lifecycle isolates bootstrap credentials, retains files, and refuses arbitrary commands or foreign processes', async () => {
+test('default PG18 fixture lifecycle isolates bootstrap credentials, releases stopped files, and refuses arbitrary commands or foreign processes', async () => {
  const f = fixture()
  for (const args of [[], ['start', '-D', '/elsewhere'], ['start', '--postgres-version'], ['start', '--postgres-version', '17'], ['start', '--postgres-version', '18'], ['start', '--postgres-version', '19'], ['start', '--postgres-version', '18', 'extra'], ['start', '--postgres-version=18'], ['gc', 'extra'], ['psql', '-c', 'select 1'], ['stop', '../existing'], ['status', '/absolute'], ['stop', 'pg18-ABC123', '--postgres-version', '17']]) await assert.rejects(f.main(args), /Usage/)
  assert.equal(f.calls.length, 0)
@@ -137,6 +141,7 @@ test('default PG18 fixture lifecycle isolates bootstrap credentials, retains fil
  const hba = fs.readFileSync(path.join(started.path, 'data/pg_hba.conf'), 'utf8')
  assert.equal(hba, 'local all all reject\nhost toolkit_test toolkit_test 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n')
  assert.equal((await f.main(['status', started.id])).status, 'running')
+ fs.writeFileSync(path.join(started.path, 'postgres.log'), 'fixture server log')
  f.foreign = true
  const stops = () => f.calls.filter(call => call.args.at(-1) === 'stop').length
  await assert.rejects(f.main(['stop', started.id]), /outside this test cluster/)
@@ -146,7 +151,9 @@ test('default PG18 fixture lifecycle isolates bootstrap credentials, retains fil
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
  assert.equal(stops(), 1)
- assert.ok(fs.existsSync(path.join(started.path, 'data/PG_VERSION')))
+ assert.equal(fs.existsSync(path.join(started.path, 'data')), false)
+ assert.deepEqual(fs.readdirSync(started.path), ['pg-test.json'])
+ assert.equal(fs.existsSync(JSON.parse(record).socket), false)
  fs.renameSync(path.join(started.path, 'pg-test.json'), path.join(started.path, 'saved.json'))
  fs.symlinkSync(path.join(started.path, 'saved.json'), path.join(started.path, 'pg-test.json'))
  await assert.rejects(f.main(['status', started.id]), /regular files/)
@@ -197,11 +204,47 @@ test('PG18 failed setup preserves a controllable incomplete cluster without retr
  assert.equal(f.calls.filter(call => path.basename(call.file) === 'initdb').length, 1)
  assert.equal(f.calls.filter(call => path.basename(call.file) === 'psql').length, 1)
  assert.equal((await f.main(['stop', id])).status, 'stopped')
- assert.ok(fs.existsSync(path.join(f.scratch, id, 'data/PG_VERSION')))
+ assert.deepEqual(fs.readdirSync(path.join(f.scratch, id)), ['pg-test.json'])
  f.longSocket = true
  const initialized = f.calls.filter(call => path.basename(call.file) === 'initdb').length
  await assert.rejects(f.main(['start']), /Files retained/)
  assert.equal(f.calls.filter(call => path.basename(call.file) === 'initdb').length, initialized)
+})
+
+test('PG18 setup reports bounded initdb diagnostics but never bootstrap SQL or credentials', async () => {
+ const initialization = fixture()
+ initialization.failure = 'initdb'
+ initialization.failureError = Object.assign(Error('command failed with unsafe stdout'), {
+  status: 1,
+  stderr: '\x1b[31mFATAL: could not create shared memory segment: Operation not permitted\x1b[0m\nDETAIL: Failed system call was shmget(key=123, size=56, 03600).\n' + 'x'.repeat(5000),
+  stdout: 'not-for-output',
+ })
+ await assert.rejects(initialization.main(['start-admin']), error => {
+  assert.match(error.message, /Command: initdb; exit status: 1/)
+  assert.match(error.message, /could not create shared memory segment: Operation not permitted/)
+  assert.match(error.message, /PostgreSQL shared-memory initialization was denied/)
+  assert.match(error.message, /native approval path/)
+  assert.ok(!error.message.includes('\x1b') && !error.message.includes('not-for-output'))
+  assert.ok(error.message.length < 3000)
+  return true
+ })
+ const [id] = fs.readdirSync(initialization.scratch)
+ assert.equal((await initialization.main(['stop', id])).status, 'stopped')
+ assert.equal(initialization.calls.filter(call => path.basename(call.file) === 'initdb').length, 1)
+ assert.ok(fs.existsSync(path.join(initialization.scratch, id, 'pg-test.json')))
+
+ const bootstrap = fixture()
+ bootstrap.failure = 'psql'
+ bootstrap.failureError = Object.assign(Error('PASSWORD secret-password'), {
+  status: null, signal: 'SIGTERM', code: 'ETIMEDOUT', stderr: "CREATE ROLE toolkit_test PASSWORD 'secret-password';", stdout: 'secret-password',
+ })
+ await assert.rejects(bootstrap.main(['start']), error => {
+  assert.match(error.message, /Command: psql; exit status: unavailable; signal: SIGTERM/)
+  assert.match(error.message, /ETIMEDOUT/)
+  assert.ok(!error.message.includes('secret-password') && !error.message.includes('CREATE ROLE'))
+  return true
+ })
+ await bootstrap.main(['stop', fs.readdirSync(bootstrap.scratch)[0]])
 })
 
 test('existing PG17 fixtures remain manageable without creating new PG17 clusters', async () => {
@@ -235,7 +278,7 @@ test('garbage collection recognizes legacy owners and reaps dead-owner fixtures 
  fs.writeFileSync(abandonedRecord, JSON.stringify(state))
  const partial = path.join(f.scratch, 'pg18-DEF456')
  fs.mkdirSync(path.join(partial, 'data'), { recursive: true })
- fs.writeFileSync(path.join(partial, 'pg-test.json'), JSON.stringify({ ...state, pid: undefined, started: undefined }))
+ fs.writeFileSync(path.join(partial, 'pg-test.json'), JSON.stringify({ ...state, pid: undefined, started: undefined, socket: path.join(f.shortTmp, 'agent-pg-DEF456') }))
  const current = await f.main(['start-admin'])
  assert.equal((await f.main(['status', abandoned.id])).status, 'stopped')
  assert.equal(JSON.parse(fs.readFileSync(path.join(partial, 'pg-test.json'), 'utf8')).owner, undefined)
@@ -244,6 +287,7 @@ test('garbage collection recognizes legacy owners and reaps dead-owner fixtures 
  const cleanup = await f.main(['gc'])
  assert.deepEqual(Array.from(cleanup.stopped, item => item.id), [current.id])
  assert.equal((await f.main(['status', current.id])).status, 'stopped')
+ for (const root of [abandoned.path, partial, current.path]) assert.deepEqual(fs.readdirSync(root), ['pg-test.json'])
  assert.equal(f.calls.filter(call => call.args.at(-1) === 'stop').length, 2)
 })
 
@@ -295,7 +339,7 @@ test('garbage collection stops dead-owner and old ownerless clusters but keeps l
  rewrite(freshOwnerless, undefined, Math.floor(Date.now() / 1000))
  const summary = await f.main(['gc'])
  assert.deepEqual(Array.from(summary.stopped, item => item.id).sort(), [dead.id, oldOwnerless.id].sort())
- assert.equal(fs.existsSync(path.join(oldOwnerless.path, 'data/postmaster.pid')), false)
+ for (const root of [oldOwnerless.path, dead.path]) assert.deepEqual(fs.readdirSync(root), ['pg-test.json'])
  assert.equal((await f.main(['status', oldOwnerless.id])).status, 'stopped')
  assert.equal((await f.main(['status', dead.id])).status, 'stopped')
  assert.equal((await f.main(['status', live.id])).status, 'running')
@@ -316,7 +360,7 @@ test('garbage collection deletes only stopped fixtures with records older than t
  const oldSocket = path.join(f.shortTmp, `agent-pg-${old.id.slice(5)}`)
  const missingRecord = path.join(missingSocket.path, 'pg-test.json')
  const missingState = JSON.parse(fs.readFileSync(missingRecord, 'utf8'))
- fs.rmSync(missingState.socket, { recursive: true })
+ assert.equal(fs.existsSync(missingState.socket), false)
  missingState.socket = path.join(f.home, 'vanished-tmp', path.basename(missingState.socket))
  fs.writeFileSync(missingRecord, JSON.stringify(missingState))
  const then = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
@@ -373,4 +417,66 @@ test('PG18 lifecycle binds the resource ID to both the binary record and cluster
  assert.equal(f.calls.filter(call => call.args.at(-1) === 'stop').length, 0)
  fs.writeFileSync(versionPath, '18\n')
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
+})
+
+// These cases protect the destructive cleanup boundary, not private helper details.
+test('cleanup preserves foreign sockets, symlink paths, and ambiguous live postmasters', async () => {
+ for (const unsafe of ['socket', 'data', 'log', 'missing-pid']) {
+  const f = fixture()
+  const started = await f.main(['start'])
+  const recordPath = path.join(started.path, 'pg-test.json')
+  const state = JSON.parse(fs.readFileSync(recordPath, 'utf8'))
+  const foreign = path.join(f.home, 'keep-me')
+  fs.mkdirSync(foreign)
+  fs.writeFileSync(path.join(foreign, 'important'), 'unrelated')
+  if (unsafe === 'socket') {
+   state.socket = foreign
+   fs.writeFileSync(recordPath, JSON.stringify(state))
+  } else if (unsafe === 'data') {
+   fs.renameSync(path.join(started.path, 'data'), path.join(started.path, 'saved-data'))
+   fs.symlinkSync(foreign, path.join(started.path, 'data'))
+  } else if (unsafe === 'log') {
+   fs.symlinkSync(path.join(foreign, 'important'), path.join(started.path, 'postgres.log'))
+  } else {
+   fs.unlinkSync(path.join(started.path, 'data/postmaster.pid'))
+  }
+  await assert.rejects(f.main(['stop', started.id]), /outside the fixture roots|without symlinks|regular files|still exists without its PID file/)
+  const summary = await f.main(['gc'])
+  // GC also refuses ambiguous stopped paths once their owner exits.
+  if (unsafe === 'socket' || unsafe === 'log') {
+   f.ownerAlive = false
+   assert.equal((await f.main(['gc'])).preserved.some(item => item.id === started.id), true)
+  } else assert.equal(summary.preserved.some(item => item.id === started.id), true)
+  assert.equal(fs.readFileSync(path.join(foreign, 'important'), 'utf8'), 'unrelated')
+  assert.equal(fs.existsSync(path.join(started.path, 'data')), true)
+ }
+})
+
+test('overlapping garbage collection preserves a fresh ownerless startup and releases abandoned setup files later', async () => {
+ const f = fixture()
+ f.managed = false
+ let overlappingCollection
+ f.onInitdb = () => { overlappingCollection = f.main(['gc']) }
+ const started = await f.main(['start'])
+ const summary = await overlappingCollection
+ assert.equal(summary.preserved.length, 0)
+ assert.equal((await f.main(['status', started.id])).status, 'running')
+ await f.main(['stop', started.id])
+
+ const root = path.join(f.scratch, 'pg18-DEF456')
+ const socket = path.join(f.shortTmp, 'agent-pg-DEF456')
+ const state = JSON.parse(fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8'))
+ state.socket = socket
+ fs.mkdirSync(path.join(root, 'data'), { recursive: true })
+ fs.mkdirSync(socket)
+ const record = path.join(root, 'pg-test.json')
+ fs.writeFileSync(record, JSON.stringify(state))
+ await f.main(['gc'])
+ assert.equal(fs.existsSync(path.join(root, 'data')), true)
+ assert.equal(fs.existsSync(socket), true)
+ const stale = new Date(Date.now() - 3 * 60 * 60 * 1000)
+ fs.utimesSync(record, stale, stale)
+ await f.main(['gc'])
+ assert.deepEqual(fs.readdirSync(root), ['pg-test.json'])
+ assert.equal(fs.existsSync(socket), false)
 })
