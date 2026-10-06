@@ -422,6 +422,8 @@ Before choosing workers, call list_profiles and read every profile's notes.
 Honor requested profiles and preserve exact account aliases.
 Materialize the chosen profile's model, mode, thinking, and features through the official creation interface.
 Explain a proposed task-specific effort adjustment before launch.
+Choose each editing worker's workspace from the repository that owns its assigned files.
+For cross-repository tasks, split edit ownership by repository and pass each target workspaceId explicitly to create_agent.
 For independent parallel edits, create separate worktree-backed workspaces with explicit base refs and disjoint edit ownership.
 Verify that each worker has the required evidence, including any required uncommitted source changes.
 Give each worker an objective, permitted actions, ownership, constraints, acceptance criteria, review mode, and publication limits.
@@ -540,6 +542,23 @@ Cleanup ownership: <coordinator and resources to retain>
 
 A profile does not supply the brief, inherit the parent's entire conversation, or synchronize uncommitted changes.
 A new worktree contains committed history unless the coordinator deliberately supplies additional evidence.
+
+### Placement across repositories
+
+Paseo inherits the coordinator's workspace when an agent-scoped `create_agent` call omits `workspaceId`.
+Mentioning another repository in the task prompt does not change the worker's workspace.
+For a task across tracking-web and tracking-api, the coordinator can remain in tracking-web.
+The web worker uses a tracking-web workspace, and the API worker uses a tracking-api workspace.
+
+Identify the repository that owns each worker's assigned files before launch.
+Discover an appropriate workspace in that repository through the official native interfaces.
+For independent parallel edits, create a worktree-backed workspace in the target repository with an explicit base ref.
+Pass the target checkout as `create_workspace.path` to avoid inheriting the coordinator's repository.
+Pass the target workspace ID explicitly to `create_agent`.
+Include the repository path and workspace ID in the brief.
+Verify the returned workspace and required source evidence before further instructions.
+
+Workspace placement does not change provider, account, parentage, review policy, or publication authorization.
 
 ## Reasoning and model choices
 

@@ -26,7 +26,18 @@ Use the provider's discovered planning control for a proposed implementation pla
 Do not approve a planning-only worker's Implement action merely to collect its report.
 An analysis-only assignment does not establish an OS-enforced read-only boundary.
 Use the existing AutoReview helper for change-bundle reviews. Paseo profiles do not replace its reviewer isolation or settings.
-Use the current workspace for read-only investigation. Use separate worktree-backed workspaces with explicit base refs for parallel edits.
+Before launching an editing worker, identify the repository that owns its assigned files.
+Choose the worker's workspace from that repository, not from the coordinator's current location.
+For cross-repository tasks, split edit ownership by repository and launch each worker in its repository's workspace.
+For example, launch a web worker in the web repository and an API worker in the API repository.
+The coordinator can remain in the web workspace and integrate both results.
+Discover the target repository and its workspaces through the official native interfaces.
+For independent parallel edits, create separate worktree-backed workspaces in each target repository with explicit base refs.
+Pass the target checkout as `create_workspace.path`. Omitting it also inherits the coordinator's workspace.
+Pass the selected workspace's `workspaceId` explicitly to `create_agent`. An omitted value inherits the coordinator's workspace.
+Include the repository path and workspace ID in the worker's brief. Verify the returned workspace before further instructions.
+If the target repository is unclear, inspect available project information before asking the user.
+Use the current workspace for read-only investigation when it contains the required evidence.
 Verify the required evidence is present. New worktrees do not inherit staged, unstaged, or untracked source changes.
 Keep finish notifications enabled and follow official asynchronous waiting rules. Do not poll running workers.
 
