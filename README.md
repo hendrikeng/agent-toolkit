@@ -247,6 +247,9 @@ If no override exists, the command prints no value for that variable. Use the sa
 
 Both hosts require explicit ownership for handoffs. A resumed session keeps its original owner. Collect results before integrating or archiving disposable work; keep unresolved and user-retained resources. Do not archive the active user workspace or a handoff recipient. No timer-based collector runs.
 
+The [central Paseo worktree guide](docs/paseo-worktrees.md) covers project setup, cross-repository workers, previews, and cleanup.
+Each project keeps its native `paseo.json`. The shared workflow stays in this Toolkit guide.
+
 ### Recommended native Paseo profiles
 
 Use four roles and a dedicated UI Worker specialization, each with a Codex and Claude choice: ten optional native profiles.
