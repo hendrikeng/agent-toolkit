@@ -35,6 +35,19 @@ Read-only cross-repository inspection can remain in the coordinator workspace.
 For example, launch a web worker in the web repository and an API worker in the API repository.
 The coordinator can remain in the web workspace and integrate both results.
 Discover the target repository and its workspaces through the official native interfaces.
+If the coordinator uses worktree isolation, preserve that isolation for edits in every other repository.
+Create a worktree-backed workspace in each target repository, or reuse one verified to belong to the same task with compatible edit ownership.
+Do not select the target repository's main checkout or an unrelated worktree as a shortcut.
+For new workspaces, use the coordinator's task or worktree name as a shared prefix for titles, branch names, and worktree slugs.
+Honor names explicitly chosen by the user. Do not rename existing user workspaces or branches.
+Include the target repository name. Add a short coordinator workspace ID if the shared prefix is ambiguous.
+For example, a task named `invite-flow` can use `invite-flow--tracn-api` as its API workspace title and worktree slug.
+Choose an explicit base ref from the target repository. The coordinator's branch name is not a base ref in another repository.
+Record the coordinator workspace ID and each target repository, workspace ID, branch, and path in the task's existing continuation context.
+Include the coordinator workspace ID and shared task name in each worker's brief.
+Create workers through the current agent's native interface with the target `workspaceId` so they remain its subagents.
+Do not detach workers or launch independent top-level sessions merely because they work in another repository.
+Shared names and recorded workspace IDs associate the workspaces. They do not create a native workspace hierarchy or share uncommitted files.
 For independent parallel edits, create separate worktree-backed workspaces in each target repository with explicit base refs.
 Pass the target checkout as `create_workspace.path`. Omitting it also inherits the coordinator's workspace.
 Pass the selected workspace's `workspaceId` explicitly to `create_agent`. An omitted value inherits the coordinator's workspace.

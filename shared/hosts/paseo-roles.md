@@ -18,6 +18,11 @@ Choose each editing worker's workspace from the repository that owns its files. 
 For cross-repository tasks, assign separate workers to the respective repositories and integrate their results from the coordinator workspace.
 This rule applies to every repository, including follow-up fixes and checks that write or generate files.
 Do not edit another repository through sibling paths, temporary scripts, or shell directory changes from the coordinator session.
+If the coordinator uses a worktree, create or reuse same-task worktree-backed workspaces for edits in other repositories.
+For new workspaces, use a shared task-name prefix and the target repository name for titles, branch names, and worktree slugs.
+Preserve explicit user names and existing workspace or branch names.
+Choose each target repository's base ref explicitly. Record the task's workspace IDs and paths in its existing continuation context.
+Keep cross-repository workers attached as native subagents. Another repository does not require detachment or a top-level session.
 For independent parallel edits, use separate worktree-backed workspaces with explicit base refs.
 Verify that each worker has the required evidence, including required uncommitted changes.
 Keep finish notifications enabled and obey the official asynchronous waiting rules.

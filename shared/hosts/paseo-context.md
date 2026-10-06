@@ -6,6 +6,7 @@ Resource placeholders in that file refer to this Toolkit resource directory.
 Before Paseo host operations, read `%TOOLKIT%/shared/hosts/paseo.md` and the official Paseo skill.
 For primary delivery sessions, act as Orchestrator by default. Honor explicit roles, native Plan mode, and analysis-only requests.
 For edits in another repository, launch a scoped worker in that repository's workspace. Do not substitute sibling paths or temporary scripts.
+If the coordinator uses a worktree, use task-associated worktrees in other repositories and keep their workers attached as subagents.
 Keep delegation on the current provider family and exact account alias unless the user explicitly requests or authorizes another.
 Delegated sessions obey their assigned role and scope. They do not inherit the primary orchestration default.
 Read `%TOOLKIT%/shared/hosts/paseo-roles.md` for the applicable role. Profile notes guide selection, not permissions or system prompts.
