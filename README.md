@@ -4,6 +4,11 @@ One shared skill collection for Codex, Claude Code, and Pi, in Orca, native Pase
 
 The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Pi has its own command interfaces in `pi/extensions/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
 
+Chat responses use the pinned [Caveman skill](skills/caveman/SKILL.md) by default across Codex, Claude Code, and Pi.
+It removes filler and keeps technical meaning. Use `normal mode` or request more detail when needed.
+Documentation uses Simple English. Toolkit installs only Caveman skill text, without its proxy, runtime, or hooks.
+Shorter replies can reduce output tokens. This does not guarantee a reduction in reasoning tokens or total subscription usage.
+
 ## Install and start
 
 Use Node.js 24, npm, Git, Python 3.11+, and your chosen provider CLIs. Pi is optional: when its CLI is absent, installation supplies shared skills and Codex/Claude guidance, leaving Pi settings and interfaces untouched. When present, Pi interfaces require `@earendil-works/pi-coding-agent` 0.99.2; an unsupported version stops installation. Install the supported Pi CLI and rerun the same installer when you want those interfaces. Verification skips unavailable native Pi checks and reports them as unverified. Codex 0.160.0 and Claude Code 2.1.289 were inspected during the rebuild. Toolkit does not install or upgrade provider CLIs, choose models, or change accounts. Install the official Orca or Paseo skills through those hosts when using their operations.
@@ -101,8 +106,17 @@ If the existing host context already supplies these references, the extra prompt
 
 ## Shared skills and review policy
 
+On macOS, run `agent-awake` before agent work and `agent-sleep` when finished.
+The `paseo-awake` and `paseo-sleep` aliases control the same process.
+These commands use the built-in `caffeinate -i` to prevent idle system sleep. The screen can still turn off.
+The PID file is `${XDG_STATE_HOME:-~/.local/state}/agent-toolkit/caffeinate.pid`.
+It also records the process start time to detect reused PIDs.
+Repeated starts reuse the tracked process. Stop removes stale state and stops only the tracked caffeinate process, leaving Paseo running.
+The commands use the built-in `lockf` to serialize simultaneous calls. The OS releases locks when a command exits.
+
 | Skill | When to use it |
 |---|---|
+| Caveman | Concise chat responses by default; normal prose for documentation and explanations that need detail |
 | Ponytail | Coding tasks; full mode prefers the smallest correct solution |
 | Test Audit | Writing, changing, reviewing, or auditing tests |
 | Python, FastAPI, Fastify, Vue | Work in the corresponding language or framework |

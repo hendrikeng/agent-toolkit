@@ -1,0 +1,60 @@
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
+umask 077
+
+state_dir=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-toolkit
+pid_file=$state_dir/caffeinate.pid
+lock_file=$state_dir/caffeinate.lock
+mkdir -p "$state_dir"
+if [[ ${1:-} != --locked ]]; then
+  exec /usr/bin/lockf -k -t 5 "$lock_file" "$0" --locked
+fi
+if [[ -L $pid_file ]]; then
+  echo "Refusing a symlink PID file: $pid_file" >&2
+  exit 1
+fi
+
+pid=
+started=
+if [[ -f $pid_file ]]; then
+  { IFS= read -r pid || true; IFS= read -r started || true; } < "$pid_file"
+fi
+owned_process() {
+  [[ $pid =~ ^[1-9][0-9]*$ && $pid != 1 && -n $started ]] || return 1
+  [[ $(/bin/ps -p "$pid" -o lstart= 2>/dev/null) == "$started" ]] || return 1
+  [[ $(/bin/ps -p "$pid" -o uid= 2>/dev/null | tr -d ' ') == "$(id -u)" ]] || return 1
+  [[ $(/bin/ps -p "$pid" -o command= 2>/dev/null) == '/usr/bin/caffeinate -i' ]]
+}
+
+case ${0##*/} in
+  agent-awake|paseo-awake)
+    if owned_process; then
+      echo "Already keeping the Mac awake (PID $pid)."
+      exit 0
+    fi
+    rm -f "$pid_file"
+    (trap '' HUP; exec /usr/bin/caffeinate -i) </dev/null >/dev/null 2>&1 &
+    pid=$!
+    if ! started=$(/bin/ps -p "$pid" -o lstart=) || [[ -z $started ]]; then
+      kill "$pid" 2>/dev/null || true
+      echo "Could not record the keep-awake process." >&2
+      exit 1
+    fi
+    if ! printf '%s\n%s\n' "$pid" "$started" > "$pid_file"; then
+      kill "$pid" 2>/dev/null || true
+      exit 1
+    fi
+    echo "Keeping the Mac awake (PID $pid). Run agent-sleep when done."
+    ;;
+  agent-sleep|paseo-sleep)
+    if owned_process; then
+      kill "$pid" 2>/dev/null || true
+      echo "Stopped keep-awake; normal sleep is allowed."
+    else
+      echo "Keep-awake is already stopped; normal sleep is allowed."
+    fi
+    rm -f "$pid_file"
+    ;;
+  *) echo "Run this command as agent-awake or agent-sleep." >&2; exit 2 ;;
+esac

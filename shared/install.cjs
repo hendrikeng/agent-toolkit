@@ -253,6 +253,11 @@ function planInstall(options) {
     if (exists(file)?.isFile()) marked(file)
     link(file, path.join(resources, 'shared/postgres', filename), [])
   }
+  if (process.platform === 'darwin') for (const command of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
+    const file = path.join(home, '.local/bin', command)
+    if (exists(file)?.isFile()) marked(file)
+    link(file, path.join(resources, 'shared/macos/agent-awake'), [path.join(home, '.local/bin/agent-awake')])
+  }
   // Retire obsolete discovery links only in the folders this installation updates.
   const linkDirectories = new Set([
     path.join(home, '.agents/skills'), path.join(claudeDir, 'skills'), path.join(home, '.local/bin'),
@@ -301,7 +306,7 @@ function install(plan, run = execFileSync) {
     stage = fs.mkdtempSync(path.join(dataRoot, '.install-'))
     backup = path.join(dataRoot, 'backups', path.basename(stage).replace('.install-', `${Date.now()}-`))
     const copy = (source, target) => fs.cpSync(source, target, { recursive: true, filter: file => !['.git', 'node_modules', '__pycache__', '.DS_Store'].includes(path.basename(file)) })
-    for (const directory of ['skills', 'shared/hosts', 'shared/postgres']) {
+    for (const directory of ['skills', 'shared/hosts', 'shared/postgres', 'shared/macos']) {
       copy(path.join(repo, directory), path.join(stage, directory))
     }
     for (const directory of ['pi/extensions', 'vendor/agent-project-blueprint']) {

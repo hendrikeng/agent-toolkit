@@ -1,6 +1,8 @@
 # Agent Toolkit
 
 Read repository instructions before work. Preserve unrelated edits and user choices for accounts, providers, models, reasoning, and permissions.
+Load `caveman` for concise chat responses by default. Honor requests for normal mode or detailed explanations.
+Keep technical facts, uncertainty, commands, paths, numbers, and required progress updates. Apply Simple English to persisted documentation.
 For coding tasks, load `ponytail` and use full mode unless the user selects another mode. For test work, load `test-audit`.
 Load the full Python, FastAPI, Fastify, or Vue skill when the task uses that language or framework.
 Use skill descriptions to select other installed skills. Load their full instructions on demand, regardless of the assigned role.
