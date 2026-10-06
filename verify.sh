@@ -4,13 +4,13 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cd "$repo_dir"
 
 [[ $# -eq 0 ]] || { printf 'Usage: ./verify.sh\n' >&2; exit 2; }
-for script in install.sh update.sh skills/deepsec/scripts/deepsec; do
+for script in install.sh setup-paseo.sh update.sh skills/deepsec/scripts/deepsec; do
   bash -n "$script"
 done
-for script in shared/install.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do
+for script in shared/install.cjs shared/paseo-setup.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do
   node --check "$script"
 done
-node --test shared/install.test.cjs shared/pi-native.test.cjs shared/postgres/*.test.cjs
+node --test shared/install.test.cjs shared/paseo-setup.test.cjs shared/pi-native.test.cjs shared/postgres/*.test.cjs
 extension_tests=()
 for test_file in pi/extensions/*/tests/*.test.ts; do
   if [[ $test_file == pi/extensions/project-blueprint/tests/project-update.test.ts && ! -f vendor/agent-project-blueprint/scripts/bootstrap-configure.mjs ]]; then

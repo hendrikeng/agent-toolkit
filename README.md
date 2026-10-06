@@ -26,6 +26,15 @@ claude
 pi
 ```
 
+For optional native Paseo profiles, run this command after installation from a trusted human terminal on the daemon machine:
+
+```sh
+./setup-paseo.sh
+```
+
+Use the intended local `PASEO_HOME`. A host selected in a phone or desktop client does not select this command's daemon.
+See the [profile setup and instructions](docs/paseo-profiles.md).
+
 The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits and Pi `/reload` do not deploy changes. Installation does not change permissions; select permission modes through the provider or host from a trusted terminal, then start a fresh session.
 
 The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It appends a marked instruction block without replacing human instructions. It adds missing, pinned Pi packages and web defaults while retaining other settings. Pi's native resolver downloads missing packages on its next startup. React Doctor's locked dependencies are installed with `npm ci --ignore-scripts`.
@@ -62,7 +71,11 @@ For explicit loading:
 | Claude Code | `/ponytail full` | `/test-audit` |
 | Pi | `/skill:ponytail full` | `/skill:test-audit` |
 
-Startup guidance replaces the old Ponytail coding hooks. A separate copy in Paseo's System Prompt field is not required for this design. Instructions guide the model. They do not enforce permissions or guarantee model behavior.
+Startup guidance replaces the old Ponytail coding hooks. Shared instructions are essential, but native instruction files already supply them. Paseo setup offers a separate, default-off compact System Prompt context that references installed guidance. Instructions guide the model. They do not enforce permissions or guarantee model behavior.
+The extra Paseo prompt is not required for task-skill discovery or coding guidance.
+Its purpose is to identify fresh Paseo ownership and point to reusable role guidance across provider homes.
+Official Paseo skills describe native tools. Tool injection and browser access still require deliberate host enablement.
+If the existing host context already supplies these references, the extra prompt is optional.
 
 ## Shared skills and review policy
 
@@ -164,7 +177,7 @@ The small shared block selects host guidance only from the current session's own
 
 Orca owns workspaces and worker lifecycle. Its host guidance loads the version-matched official `orca-cli` and `orchestration` skills for delegation and handoffs. Use normal provider commands in the assigned worktree. Use Orca's embedded browser through `orca-cli`; use appropriate computer-use or page automation for external windows. Toolkit grants no socket or sandbox extensions.
 
-Native Paseo uses normal providers, its native permission modes, and official Paseo skills. Toolkit never installs, overwrites, or duplicates those skills and never modifies `~/.paseo/config.json`. It does not inject Orca worker instructions into Paseo sessions. Profile notes, account aliases, provider/model/reasoning choices, and asynchronous lifecycle rules come from the official skills. Paseo browser control uses Paseo's enabled browser host.
+Native Paseo uses normal providers, its native permission modes, and official Paseo skills. Toolkit never installs, overwrites, or duplicates those skills. Ordinary installation leaves Paseo configuration unchanged. The optional trusted-terminal setup adds missing profiles and offers a separate, default-off System Prompt context. It preserves existing profiles, human text, and provider security settings. It does not inject Orca worker instructions into Paseo sessions. Profile notes, account aliases, provider/model/reasoning choices, and asynchronous lifecycle rules come from the official skills. Paseo browser control uses Paseo's enabled browser host.
 
 Paseo launches the installed providers with their configuration and skills. The same native discovery paths serve sessions in Paseo and ordinary terminals. Toolkit installation belongs on the machine and under the user account that runs the Paseo daemon. A phone or remote desktop client does not supply that daemon's skill files. See [Paseo providers](https://paseo.sh/docs/providers).
 
@@ -185,7 +198,31 @@ Both hosts require explicit ownership for handoffs. A resumed session keeps its 
 Use four roles and a dedicated UI Worker specialization, each with a Codex and Claude choice: ten optional native profiles.
 Create only the profiles that you use. These are presets, not ten running agents.
 The [complete profile guide](docs/paseo-profiles.md) supplies exact fields, selection notes, instruction text, permission explanations, and acceptance steps.
-Paseo supports automatic profile creation through its native configuration API. The current Toolkit installer does not yet use that route.
+After installation, create the profiles automatically from a trusted human terminal:
+
+```sh
+./setup-paseo.sh
+```
+
+The command uses installed resource copies and Paseo's native CLI. It honors `PASEO_HOME` for a running local daemon.
+Select each intended account alias and permission mode once, or enter `-` to skip a provider family.
+Choose whether to add the compact System Prompt context separately. The default leaves the prompt unchanged.
+One save confirmation applies the selected changes. Existing profiles remain unchanged.
+Private backups and ownership receipts protect deliberate recovery. This does not enable tool injection or launch workers.
+Setup adds up to five missing presets per selected provider family. Use the native editor to create only individual presets.
+The [canonical presets](shared/hosts/paseo-profiles.json) supply new profile values.
+The compact [context block](shared/hosts/paseo-context.md) points fresh sessions to installed [role guidance](shared/hosts/paseo-roles.md).
+The actual task prompt still supplies the assigned role and task brief.
+`./install.sh` installs shared startup instructions in each selected provider home and copies the Paseo guidance.
+`./setup-paseo.sh` adds context to Paseo's native System Prompt (`daemon.appendSystemPrompt`) only when you select that option.
+That context directs the agent to the shared guidance, role instructions, and official Paseo skill for native tools.
+It does not replace human System Prompt text or install another copy of the official skills.
+
+Skill rules apply across profiles. Coding Workers load Ponytail full, and test work loads Test Audit.
+Every Markdown task requires Simple English, including documentation work assigned to a Worker, Planner, or Orchestrator.
+A separate Document Worker preset is optional convenience, not a requirement for these instructions.
+Use an ordinary Worker with a documentation objective and explicit file ownership.
+Profile names and selection notes do not automatically deliver these instructions or prove that an agent obeys them.
 These task-based defaults use your existing subscriptions:
 
 | Profile | Model | Thinking | Planning control | When to use |
@@ -225,6 +262,7 @@ Sonnet 5.5 is an optional Worker choice after task-level comparison, without add
 Astra for Codex Adviser is an optional preference, not a demonstrated role-specific advantage.
 See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config) and [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5).
 
+Use `./setup-paseo.sh` for automatic setup. The remaining steps describe the manual alternative:
 Create the profiles through Settings → your daemon host → Agents → Agent profiles → New profile.
 Use your intended existing provider/account alias for each family.
 Select each model and the table's thinking level explicitly.
@@ -241,10 +279,11 @@ After you save, ask your Paseo agent to inspect `list_profiles`.
 Verify explicit true and false values for the required features.
 If a required Off value is absent, set it On in the profile editor.
 Then set it Off. Save again. The inspected editor can display an unsaved default Off value.
-Keep your other profiles and account settings. Toolkit installation and updates do not manage saved profiles.
-Paseo's native SDK can read the profile list and save it through `client.config.patch({ agentProfiles: nextProfiles })`.
-Profiles persist under `daemon.agentProfiles`. The patch replaces the complete list, so automation must preserve existing entries and user choices.
-An optional trusted-terminal setup step can automate creation without a custom plugin. That step is not yet implemented in Toolkit.
+Keep your other profiles and account settings. Ordinary installation and updates do not reset saved profiles.
+The optional setup merges missing presets through native configuration commands. Profiles persist under `daemon.agentProfiles`.
+The profile array is a whole-list replacement, so setup preserves existing entries and detects ambiguous collisions.
+Keep other configuration writers idle during setup. Inspect reported backups after any partial save.
+No custom Paseo plugin or new SDK dependency is required.
 See the [supported automation route](docs/paseo-profiles.md#supported-automation-route) and [Paseo's profile setup](https://paseo.sh/docs/agent-profiles).
 
 A profile name does not determine permissions. Native Plan controls guide the workflow. They do not establish an OS-enforced read-only sandbox.
@@ -258,8 +297,10 @@ Profile notes guide the coordinator's selection. They do not supply a worker sys
 For a primary Orchestrator, request orchestration in the first prompt. The profile label alone does not assign this role.
 For example:
 
-> Act as Orchestrator for this task. Read the applicable shared and Paseo guidance. Use saved profiles for useful delegation.
-> Give each worker a bounded assignment. Collect evidence and check the integrated result. Preserve the active review policy and publication limits.
+```text
+Act as Orchestrator for this task. Read the applicable shared and Paseo guidance. Use saved profiles for useful delegation.
+Give each worker a bounded assignment. Collect evidence and check the integrated result. Preserve the active review policy and publication limits.
+```
 
 The actual task prompt supplies the objective, permitted actions, evidence paths, edit ownership, acceptance criteria, and expected result.
 It also supplies the active review policy, publication authorization, and any delegation limits.
@@ -345,7 +386,13 @@ Stop active providers before installation. Inspect current settings and historic
 
 The installer completes a read-only preflight before deployment. It parses Ponytail registrations structurally in the selected Codex home and every existing account home that receives guidance. TOML table indentation, dotted keys, and inline tables do not bypass detection. Claude and Paseo configuration can contain comments and trailing commas. Preflight reads those files without changing their bytes. It stops for manual reconciliation when an existing resource, managed instruction block, active Ponytail plugin/package, or retired Pi reference has unclear ownership. Pi-specific checks and changes apply only when installing Pi interfaces. It preserves accounts, credentials, provider aliases, models, reasoning, hooks, official host skills, and unrelated settings. Do not clear a directory to resolve a conflict.
 
-For an old installation:
+Use the [migration and acceptance runbook](docs/toolkit-acceptance.md) for a fresh checkout, safe retirement, and copyable test prompts.
+There is no blanket uninstall command. Preserve provider homes and migrate proven Toolkit resources through the installer.
+
+For complete removal before a fresh install, use the runbook's [legacy removal procedure](docs/toolkit-acceptance.md#completely-remove-the-legacy-toolkit).
+It includes all selected provider homes, even if Pi is absent, and removes the old snapshot after human ownership classification.
+
+The following steps are the alternative migration route, which retains historical snapshots until later inspection:
 
 1. Back up the relevant configuration and compare it with the old Toolkit backups and ownership markers.
 2. Reconcile proven old Ponytail plugin/package registrations so they cannot duplicate the shared skill or execute coding-guidance hooks. If a registration is user-owned and should stay, stop and resolve the conflict deliberately.
@@ -390,6 +437,11 @@ To update from a trusted human terminal:
 
 The script requires a clean checkout, confirms its actual upstream, fast-forwards, initializes the pinned submodule, runs checks, and installs copies. It does not blanket-update global skills, official host skills, provider CLIs, or user packages. Toolkit never updates itself or its skill pins at startup.
 
+After an update, rerun `./setup-paseo.sh` to add missing presets. Select context refresh only if you use its owned block.
+Existing profiles keep their aliases, models, thinking levels, modes, features, and notes. Setup does not reset them to new defaults.
+Compare deliberate profile changes with the [canonical presets](shared/hosts/paseo-profiles.json), then edit through native Paseo settings.
+Start fresh sessions to verify the updated installed guidance and effective launch settings.
+
 ### Pins
 
 | Resource | Pin |
@@ -413,6 +465,11 @@ Python, framework, writing, and Test Audit guidance is vendored; revisions and l
 
 Checks cover installation and repetition, configuration/account preservation, host coexistence, migration refusal, backups and recovery, source/install separation, native Pi credential refresh with two stores, retained Pi interfaces, blueprint update preservation, PostgreSQL role/lifecycle behavior, and AutoReview's deterministic helper contract. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
 
+Paseo setup checks cover profile merging, preserved choices, repeated setup, private backups, concurrent-edit refusal, and partial saves.
+They substitute native CLI persistence. They do not prove live CLI compatibility or support for the saved feature IDs.
+Setup checks advertised providers, models, thinking levels, and mode labels. Native feature discovery remains part of fresh-session acceptance.
+The coordinator must inspect the exact provider and selected settings before launch. Unsupported required planning controls stop that profile's launch.
+
 ### Installation and fresh-session acceptance
 
 1. After a successful installation, inspect `~/.local/share/agent-toolkit/installed.json`. The receipt records the owned skill links and each managed instruction block.
@@ -423,8 +480,10 @@ Checks cover installation and repetition, configuration/account preservation, ho
 6. Explicitly request a small AutoReview through its skill-local script. Verify the isolated reviewer and report through normal approval. A permission denial leaves this check unverified.
 7. For host operations, verify that only the session owner's guidance loads. Native Paseo uses official Paseo skills. Orca uses its official skills.
 8. In Pi, exercise `/project audit`, side conversations, review-off inheritance, web toggling, and concurrent accounts.
+9. After optional Paseo setup, inspect `list_profiles` on the selected daemon. Verify effective models, thinking, modes, and features. Inspect actual context and role-guidance reads in fresh sessions.
 
 Passing `./verify.sh` proves the covered fixture and SDK behavior. It does not prove that your live installation or fresh Paseo sessions meet these acceptance checks.
+The [acceptance runbook](docs/toolkit-acceptance.md#fresh-session-tests) covers all shared skills, host roles, Pi interfaces, and PostgreSQL helpers.
 
 A fresh Pi SDK process verifies copied Ponytail, Test Audit, and Simple English bodies through native command expansion and review-off instructions in the outgoing request. It also verifies Simple English is visible for automatic model selection. The transport is stopped before a model call. No live installation was changed during this rebuild. Automatic skill use by a real model, fresh installed CLI use, Codex/Claude skill loading, and a live review remain unverified. The validation record, old-origin comparison, and current migration blockers are in [docs/rebuild-validation.md](docs/rebuild-validation.md).
 
@@ -436,6 +495,7 @@ A fresh Pi SDK process verifies copied Ponytail, Test Audit, and Simple English 
 | `shared/AGENTS.md` | Small coding/review and host-selection guidance |
 | `shared/hosts/` | Separate Orca and Paseo instructions |
 | `shared/install.cjs` | Human-terminal installation and conservative migration |
+| `setup-paseo.sh`, `shared/paseo-setup.cjs` | Optional native profile and compact System Prompt setup |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
 | `shared/pi-web-access/defaults.json` | Missing web preferences only |
 | `pi/extensions/` | Pi-only interfaces |

@@ -4,10 +4,10 @@ This guide defines ten optional profiles: four roles and a dedicated UI Worker s
 The profiles save launch settings. They do not create ten running agents or install ten separate instruction systems.
 Create only the profiles that you use.
 
-Paseo supports automated profile creation through its native configuration API.
-The current Toolkit installer does not yet create or update saved profiles.
-The records below are a complete setup recipe, not a ready-to-import replacement for the daemon configuration.
-No saved profiles, provider permissions, accounts, or daemon settings changed during this documentation task.
+Toolkit creates these profiles through an optional trusted-terminal setup command, without a custom plugin or new dependency.
+The ordinary installer still leaves Paseo configuration unchanged.
+The setup command offers a separate, default-off compact block for Paseo's System Prompt.
+No live profiles, provider permissions, accounts, or daemon settings changed during implementation.
 The local Paseo executable inspection was permission-denied, so live profile creation and acceptance remain unverified.
 
 The source references use Paseo `v0.10.3`, the version identified in the earlier host inspection.
@@ -135,6 +135,8 @@ Their similar names do not establish equivalent protection.
 ## Exact profile data
 
 The records below provide the names, models, thinking IDs, mode IDs, features, and exact **When to use** text.
+The canonical presets are in [paseo-profiles.json](../shared/hosts/paseo-profiles.json).
+Setup reads their installed copies, not editable source.
 They use the built-in `codex` and `claude` provider IDs as examples.
 
 Before saving, replace each provider ID with the intended existing account alias if applicable.
@@ -253,34 +255,104 @@ The agent MCP launch interface uses `initialPrompt` for the assignment and has n
 
 ### Supported automation route
 
-Paseo's SDK exposes `client.config.get()` and `client.config.patch()`.
-Its own profile editor saves through the same native configuration mechanism.
-The mutable API field is `agentProfiles`, while the persisted file nests it under `daemon`.
+From the checkout in a trusted human terminal:
 
-A host-authorized setup tool can read the complete list and append the missing Toolkit profiles.
-It then submits `client.config.patch({ agentProfiles: nextProfiles })`.
-This is an administrative setup operation, not worker delegation.
-Toolkit does not need a custom Paseo plugin or a new profile system.
+```sh
+./install.sh
+./setup-paseo.sh
+```
+
+`setup-paseo.sh` honors `PASEO_HOME` and explicitly selects that local home for every native command.
+It does not target `PASEO_HOST` or configure a remote daemon from the client machine.
+The selected local daemon must already run and expose its providers.
+The installed copies must include the new profile presets, role instructions, and context template.
+
+Setup asks once per provider family for the existing account alias and deliberate permission mode.
+Enter `-` to skip a family.
+It separately asks whether the host needs the compact context. The default leaves the System Prompt unchanged.
+It then shows the selected changes and asks for one save confirmation.
+This avoids ten separate forms without guessing accounts or silently choosing broader permissions.
+The inspected native model command lowercases provider IDs.
+Setup refuses mixed-case aliases rather than querying an unintended account.
+For those aliases, use the native editor with the exact existing ID.
+
+Setup uses Paseo's existing CLI, not a new SDK dependency:
+
+- `daemon config get daemon.agentProfiles` establishes native profile support.
+- `provider ls` and `provider models <alias> --thinking` establish provider, model, and thinking availability.
+- `daemon config set daemon.agentProfiles <complete-list>` validates and saves the merged profiles.
+- When selected, `daemon config set daemon.appendSystemPrompt <text>` saves the compact context while preserving human text.
+
+Paseo's SDK also supports `client.config.get()` and `client.config.patch({ agentProfiles: nextProfiles })`.
+Its own profile editor uses the same configuration mechanism.
+The mutable API field is `agentProfiles`, while the persisted file nests it under `daemon`.
+The CLI avoids another dependency for this one-time administrative setup.
 
 The profile array is a whole-list replacement, not an entry-by-entry merge.
-Safe automation must preserve unrelated entries, existing IDs, and user-edited Toolkit entries.
-It must stop on ambiguous name or ID collisions.
-Before saving, it must verify profile support and the chosen account aliases, models, modes, thinking levels, and features.
-It must retain a private backup and avoid concurrent profile edits during the read-and-save operation.
-The native API validates and persists the patch. Other configuration fields must remain untouched.
+Setup keeps existing matching names unchanged, including their IDs, notes, accounts, modes, models, and features.
+It also preserves unrelated profiles.
+It stops on duplicate names, ID collisions, or unsupported selections.
+When context installation is selected, a changed or unowned context block also stops setup.
+Existing profiles that differ from the recipe remain human choices, not automatic update targets.
 
-An optional trusted-terminal setup step can therefore remove the repetitive manual work.
-It must not silently run during every install or reset profiles on update.
-The current installer does not implement this step, and no live configuration API call was made here.
-Manual creation remains an available fallback, not a technical requirement.
+Setup backs up the exact original configuration in a private directory under `~/.local/share/agent-toolkit/backups/paseo-*`.
+An ownership receipt lives under `~/.local/share/agent-toolkit/paseo-<home-hash>.json`.
+Repeated setup adds only missing profiles. Context updates require a separate selection and an unchanged, owned block.
+The native CLI can reformat its configuration. The backup retains the original bytes.
+
+Keep the profile editor and other configuration writers idle during setup.
+The native CLI has no compare-and-swap contract.
+Toolkit checks for concurrent edits but cannot eliminate every read-and-save race.
+The profile save and context save are separate native operations.
+If a command fails after persistence, setup stops and reports its private backup.
+A file-only save or a reported runtime override also stops setup for human inspection.
+It does not retry a denial, roll back concurrent human changes, or restart the daemon.
+Inspect any partial save before deliberate recovery.
+
+Setup does not enable tool injection, change provider commands or credentials, launch workers, or configure an OS sandbox.
+Feature discovery and effective security still require the fresh-session acceptance steps.
+Before launch, the coordinator uses native `inspect_provider` with the exact provider and selected settings.
+Only returned feature IDs are used. An unavailable required planning control stops that profile's launch.
+Installation and updates do not silently rerun setup or reset profiles.
+Manual creation remains an available fallback.
+
+### Updates and customization
+
+`./update.sh` refreshes installed skills and host guidance. It does not change saved profiles or rerun Paseo setup.
+Rerun `./setup-paseo.sh` to add missing presets. Select context refresh only if you use its owned block.
+Existing matching profiles keep their IDs, accounts, models, effort, modes, features, and notes.
+Compare deliberate changes with the canonical presets, then edit through native Paseo settings.
+Start fresh sessions to verify the installed guidance and effective launch settings.
+
+Setup adds up to five missing profiles for each selected provider family.
+Use the native editor to create only individual presets or select modes outside setup's offered choices.
+The setup choices are Codex `auto` and `auto-review`, and Claude `default`, `acceptEdits`, and `auto`.
+Claude Planner uses native `plan` mode.
+Existing profiles with other modes remain unchanged.
 
 ### Startup instructions versus the System Prompt
 
 The rebuilt installer appends shared guidance to native `AGENTS.md` and `CLAUDE.md` files.
 Paseo's providers load that guidance from their selected homes.
-The installer does not currently change `daemon.appendSystemPrompt` or any saved profile.
-The older Paseo instruction bridge used that daemon field. It is not the rebuilt installation path.
+The ordinary installer does not change `daemon.appendSystemPrompt` or saved profiles.
+When deliberately selected, setup adds a small marked context block to that daemon field.
+The block identifies fresh Paseo ownership and points to the installed startup, host, and role guidance.
+If native startup guidance is already present, the agent does not need another full copy.
+If it is absent, the block directs the agent to read the installed shared guidance.
 
+Shared instructions are essential. The System Prompt field is one delivery mechanism, not the only valid mechanism.
+A full duplicate of every skill increases context without supplying new instructions.
+A global prompt also cannot make every session a Planner, Worker, Adviser, and Orchestrator at once.
+The profile schema deliberately excludes role system prompts.
+
+The extra daemon prompt is optional for skill discovery and coding guidance.
+Native provider instruction files already supply the shared skill rules across every profile.
+Keep the compact context when the host needs explicit ownership and references to Toolkit roles.
+Do not copy complete skills or a second native tool manual into it.
+A prompt cannot enable unavailable tools or enforce an OS sandbox.
+
+The installed [role instructions](../shared/hosts/paseo-roles.md) give the coordinator reusable behavior for each role.
+The coordinator names the selected role in each worker's initial prompt and supplies the actual brief.
 Shared startup guidance, profile launch settings, and task instructions remain separate.
 Creating profiles automatically does not make their selection notes into worker system prompts.
 
@@ -309,7 +381,8 @@ The same role block serves both provider variants.
 Use these prompts only in a fresh Paseo-owned session. They do not transfer an existing Orca session to Paseo.
 
 The installed startup guidance still supplies recurring skills and review rules.
-Do not duplicate all skill bodies in these prompts or change the daemon's global System Prompt for this recipe.
+Do not duplicate all skill bodies in these prompts.
+Setup supplies only a compact daemon context block and references the installed role guidance.
 
 ### Common block
 
@@ -489,6 +562,9 @@ Honor explicit human model and effort choices rather than substituting automatic
 
 ## Create and verify the profiles
 
+Use the [automatic setup command](#supported-automation-route) for the selected local daemon.
+The following procedure remains a manual alternative:
+
 1. Select the affected daemon host in Paseo.
 2. Open **Settings → your host → Agents → Agent profiles**.
 3. Select **New profile**.
@@ -539,6 +615,8 @@ Before relying on the recipe:
 - Verify that a Worker changes only its assigned files and returns focused check evidence.
 - Verify isolated parallel edits, integration, finish notifications, idle resume, and explicit cleanup.
 
+Focused fixture checks cover merges, preserved choices, backups, repetition, refusal, and partial saves.
+They substitute native persistence and do not prove live CLI compatibility, feature support, or sandbox behavior.
 No live acceptance or coding-quality benchmark was performed for this recipe.
 
 ## Code review remains separate
@@ -569,6 +647,8 @@ Neither review system configures the other.
 ## Sources
 
 - [Paseo profiles](https://paseo.sh/docs/agent-profiles.md): saved fields, selection notes, and human creation workflow.
+- [Paseo CLI targeting](https://github.com/getpaseo/paseo/blob/v0.10.3/public-docs/cli.md#select-one-daemon): explicit local `--home` selection overrides environment targets.
+- [Paseo configuration edits](https://paseo.sh/docs/configuration): native saves, runtime application, partial failures, and deployment overrides.
 - [Paseo SDK configuration](https://paseo.sh/docs/sdk/reference.md#clientconfig): native configuration reads and patches.
 - [Paseo v0.10.3 profile schema](https://github.com/getpaseo/paseo/blob/v0.10.3/packages/protocol/src/agent-profile.ts): profile IDs, fields, and deliberate exclusion of system prompts.
 - [Paseo v0.10.3 profile persistence](https://github.com/getpaseo/paseo/blob/v0.10.3/packages/app/src/agent-profiles/internal/use-agent-profiles.ts): the editor's whole-list native configuration patch.

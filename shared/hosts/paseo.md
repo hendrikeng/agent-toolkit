@@ -7,13 +7,18 @@ Do not import Orca worker instructions, terminal launchers, sandbox extensions, 
 
 Before choosing a worker, read `list_profiles` and every profile's notes. Honor an explicitly requested profile and account alias.
 Materialize the selected provider/model, mode, thinking, and features through the official native creation interface.
+Before launch, use native `inspect_provider` for the exact provider and selected model, mode, thinking, and feature settings.
+Use only returned feature IDs. If a required planning control is unavailable, report the limitation before launching that profile.
 Preserve absent values and explicit false feature values. Profile notes guide selection. Put the actual assignment in the task prompt.
 If no profile fits, use provider discovery. Do not substitute another account after a failure.
 If the selected profile has no model, discover one for that exact provider before launch.
 Use the saved effort as the starting point. Honor an explicit human effort choice.
+Prefer Medium for routine coordination, implementation, and advice. Select High for substantial planning, hard debugging, security, migrations, concurrency, or difficult integration.
 For a task-specific effort adjustment, explain the reason before launch. Use native settings, without adding another profile.
 Give workers an assigned role, scope, edit ownership, constraints, shared coding/review guidance, and acceptance criteria.
 Pass the active review policy, publication authorization, and delegation limits explicitly. Do not assume inherited conversation context.
+For Toolkit profiles, read the sibling `paseo-roles.md` and name the selected role in the worker's initial prompt.
+UI Worker specializes Worker for frontend implementation, accessibility, responsive behavior, and visual verification.
 Use the provider's discovered planning control for a proposed implementation plan.
 Do not approve a planning-only worker's Implement action merely to collect its report.
 An analysis-only assignment does not establish an OS-enforced read-only boundary.

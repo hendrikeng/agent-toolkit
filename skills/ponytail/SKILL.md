@@ -104,12 +104,13 @@ Hardware is never the ideal on paper: a real clock drifts, a real sensor
 reads off, a PCA9685 runs a few percent fast. Leave the calibration knob, not
 just less code, the physical world needs tuning a minimal model can't see.
 
-Lazy code without its check is unfinished. Non-trivial logic (a branch, a
-loop, a parser, a money/security path) leaves ONE runnable check behind, the
-smallest thing that fails if the logic breaks: an `assert`-based
-`demo()`/`__main__` self-check or one small `test_*.py`. No frameworks, no
-fixtures, no per-function suites unless asked. Trivial one-liners need no
-test, YAGNI applies to tests too.
+Lazy code without its check is unfinished. For non-trivial changed behavior,
+use the repository's existing test infrastructure and Test Audit's authoring gate.
+Existing coverage can satisfy the requirement. Extend its strongest practical
+behavioral check before adding another test. Use a small standalone self-check
+only when the repository has no suitable test boundary. Do not introduce a
+framework, fixture system, or per-function suite merely to satisfy this rule.
+Trivial one-liners need no new test, YAGNI applies to tests too.
 
 ## Boundaries
 
