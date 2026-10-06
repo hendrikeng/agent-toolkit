@@ -1,0 +1,14 @@
+{
+  "name": "agent-toolkit-paseo-tool-trust",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test server/tool-trust.test.cjs"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.10.3",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

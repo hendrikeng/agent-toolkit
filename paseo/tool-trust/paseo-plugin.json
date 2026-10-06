@@ -1,0 +1,1 @@
+{ "id": "agent-toolkit-paseo-tool-trust", "requirements": { "paseo": ">=0.10.3" } }

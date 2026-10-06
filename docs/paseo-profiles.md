@@ -4,11 +4,15 @@ This guide defines ten optional profiles: four roles and a dedicated UI Worker s
 The profiles save launch settings. They do not create ten running agents or install ten separate instruction systems.
 Create only the profiles that you use.
 
-Toolkit creates these profiles through an optional trusted-terminal setup command, without a custom plugin or new dependency.
+Toolkit creates these profiles through an optional trusted-terminal setup command.
+The same command offers the included native plugin for trusted Paseo MCP approvals in Codex and Claude.
 The ordinary installer still leaves Paseo configuration unchanged.
 The setup command offers a separate, default-off compact block for Paseo's System Prompt.
+Paseo MCP trust defaults to on at the setup save confirmation. It enables the global plugin switch.
+The plugin handles tool confirmations, including worker creation. Other servers, shell approvals, questions, and URL forms keep their existing handling.
+Provider catalog limits and browser enablement still apply. Trust does not expand the user's assigned task.
 No live profiles, provider permissions, accounts, or daemon settings changed during implementation.
-The local Paseo executable inspection was permission-denied, so live profile creation and acceptance remain unverified.
+Plugin type checks and isolated permission-routing tests pass. Live plugin acceptance requires deployment from a trusted human terminal.
 
 The source references use Paseo `v0.10.3`, the version identified in the earlier host inspection.
 Current provider documentation can describe newer behavior.
@@ -275,7 +279,9 @@ Setup asks once per provider family for the existing account alias and deliberat
 Enter `-` to skip a family.
 It separately offers compact context for default primary orchestration and Toolkit guidance references.
 The setup choice defaults to off and leaves the System Prompt unchanged.
-It then shows the selected changes and asks for one save confirmation.
+Setup also asks whether to trust Paseo MCP calls through the native plugin. The default accepts this option.
+This option enables trusted, unsandboxed plugins on the selected daemon. Enter `n` to retain existing plugin settings.
+Setup then shows the selected changes and asks for one save confirmation.
 This avoids ten separate forms without guessing accounts or silently choosing broader permissions.
 The inspected native model command lowercases provider IDs.
 Setup refuses mixed-case aliases rather than querying an unintended account.
@@ -303,6 +309,7 @@ Existing profiles that differ from the recipe remain human choices, not automati
 Setup backs up the exact original configuration in a private directory under `~/.local/share/agent-toolkit/backups/paseo-*`.
 An ownership receipt lives under `~/.local/share/agent-toolkit/paseo-<home-hash>.json`.
 Repeated setup adds only missing profiles. Context updates require a separate selection and an unchanged, owned block.
+Selected tool trust reloads or enables an existing plugin from the installed Toolkit path. A conflicting source requires manual reconciliation.
 The native CLI can reformat its configuration. The backup retains the original bytes.
 
 Keep the profile editor and other configuration writers idle during setup.

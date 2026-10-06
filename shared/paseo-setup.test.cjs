@@ -4,8 +4,46 @@ const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const { spawnSync } = require('node:child_process')
-const { prepareSetup, applySetup } = require('./paseo-setup.cjs')
+const { prepareSetup, applySetup, installToolTrust } = require('./paseo-setup.cjs')
 const presets = JSON.parse(fs.readFileSync(path.join(__dirname, 'hosts/paseo-profiles.json'), 'utf8'))
+
+test('tool trust uses the selected daemon, preserves an enabled switch, and requires a running plugin', () => {
+  for (const enabled of [true, false]) {
+   for (const existing of [undefined, { enabled: true }, { enabled: false }]) {
+    const calls = []
+    let listed = false
+    installToolTrust({ paseoHome: '/selected/paseo', resources: '/installed' }, args => {
+      calls.push(args)
+      assert.deepEqual(args.slice(-2), ['--home', '/selected/paseo'])
+      if (args[2] === 'get') return { path: 'pluginsEnabled', set: enabled, value: enabled }
+      if (args[1] === 'ls') {
+        const result = !listed && !existing ? [] : [{ id: 'agent-toolkit-paseo-tool-trust', path: '/installed/paseo/tool-trust', status: 'running', ...existing }]
+        listed = true
+        return result
+      }
+      return { applied: true }
+    })
+    assert.equal(calls.some(args => args[2] === 'set'), !enabled)
+    const action = existing ? existing.enabled ? 'reload' : 'enable' : 'install'
+    assert.deepEqual(calls.find(args => args[1] === action), ['plugin', action, existing ? 'agent-toolkit-paseo-tool-trust' : '/installed/paseo/tool-trust', '--home', '/selected/paseo'])
+    assert.equal(calls.some(args => args[1] === 'install'), !existing)
+   }
+  }
+  assert.throws(() => installToolTrust({ paseoHome: '/selected', resources: '/installed' }, args => {
+    if (args[2] === 'get') return { path: 'pluginsEnabled', set: true, value: true }
+    if (args[1] === 'ls') return [{ id: 'agent-toolkit-paseo-tool-trust', path: '/installed/paseo/tool-trust', enabled: true, status: 'failed' }]
+  }), /did not reach running/)
+  assert.throws(() => installToolTrust({ paseoHome: '/selected', resources: '/installed' }, args => {
+    if (args[1] === 'ls') return []
+    if (args[2] === 'get') return { path: 'pluginsEnabled', set: false }
+    if (args[2] === 'set') return { applied: false }
+    assert.fail('Must not install after a rejected enablement')
+  }), /enablement needs human inspection/)
+  assert.throws(() => installToolTrust({ paseoHome: '/selected', resources: '/installed' }, args => {
+    if (args[1] === 'ls') return [{ id: 'agent-toolkit-paseo-tool-trust', path: '/unrelated' }]
+    assert.fail('Must not change global trust or replace another source')
+  }), /another source/)
+})
 
 function input(config = {}) {
   return {

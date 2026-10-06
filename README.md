@@ -263,6 +263,15 @@ Select each intended account alias and permission mode once, or enter `-` to ski
 Choose whether to add the compact System Prompt context separately. The default leaves the prompt unchanged.
 One save confirmation applies the selected changes. Existing profiles remain unchanged.
 Private backups and ownership receipts protect deliberate recovery. This does not enable tool injection or launch workers.
+Setup also offers the included Paseo tool-trust plugin. The default accepts it at the setup save confirmation.
+This enables Paseo's global plugin switch and installs trusted, unsandboxed code through the native CLI.
+The plugin approves Paseo MCP tool calls for Codex and Claude, including discovery, workers, terminals, and browser tools.
+It handles Default mode too. Other MCP servers, shell commands, questions, and URL authorization requests keep their existing approvals.
+Provider tool limits and browser enablement still apply. Trust does not authorize work outside the user's task.
+Run `./install.sh`, then `./setup-paseo.sh` from a trusted human terminal to deploy and enable this change.
+Verify `agent-toolkit-paseo-tool-trust` has `running` status with `paseo plugin ls`.
+Disable this trust with `paseo plugin disable agent-toolkit-paseo-tool-trust`.
+See [Paseo permission hooks](https://paseo.sh/docs/plugins/reference.md#lifecycle-hooks) and [tool configuration](https://paseo.sh/docs/mcp.md).
 Setup adds up to five missing presets per selected provider family. Use the native editor to create only individual presets.
 The [canonical presets](shared/hosts/paseo-profiles.json) supply new profile values.
 The compact [context block](shared/hosts/paseo-context.md) points fresh sessions to installed [role guidance](shared/hosts/paseo-roles.md).
@@ -554,7 +563,8 @@ A fresh Pi SDK process verifies copied Ponytail, Test Audit, and Simple English 
 | `shared/AGENTS.md` | Small coding/review and host-selection guidance |
 | `shared/hosts/` | Separate Orca and Paseo instructions |
 | `shared/install.cjs` | Human-terminal installation and conservative migration |
-| `setup-paseo.sh`, `shared/paseo-setup.cjs` | Optional native profile and compact System Prompt setup |
+| `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
+| `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
 | `shared/pi-web-access/defaults.json` | Missing web preferences only |
 | `pi/extensions/` | Pi-only interfaces |

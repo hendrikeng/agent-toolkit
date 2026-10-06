@@ -306,7 +306,7 @@ function install(plan, run = execFileSync) {
     stage = fs.mkdtempSync(path.join(dataRoot, '.install-'))
     backup = path.join(dataRoot, 'backups', path.basename(stage).replace('.install-', `${Date.now()}-`))
     const copy = (source, target) => fs.cpSync(source, target, { recursive: true, filter: file => !['.git', 'node_modules', '__pycache__', '.DS_Store'].includes(path.basename(file)) })
-    for (const directory of ['skills', 'shared/hosts', 'shared/postgres', 'shared/macos']) {
+    for (const directory of ['skills', 'shared/hosts', 'shared/postgres', 'shared/macos', 'paseo/tool-trust']) {
       copy(path.join(repo, directory), path.join(stage, directory))
     }
     for (const directory of ['pi/extensions', 'vendor/agent-project-blueprint']) {

@@ -116,6 +116,25 @@ function applySetup({ paseoHome, dataRoot, original, plan }, run = native) {
   }
 }
 
+function installToolTrust({ paseoHome, resources }, run = native) {
+  const id = 'agent-toolkit-paseo-tool-trust', source = path.join(resources, 'paseo/tool-trust')
+  const installed = run(['plugin', 'ls', '--home', paseoHome])
+  if (!Array.isArray(installed)) throw Error('Unexpected plugin discovery response.')
+  const existing = installed.find(plugin => plugin.id === id)
+  if (existing && (typeof existing.path !== 'string' || path.resolve(existing.path) !== source)) throw Error('Existing Paseo tool-trust plugin has another source. Reconcile it in your trusted terminal; nothing changed.')
+  const enabled = run(['daemon', 'config', 'get', 'pluginsEnabled', '--home', paseoHome])
+  if (enabled.path !== 'pluginsEnabled' || typeof enabled.set !== 'boolean') throw Error('Unexpected plugin trust configuration response.')
+  if (!enabled.set || enabled.value !== true) {
+    const result = run(['daemon', 'config', 'set', 'pluginsEnabled', 'true', '--home', paseoHome])
+    if (result?.applied === false || result?.restartRequiredPaths?.includes('pluginsEnabled') || result?.overrideControlledPaths?.includes('pluginsEnabled')) throw Error('Plugin enablement needs human inspection; no restart attempted.')
+  }
+  if (!existing) run(['plugin', 'install', source, '--home', paseoHome])
+  else if (existing.enabled !== true) run(['plugin', 'enable', id, '--home', paseoHome])
+  else run(['plugin', 'reload', id, '--home', paseoHome])
+  const plugins = run(['plugin', 'ls', '--home', paseoHome])
+  if (!Array.isArray(plugins) || !plugins.some(plugin => plugin.id === 'agent-toolkit-paseo-tool-trust' && plugin.status === 'running')) throw Error('Paseo tool trust did not reach running status. Inspect native plugin logs; no retry attempted.')
+}
+
 async function main() {
   if (process.argv.length !== 2 || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Run ./setup-paseo.sh without arguments from a trusted human terminal.')
   const paseoHome = path.resolve(process.env.PASEO_HOME ?? path.join(os.homedir(), '.paseo'))
@@ -149,13 +168,17 @@ async function main() {
       if (!Array.isArray(models[provider])) throw Error(`Unexpected model discovery response: ${provider}`)
     }
     const installContext = (await terminal.question('Add/update compact Paseo context for default primary orchestration and Toolkit guidance references? [y/N]: ')).trim().toLowerCase() === 'y'
+    const trustChoice = (await terminal.question('Trust all Paseo MCP calls for Codex/Claude? Enables trusted, unsandboxed plugins on this daemon. Shell and other MCP approvals stay unchanged. [Y/n]: ')).trim().toLowerCase()
+    if (!['', 'y', 'n'].includes(trustChoice)) throw Error('Enter y or n for Paseo tool trust; no changes saved.')
+    const trustTools = trustChoice !== 'n'
     const plan = prepareSetup({ config, presets, context, resources, previousPrompt, selections, providers, models, installContext })
-    console.log(`Add: ${plan.added.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'} Native security and tool-injection settings stay unchanged.`)
+    console.log(`Add: ${plan.added.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'}\n${trustTools ? 'Enable plugins and install Paseo MCP tool trust.' : 'Leave plugin trust unchanged.'} Provider modes and tool-injection settings stay unchanged.`)
     if ((await terminal.question('Save these changes through the native Paseo CLI? [y/N]: ')).trim().toLowerCase() !== 'y') { console.log('Cancelled. No changes saved.'); return }
     const result = applySetup({ paseoHome, dataRoot, original, plan })
-    console.log(`Added ${result.added.length} profiles. ${result.backup ? `Private backup: ${result.backup}` : 'Already configured; nothing changed.'}\nStart fresh Paseo sessions and verify effective settings, features, and skill loading. Tool injection still needs your deliberate host selection.`)
+    if (trustTools) installToolTrust({ paseoHome, resources })
+    console.log(`Added ${result.added.length} profiles. ${result.backup ? `Private backup: ${result.backup}` : 'Profiles already configured.'}\nStart fresh Paseo sessions and verify effective settings, features, and skill loading. Tool injection still needs your deliberate host selection.`)
   } finally { terminal.close() }
 }
 
-module.exports = { prepareSetup, applySetup }
+module.exports = { prepareSetup, applySetup, installToolTrust }
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1 })
