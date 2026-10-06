@@ -6,6 +6,9 @@ Use the official `paseo-handoff` skill for ownership transfers. Never duplicate,
 Do not import Orca worker instructions, terminal launchers, sandbox extensions, or lifecycle operations.
 
 Before choosing a worker, read `list_profiles` and every profile's notes. Honor an explicitly requested profile and account alias.
+By default, select workers from the current session's provider family and exact account alias.
+Use another provider family or account only when the user explicitly requests or authorizes it. Available profiles alone are not authorization.
+If no matching profile exists, discover native settings for the current alias. If that alias is unknown, ask before launch.
 Materialize the selected provider/model, mode, thinking, and features through the official native creation interface.
 Before launch, use native `inspect_provider` for the exact provider and selected model, mode, thinking, and feature settings.
 Use only returned feature IDs. If a required planning control is unavailable, report the limitation before launching that profile.

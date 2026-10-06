@@ -17,8 +17,11 @@ Deleting provider homes would also delete user configuration and authentication.
 For the selected default or overridden homes, use this private backup command:
 
 ```sh
+bash <<'SH'
+set -eu
 umask 077
 toolkit_backup=$(mktemp -d "$HOME/agent-toolkit-backup.XXXXXX")
+printf 'Private backup directory: %s\n' "$toolkit_backup"
 for toolkit_home in \
   "${CODEX_HOME:-$HOME/.codex}" \
   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" \
@@ -33,15 +36,25 @@ do
   if [ -d "$toolkit_home" ]; then
     toolkit_slot=$(mktemp -d "$toolkit_backup/home.XXXXXX")
     printf '%s\n' "$toolkit_home" > "$toolkit_slot/original-path.txt"
-    cp -Rp "$toolkit_home" "$toolkit_slot/snapshot" || break
+    printf 'Copying: %s\n' "$toolkit_home"
+    if ! cp -Rp "$toolkit_home" "$toolkit_slot/snapshot"; then
+      printf 'BACKUP INCOMPLETE: %s. Do not remove or install anything.\n' "$toolkit_home" >&2
+      exit 1
+    fi
+    printf 'Copied: %s\n' "$toolkit_home"
   fi
 done
-printf 'Private backup directory: %s\n' "$toolkit_backup"
+printf 'Backup complete: %s\n' "$toolkit_backup"
+SH
 ```
 
+Paste the complete block, including the final `SH` line. A `>` continuation prompt means the shell is waiting for more input.
+Copying a large provider home can take time. Wait for `Backup complete` and the normal terminal prompt before continuing.
 If a copy fails, stop and complete that backup before installation.
 These backups can contain credentials. Keep them private and out of repositories.
 Back up additional account homes outside this list separately.
+If an override selects another home, back up the default home separately before changing it.
+For example, `CODEX_HOME` can select an Orca account while native Paseo still uses `~/.codex`.
 The directory selected in Paseo's client does not select a local terminal's `PASEO_HOME`.
 
 5. Compare old settings with ownership markers and historical backups.
@@ -192,6 +205,9 @@ Preserve `paseo/tool-approvals/`, official Paseo skills, user databases, and act
 
 9. Verify that old explicit configuration references, aliases, wrappers, and symlinks no longer select the legacy runtime.
 Inspect mixed instruction files for old Toolkit sections. Remove only the compared Toolkit text and preserve human instructions.
+An account's `AGENTS.md` can link to a shared user instruction file instead of the legacy runtime.
+Do not classify that link as Toolkit-owned. The installer refuses it rather than following it into another home.
+Reconcile it separately. Preserve the target's user text if you deliberately replace the link with a standalone account instruction file.
 10. Reopen a trusted terminal and verify that normal `codex`, `claude`, and `pi` commands select the intended native CLIs.
 11. Proceed with the fresh installation below.
 
@@ -239,12 +255,13 @@ Keep the selected local daemon running, with its profile editor idle:
 
 Select the intended account aliases and native permission modes. Skip a provider family with `-` if you do not use it.
 Setup adds missing profiles, with private backups. Its separate context choice defaults to off.
-Select the small owned `daemon.appendSystemPrompt` block only if host ownership or Toolkit role references are missing.
+Select the small owned `daemon.appendSystemPrompt` block for default primary orchestration or missing host and guidance references.
 It preserves existing profiles and human prompt text. It does not enable tools, change credentials, or launch workers.
 Repeat setup to verify that unchanged configuration produces no writes.
 If setup reports a partial save or an unapplied change, inspect its backup before recovery. Do not blindly retry.
 
-The extra prompt supplies Paseo ownership and references to role guidance. Task skills do not require it.
+The extra prompt supplies Paseo ownership, default primary orchestration, and references to role guidance. Task skills do not require it.
+Explicit roles, native Plan mode, and delegated assignments take precedence over the primary default.
 The native provider instruction files already supply shared coding and review rules.
 Tool access requires deliberate host enablement and official Paseo skills through Paseo's supported settings.
 Install or update those official skills through Paseo, never through a duplicate Toolkit copy.
@@ -353,6 +370,8 @@ Compare saved profiles with launch arguments and effective session settings. Do 
 | Role or capability | Trial | Acceptance |
 |---|---|---|
 | Orchestrator | Assign one bounded fixture change. Permit at most one named Worker if delegation is useful. | Correct native tools, exact account/settings, scoped brief, integration evidence, no unnecessary delegation. |
+| Default provider | Permit one bounded Worker without requesting a provider change. | The child uses the primary session's provider family and exact account alias. |
+| Explicit provider choice | From Codex, explicitly request a Claude Planner for one fixture proposal. Prohibit edits and further delegation. | The child uses the requested Claude alias and native Plan control; the primary session remains Codex. |
 | Planner | Request a proposal for a fixture change, with implementation prohibited. | Native Plan control, useful proposal, unchanged project files. Do not approve Implement. |
 | Worker | Use the coding and test trials with explicit ownership. | Only assigned files change, applicable skills load, focused checks run. |
 | UI Worker | Assign a small existing UI fixture with responsive and keyboard acceptance criteria. | Framework guidance and actual browser evidence, or an explicit missing-browser limitation. |

@@ -73,7 +73,9 @@ For explicit loading:
 
 Startup guidance replaces the old Ponytail coding hooks. Shared instructions are essential, but native instruction files already supply them. Paseo setup offers a separate, default-off compact System Prompt context that references installed guidance. Instructions guide the model. They do not enforce permissions or guarantee model behavior.
 The extra Paseo prompt is not required for task-skill discovery or coding guidance.
-Its purpose is to identify fresh Paseo ownership and point to reusable role guidance across provider homes.
+Its purpose is to identify fresh Paseo ownership, default primary delivery sessions to Orchestrator, and reference shared role guidance.
+Enable this compact context if you want orchestration as the primary default without repeating the role in each task prompt.
+Explicit roles, native Plan mode, and delegated assignments take precedence. Small tasks still finish directly.
 Official Paseo skills describe native tools. Tool injection and browser access still require deliberate host enablement.
 If the existing host context already supplies these references, the extra prompt is optional.
 
@@ -291,10 +293,14 @@ Claude Plan mode also changes native tool permission handling. Leaving it change
 Provider modes with the same name do not guarantee the same behavior. Native permissions remain a deliberate human selection.
 For a planning-only assignment, collect the plan without approving its Implement action.
 Before later implementation, select the intended Worker settings and verify the effective native permissions.
-The Orchestrator can select a worker from either family within the authorized scope, preserving the exact account alias.
+By default, the Orchestrator selects workers from the current session's provider family and exact account alias.
+Use another provider or account only when explicitly requested or authorized.
+For example, a Codex session can launch a requested Claude UI Worker. The primary session remains Codex.
+If no matching profile exists, discover native settings for the current alias. Ask before launch if the alias is unknown.
 
 Profile notes guide the coordinator's selection. They do not supply a worker system prompt or install skills.
-For a primary Orchestrator, request orchestration in the first prompt. The profile label alone does not assign this role.
+With the compact context enabled, primary delivery sessions use Orchestrator by default.
+Without it, request orchestration in the first prompt. The profile label alone does not assign this role.
 For example:
 
 ```text

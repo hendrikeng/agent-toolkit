@@ -141,6 +141,10 @@ They use the built-in `codex` and `claude` provider IDs as examples.
 
 Before saving, replace each provider ID with the intended existing account alias if applicable.
 Keep that exact alias during delegation. Do not fall back to another account after an authentication or quota error.
+Default to the current session's provider family and exact account alias when selecting workers.
+Another provider or account requires an explicit user request or authorization; its presence in the catalog is not enough.
+If no matching profile exists, discover native settings for the current alias. Ask before launch if that alias is unknown.
+An explicitly requested Claude child does not change a Codex primary session's provider.
 Verify that the selected daemon exposes the model, thinking level, mode, and features.
 If discovery does not expose a required value, leave the profile unvalidated rather than guessing a replacement.
 
@@ -269,7 +273,8 @@ The installed copies must include the new profile presets, role instructions, an
 
 Setup asks once per provider family for the existing account alias and deliberate permission mode.
 Enter `-` to skip a family.
-It separately asks whether the host needs the compact context. The default leaves the System Prompt unchanged.
+It separately offers compact context for default primary orchestration and Toolkit guidance references.
+The setup choice defaults to off and leaves the System Prompt unchanged.
 It then shows the selected changes and asks for one save confirmation.
 This avoids ten separate forms without guessing accounts or silently choosing broader permissions.
 The inspected native model command lowercases provider IDs.
@@ -337,6 +342,8 @@ Paseo's providers load that guidance from their selected homes.
 The ordinary installer does not change `daemon.appendSystemPrompt` or saved profiles.
 When deliberately selected, setup adds a small marked context block to that daemon field.
 The block identifies fresh Paseo ownership and points to the installed startup, host, and role guidance.
+It defaults primary delivery sessions to Orchestrator, while preserving explicit roles, native Plan mode, and delegated assignments.
+For your default orchestration workflow, enable this compact context once. No repeated role prompt is necessary for primary delivery tasks.
 If native startup guidance is already present, the agent does not need another full copy.
 If it is absent, the block directs the agent to read the installed shared guidance.
 
@@ -347,7 +354,7 @@ The profile schema deliberately excludes role system prompts.
 
 The extra daemon prompt is optional for skill discovery and coding guidance.
 Native provider instruction files already supply the shared skill rules across every profile.
-Keep the compact context when the host needs explicit ownership and references to Toolkit roles.
+Enable the compact context for default primary orchestration or missing host ownership and guidance references.
 Do not copy complete skills or a second native tool manual into it.
 A prompt cannot enable unavailable tools or enforce an OS sandbox.
 

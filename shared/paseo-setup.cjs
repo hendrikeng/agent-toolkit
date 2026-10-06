@@ -148,7 +148,7 @@ async function main() {
       models[provider] = native(['provider', 'models', provider, '--thinking', '--home', paseoHome])
       if (!Array.isArray(models[provider])) throw Error(`Unexpected model discovery response: ${provider}`)
     }
-    const installContext = (await terminal.question('Add/update the compact Paseo context only if host ownership or Toolkit role references are missing? [y/N]: ')).trim().toLowerCase() === 'y'
+    const installContext = (await terminal.question('Add/update compact Paseo context for default primary orchestration and Toolkit guidance references? [y/N]: ')).trim().toLowerCase() === 'y'
     const plan = prepareSetup({ config, presets, context, resources, previousPrompt, selections, providers, models, installContext })
     console.log(`Add: ${plan.added.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'} Native security and tool-injection settings stay unchanged.`)
     if ((await terminal.question('Save these changes through the native Paseo CLI? [y/N]: ')).trim().toLowerCase() !== 'y') { console.log('Cancelled. No changes saved.'); return }
