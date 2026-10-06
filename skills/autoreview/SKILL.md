@@ -32,6 +32,18 @@ The helper owns reviewer isolation, Git scope, and validated reports.
 Native permission denials require the provider’s normal approval path or a trusted human terminal.
 Never disable permissions to run a review.
 
+### Local execution and model requests
+
+The Codex engine launches local `codex exec`. It does not create a Codex Cloud task.
+The selected source bundle and review context enter the prompt. The configured remote model processes that prompt through normal Codex inference.
+Local execution does not mean offline inference.
+
+When review execution is already authorized, do not add a separate consent question before the normal invocation.
+Honor any restriction on model requests or external transmission. Do not infer permission to change providers or expand the selected source scope.
+When network access needs native approval, identify the local helper, selected Git scope, Codex engine, and normal model communication.
+Cite the user's existing review authorization in the approval justification. Do not describe this as a Codex Cloud upload.
+If approval review rejects the request, obey the rejection and report its exact reason. Existing review authorization cannot override that rejection.
+
 ```sh
 "<skill-directory>/scripts/autoreview" --mode local
 ```

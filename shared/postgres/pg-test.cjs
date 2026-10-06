@@ -14,14 +14,14 @@ function directory(value) {
  return absolute
 }
 function fixtureRoot() {
- const root = path.join(os.userInfo().homedir, 'Code/.agent-toolkit-scratch/agent-toolkit-fixtures')
+ const root = path.join(fs.realpathSync(os.tmpdir()), 'agent-toolkit-fixtures')
  fs.mkdirSync(root, { recursive: true, mode: 0o700 })
  directory(root)
  fs.chmodSync(root, 0o700)
  return root
 }
 function fixtureRoots(primary) {
- const roots = [primary]
+ const roots = [primary, path.join(os.userInfo().homedir, 'Code/.agent-toolkit-scratch/agent-toolkit-fixtures')]
  const add = value => {
   try { roots.push(path.join(fs.realpathSync(value), 'agent-toolkit-fixtures')) } catch {}
  }
@@ -254,8 +254,8 @@ async function main(args) {
  const owner = sessionOwner(fixtures)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))
  fs.chmodSync(root, 0o700)
- // Managed session scratch paths can exceed Unix socket limits. Use the private host temp directory on macOS.
- const temporary = os.platform() === 'darwin' ? execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 5000 }).trim() : os.tmpdir()
+ // Keep sockets inside the same session's permitted temporary directory.
+ const temporary = os.tmpdir()
  const data = path.join(root, 'data'), socket = path.join(fs.realpathSync(temporary), `agent-pg-${path.basename(root).slice(5)}`)
  const administrative = action === 'start-admin'
  const migration = action === 'start-migration'

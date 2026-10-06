@@ -5,6 +5,7 @@ const path = require('node:path')
 const os = require('node:os')
 const { createHash } = require('node:crypto')
 const { execFileSync } = require('node:child_process')
+const { isDeepStrictEqual } = require('node:util')
 
 const packages = ['npm:pi-web-access@0.13.0', 'npm:@ff-labs/pi-fff@0.10.3']
 const begin = '<!-- agent-toolkit -->'
@@ -30,6 +31,55 @@ function piInstalled() {
   return true
 }
 
+function codexNetworkConfig(text) {
+  const toml = require('smol-toml'), expected = toml.parse(text)
+  if (expected.default_permissions !== undefined || (expected.sandbox_mode !== undefined && expected.sandbox_mode !== 'workspace-write')) throw Error('Codex has an existing filesystem policy. Use --preserve-permissions or reconcile it in your trusted terminal.')
+  const boundary = text.search(/^\s*\[/m)
+  let root = boundary < 0 ? text : text.slice(0, boundary)
+  let tables = boundary < 0 ? '' : text.slice(boundary)
+  for (const [key, value] of Object.entries({ sandbox_mode: 'workspace-write', approval_policy: 'on-request', approvals_reviewer: 'auto_review' })) {
+    const line = new RegExp(`^${key}\\s*=.*(?:\\n|$)`, 'm')
+    if (Object.hasOwn(expected, key) && !line.test(root)) throw Error(`Cannot safely update Codex ${key}; use a plain top-level setting in your trusted terminal.`)
+    root = root.replace(line, '')
+    root += `${root && !root.endsWith('\n') ? '\n' : ''}${key} = ${JSON.stringify(value)}\n`
+    expected[key] = value
+  }
+  const table = /^\[sandbox_workspace_write\][^\n]*\n([\s\S]*?)(?=^\s*\[|$(?![\s\S]))/m
+  if (table.test(tables)) tables = tables.replace(table, (whole, body) => {
+    const line = /^network_access\s*=.*(?:\n|$)/m
+    return whole.slice(0, whole.length - body.length) + body.replace(line, '') + `${body && !body.endsWith('\n') ? '\n' : ''}network_access = true\n`
+  })
+  else tables += '\n[sandbox_workspace_write]\nnetwork_access = true\n'
+  expected.sandbox_workspace_write ??= Object.create(null)
+  expected.sandbox_workspace_write.network_access = true
+  const result = root + tables
+  if (!isDeepStrictEqual(toml.parse(result), expected)) throw Error('Cannot safely update Codex network settings; no installed files changed.')
+  return result
+}
+
+function claudeReviewNetworkConfig(text) {
+  const jsonc = require('jsonc-parser'), settings = parseJsonc(text)
+  const domains = ['api.openai.com', 'chatgpt.com', 'auth.openai.com', 'api.anthropic.com']
+  const denied = [...(settings.sandbox?.network?.deniedDomains ?? []), ...(settings.permissions?.deny ?? []).flatMap(rule => {
+    const domain = /^WebFetch\(domain:(.+)\)$/.exec(rule)?.[1]
+    return domain ? [domain] : []
+  })]
+  for (const pattern of denied) {
+    const port = /:(\d+)$/.exec(pattern)
+    if (port && Number(port[1]) !== 443) continue
+    const host = port ? pattern.slice(0, port.index) : pattern
+    const match = new RegExp('^' + host.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 'i')
+    if (domains.some(domain => match.test(domain))) throw Error(`Claude reviewer domain is explicitly denied by ${pattern}; reconcile it in your trusted terminal.`)
+  }
+  for (const [keys, value] of [
+    [['sandbox', 'enabled'], true],
+    [['sandbox', 'autoAllowBashIfSandboxed'], true],
+    [['sandbox', 'network', 'allowLocalBinding'], true],
+    [['sandbox', 'network', 'allowedDomains'], [...new Set([...(settings.sandbox?.network?.allowedDomains ?? []), ...domains])]],
+  ]) text = jsonc.applyEdits(text, jsonc.modify(text, keys, value, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
+  return text
+}
+
 function treeHash(root) {
   if (fs.lstatSync(root).isSymbolicLink() || !fs.lstatSync(root).isDirectory()) refuse(root)
   const entries = []
@@ -49,7 +99,7 @@ function treeHash(root) {
 
 function planInstall(options) {
   // Keep the selected interfaces fixed while staging and rechecking the plan.
-  options = { ...options, installPi: options.installPi ?? piInstalled() }
+  options = { ...options, installPi: options.installPi ?? piInstalled(), reviewNetwork: options.reviewNetwork ?? true }
   const { installPi } = options
   const { repo, home, piDir = path.join(home, '.pi/agent'), codexHome = path.join(home, '.codex'), claudeDir = path.join(home, '.claude'), paseoHome = path.join(home, '.paseo'), dataRoot = path.join(home, '.local/share/agent-toolkit'), webDir = piDir === path.join(home, '.pi/agent') ? path.dirname(piDir) : piDir } = options
   for (const directory of [repo, home, piDir, codexHome, claudeDir, paseoHome, dataRoot, webDir]) {
@@ -60,6 +110,7 @@ function planInstall(options) {
   const receiptPath = path.join(dataRoot, 'installed.json')
   if (exists(receiptPath)?.isSymbolicLink()) refuse(receiptPath)
   const receipt = exists(receiptPath) ? JSON.parse(read(receiptPath)) : { links: {}, prompts: {} }
+  if (options.reviewNetwork) receipt.reviewNetworkPrompts = [...new Set([...(receipt.reviewNetworkPrompts ?? []), path.join(codexHome, 'AGENTS.md'), path.join(claudeDir, 'CLAUDE.md')])]
   if (exists(resources) && (!receipt.resourcesHash || treeHash(resources) !== receipt.resourcesHash)) refuse(resources)
   const legacy = path.join(home, '.local/libexec/agent-toolkit')
   const retire = new Set(), links = new Map(), files = new Map()
@@ -95,7 +146,8 @@ function planInstall(options) {
       if (!stat.isFile()) refuse(file)
       text = read(file)
     }
-    const body = read(path.join(repo, 'shared/AGENTS.md')).replaceAll('%TOOLKIT%', resources).trimEnd()
+    let body = read(path.join(repo, 'shared/AGENTS.md')).replaceAll('%TOOLKIT%', resources).trimEnd()
+    if (receipt.reviewNetworkPrompts?.includes(file)) body += '\n\n## Authorized review and adviser model requests\n\nThe user authorizes normal model requests for requested AutoReview runs and reviews required by the Toolkit publication policy.\nThe user also authorizes scoped advisers to read task-relevant private repository files when their investigations are authorized.\nThis includes sending selected source and context through the chosen provider\'s normal model requests.\nUse the authorized provider and exact account alias. Keep adviser scope and publication limits intact.\nThis does not authorize Cloud tasks, unrelated files, credentials, production data, or a provider/account change.\nDo not add a separate consent question for these authorized model requests. Obey native denials and explicit task-specific restrictions.\n'
     const block = `${begin}\n${body}\n${end}`
     const start = text.indexOf(begin), stop = text.indexOf(end)
     if (start >= 0 || stop >= 0) {
@@ -120,6 +172,17 @@ function planInstall(options) {
       ? ponytail !== undefined && ponytail.enabled !== false
       : parseJsonc(text).enabledPlugins?.['ponytail@ponytail'] === true
     if (activePonytail || /agent-toolkit:paseo|# Agent Toolkit defaults|permissions\.agent_toolkit|agent-toolkit-development|agent-safety\.rules/.test(text)) refuse(file)
+  }
+  const networkConfigPaths = new Set()
+  if (options.reviewNetwork) {
+    for (const [file, configure, empty] of [
+      [path.join(codexHome, 'config.toml'), codexNetworkConfig, ''],
+      [path.join(claudeDir, 'settings.json'), claudeReviewNetworkConfig, '{}\n'],
+    ]) {
+      if (exists(file)?.isSymbolicLink()) refuse(file)
+      files.set(file, configure(exists(file) ? read(file) : empty))
+      networkConfigPaths.add(file)
+    }
   }
   if (installPi) {
     const settingsPath = path.join(piDir, 'settings.json')
@@ -207,7 +270,7 @@ function planInstall(options) {
       if (exists(parent)?.isSymbolicLink()) refuse(parent)
     }
   }
-  return { options, repo, home, piDir, dataRoot, resources, receiptPath, receipt, retire, links, files, settingsText }
+  return { options, repo, home, piDir, dataRoot, resources, receiptPath, receipt, retire, links, files, settingsText, networkConfigPaths }
 }
 
 function install(plan, run = execFileSync) {
@@ -218,6 +281,7 @@ function install(plan, run = execFileSync) {
   let stage
   const settingsPath = path.join(piDir, 'settings.json')
   const restored = [], created = []
+  const configRollback = []
   let backup
   function writeNew(file, content) {
     const descriptor = fs.openSync(file, 'wx', 0o600)
@@ -253,6 +317,12 @@ function install(plan, run = execFileSync) {
     const { receipt, files, links, retire } = plan
     function move(file) {
       if (!exists(file)) return
+      if (plan.networkConfigPaths.has(file)) {
+        const original = { file, content: fs.readFileSync(file), mode: fs.statSync(file).mode & 0o777 }
+        fs.unlinkSync(file)
+        configRollback.push(original)
+        return
+      }
       const relative = path.relative(plan.home, file)
       const destination = path.join(backup, relative.startsWith('..') ? path.join('external', file.slice(1)) : relative)
       fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 })
@@ -305,6 +375,7 @@ function install(plan, run = execFileSync) {
   } catch (error) {
     try {
       for (const file of created.reverse()) fs.rmSync(file, { recursive: true, force: true })
+      for (const { file, content, mode } of configRollback) fs.writeFileSync(file, content, { flag: 'wx', mode })
       for (const [file, destination] of restored.reverse()) transfer(destination, file)
     } catch (rollback) {
       throw Error(`Installation failed: ${error.message}. Recovery failed: ${rollback.message}. Inspect backups in ${backup} before retrying.`)
@@ -319,12 +390,13 @@ function install(plan, run = execFileSync) {
 module.exports = { planInstall, install }
 if (require.main === module) {
   try {
-    if (process.argv.length !== 2 || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Run ./install.sh without arguments from a trusted human terminal.')
+    const args = process.argv.slice(2)
+    if ((args.length && (args.length !== 1 || !['--review-network', '--preserve-permissions'].includes(args[0]))) || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Run ./install.sh [--preserve-permissions] from a trusted human terminal.')
     if (Number(process.versions.node.split('.')[0]) !== 24) throw Error('Node.js 24 is required.')
     const home = os.homedir(), repo = path.resolve(__dirname, '..')
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
-    const plan = planInstall({ repo, home, piDir: process.env.PI_CODING_AGENT_DIR, codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME, webDir: process.env.PI_CODING_AGENT_DIR ?? (process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, 'pi') : path.join(home, '.pi')) })
+    const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), piDir: process.env.PI_CODING_AGENT_DIR, codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME, webDir: process.env.PI_CODING_AGENT_DIR ?? (process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, 'pi') : path.join(home, '.pi')) })
     const backup = install(plan)
-    console.log(`Installed copied resources. Backups: ${backup}\n${plan.options.installPi ? 'Pi interfaces installed.' : 'Pi CLI absent; Pi settings and interfaces left untouched.'}\nStart fresh sessions with your normal provider commands. Provider permissions and Paseo settings were not changed.`)
+    console.log(`Installed copied resources. Backups: ${backup}\n${plan.options.installPi ? 'Pi interfaces installed.' : 'Pi CLI absent; Pi settings and interfaces left untouched.'}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. No persistent config backups created.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
   } catch (error) { console.error(error.message); process.exitCode = 1 }
 }

@@ -12,8 +12,8 @@ function fixture(major = '18') {
  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pg-test-fixture-')))
  fixtureHomes.push(home)
  const shortTmp = path.join(home, 'claude-tmp')
- const scratch = path.join(home, 'Code/.agent-toolkit-scratch/agent-toolkit-fixtures')
- const legacy = path.join(shortTmp, 'agent-toolkit-fixtures')
+ const scratch = path.join(shortTmp, 'agent-toolkit-fixtures')
+ const legacy = path.join(home, 'Code/.agent-toolkit-scratch/agent-toolkit-fixtures')
  const systemTmp = path.join(home, 'system-tmp'), darwinTmp = path.join(home, 'darwin-tmp')
  const installed = {
   '/opt/homebrew/opt/postgresql@17/bin': '/opt/homebrew/Cellar/postgresql@17/17.6/bin',
@@ -26,6 +26,10 @@ function fixture(major = '18') {
  const owners = new Map([[owner.pid, owner.started]])
  let nextPid = 43210, failure = '', foreign = false, longSocket = false, missing = false, ownerDiesOnReload = false, serverMajor = major, stopRace = false
  const mockFs = { ...fs,
+  chmodSync: (value, mode) => {
+   if (!value.startsWith(shortTmp + path.sep)) throw Object.assign(Error('Fixture permission denial outside allowed temp'), { code: 'EPERM' })
+   return fs.chmodSync(value, mode)
+  },
   existsSync: value => Object.hasOwn(installed, value) ? !missing || installed[value] !== bin : /^\/usr\/local\/opt\/postgresql@(17|18)\/bin$/.test(value) ? false : fs.existsSync(value),
   realpathSync: value => value === '/tmp' ? systemTmp : installed[value] ?? (value.startsWith(bin + '/') ? value : fs.realpathSync(value)),
   statSync: value => value.startsWith(bin + '/') ? { isFile: () => true } : fs.statSync(value),
@@ -121,7 +125,7 @@ test('default PG18 fixture lifecycle isolates bootstrap credentials, retains fil
  assert.match(started.database_url, /^postgresql:\/\/toolkit_test:[a-f0-9]{48}@127\.0\.0\.1:\d+\/toolkit_test$/)
  assert.equal(fs.statSync(started.path).mode & 0o777, 0o700)
  const config = fs.readFileSync(path.join(started.path, 'data/postgresql.conf'), 'utf8')
- assert.match(config, new RegExp(`unix_socket_directories = '${f.darwinTmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/agent-pg-[A-Za-z0-9]{6}'`))
+ assert.match(config, new RegExp(`unix_socket_directories = '${f.shortTmp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/agent-pg-[A-Za-z0-9]{6}'`))
  const record = fs.readFileSync(path.join(started.path, 'pg-test.json'), 'utf8')
  assert.ok(!record.includes(new URL(started.database_url).password))
  assert.deepEqual(JSON.parse(record).owner, f.owner)

@@ -18,6 +18,26 @@ npm ci --prefix shared --ignore-scripts --no-audit --no-fund
 ./install.sh
 ```
 
+Normal installation configures reviewer networking and standing authorization for reviews and scoped advisers.
+To retain your current provider permissions, use:
+
+```sh
+./install.sh --preserve-permissions
+```
+
+Run installation from a trusted human terminal. Normal installation updates the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, using their normal defaults when absent.
+Codex retains workspace file restrictions and enables command network access with automatic approval review.
+Claude enables sandbox auto-allow and adds `api.openai.com`, `chatgpt.com`, `auth.openai.com`, and `api.anthropic.com` to its allowed domains.
+Claude also enables `sandbox.network.allowLocalBinding` for local PostgreSQL/API/restart tests on macOS.
+This permits local port binding and connections to localhost services. Tests must still use inspected, disposable fixtures and returned credentials.
+Existing Claude domain denies stop setup for reconciliation. Models, accounts, file boundaries, and unrelated settings remain intact.
+Claude `WebFetch(domain:...)` deny rules also stop conflicting setup.
+Existing Codex named permission profiles or other filesystem modes require `--preserve-permissions` or reconciliation from a trusted human terminal.
+The selected provider instructions record authorization for normal review and scoped adviser model requests. Adviser investigations still require task authorization.
+Repeat installs retain this authorization. No persistent provider-config backups are created. Failed deployment restores original configs from memory.
+Other installed Toolkit resources retain the installer's normal backups.
+The former `--review-network` option remains accepted, with the same behavior as normal installation.
+
 An existing checkout needs `git submodule update --init --recursive`. Add `~/.local/bin` to `PATH` for PostgreSQL helpers. Restart old sessions, then use:
 
 ```sh
@@ -35,7 +55,7 @@ For optional native Paseo profiles, run this command after installation from a t
 Use the intended local `PASEO_HOME`. A host selected in a phone or desktop client does not select this command's daemon.
 See the [profile setup and instructions](docs/paseo-profiles.md).
 
-The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits and Pi `/reload` do not deploy changes. Installation does not change permissions; select permission modes through the provider or host from a trusted terminal, then start a fresh session.
+The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits and Pi `/reload` do not deploy changes. Normal installation configures reviewer networking from a trusted human terminal. The `--preserve-permissions` option leaves provider permissions unchanged. Start fresh sessions after setup. In Paseo, select Codex Auto-review mode to retain automatic approval review.
 
 The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It appends a marked instruction block without replacing human instructions. It adds missing, pinned Pi packages and web defaults while retaining other settings. Pi's native resolver downloads missing packages on its next startup. React Doctor's locked dependencies are installed with `npm ci --ignore-scripts`.
 
@@ -114,6 +134,24 @@ AutoReview uses its existing skill-local script on every host:
 ```
 
 Read the skill first and choose the Git target explicitly when needed. The helper owns reviewer isolation, collection, structured reports, and output paths. There is no `autoreview-yolo`. Permission denials use native approval or a trusted human terminal; never disable permissions for a review. The helper does not scan for secrets before sending a review bundle to a provider. Its isolated reviewer can have stricter settings than the ordinary coding session.
+
+The Codex engine runs local `codex exec`, rather than a Codex Cloud task. Its remote model receives the selected source and review context through normal Codex inference. Local execution does not mean offline inference.
+
+Codex's automatic approval reviewer is separate from Toolkit AutoReview. It can reject network access even when the user requested code review. Toolkit instructions do not override native permissions. See [Codex automatic approval review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
+
+For recurring reviews, a human can place this explicit standing authorization in the applicable repository instructions:
+
+```text
+For explicitly requested reviews and Toolkit's required publication reviews, I authorize the local AutoReview helper to send the selected review source and context to OpenAI through the Codex engine's normal model requests. This does not authorize Codex Cloud tasks, another provider, unrelated files, credentials, or production data.
+```
+
+This wording clarifies authorization. It does not guarantee approval or grant network access.
+A human can configure a [permission profile](https://learn.chatgpt.com/docs/permissions) with workspace file restrictions and command network access.
+Domain restrictions require the network proxy. Choose destinations for the actual Codex authentication route, not only `api.openai.com`.
+Paseo launch settings can override provider defaults. Verify the effective permissions in a fresh session.
+Normal `./install.sh` installs this authorization for selected provider homes and configures their reviewer networking.
+The `--preserve-permissions` option skips these changes and retains any previously installed authorization.
+Earlier task-specific transmission blocks remain binding until the user explicitly revokes them in that task's session.
 
 For explicit manual skills:
 
@@ -237,7 +275,7 @@ These task-based defaults use your existing subscriptions:
 | Toolkit Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
 | Toolkit Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
 | Toolkit Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend components, responsive layouts, accessibility, styling, and visual verification |
-| Toolkit Codex Adviser | `gpt-6-astra` | Medium | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
+| Toolkit Codex Adviser | `gpt-6.1-sol` | High | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
 | Toolkit Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | A completed recommendation or second opinion on a bounded question |
 
 These profiles are launch presets. Select them for the tasks that need their roles.
@@ -245,7 +283,8 @@ The Orchestrator can complete ordinary changes directly. Delegation needs useful
 The Planner adds a repeatable native planning workflow. The Adviser returns a judgment through an analysis-only task prompt.
 Code review remains a separate role through AutoReview's existing helper and Ponytail Review.
 
-Medium is the routine default for coordination, bounded implementation, simple planning, and ordinary advice.
+Medium is the routine default for coordination, bounded implementation, simple planning, and Claude advice.
+Codex Adviser defaults to Sol with High effort for bounded second opinions.
 Planner defaults to High for substantial planning that resolves design choices, dependencies, risks, and acceptance criteria before handoff.
 High also fits ambiguous architecture, difficult integration, security-sensitive work, concurrency, migrations, and difficult debugging.
 A small change can still need High. Select it before a difficult assignment rather than waiting for a failed attempt.
@@ -261,7 +300,7 @@ See [OpenAI reasoning guidance](https://developers.openai.com/api/docs/guides/re
 Claude's current Opus 5.5 default is Medium. Anthropic recommends explicit Medium as the starting point for calibration.
 High targets harder work where verification and edge cases matter. Effort labels do not represent equal reasoning budgets across models.
 Sonnet 5.5 is an optional Worker choice after task-level comparison, without adding another profile.
-Astra for Codex Adviser is an optional preference, not a demonstrated role-specific advantage.
+Astra remains an optional task-specific choice rather than the Codex Adviser default.
 See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config) and [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5).
 
 Use `./setup-paseo.sh` for automatic setup. The remaining steps describe the manual alternative:
@@ -380,7 +419,7 @@ All start modes create PostgreSQL 18 fixtures. There is no version selector. Hom
 | `start-migration` | Same owner with `CREATEROLE`, without `BYPASSRLS` |
 | `start-admin` | Same owner with `CREATEROLE` and `BYPASSRLS` |
 
-All roles are non-superusers without database-creation privilege. The bootstrap administrator is disabled after setup. Use the returned connection URL only in the test process. No raw SQL, database path, or server options are accepted. Files and logs stay under `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures`; socket paths use short temporary directories.
+All roles are non-superusers without database-creation privilege. The bootstrap administrator is disabled after setup. Use the returned connection URL only in the test process. No raw SQL, database path, or server options are accepted. New files, logs, and sockets stay under the session's physical temporary directory. Fixture records use its `agent-toolkit-fixtures` subdirectory. The helper still locates old fixtures under `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures` and historical temporary roots. It never retries a denied write through another directory. Use the same temporary root for later status and stop commands.
 
 Run `stop` when done. Normal provider sessions do not create a Toolkit fixture owner or run exit cleanup. Garbage collection runs before a start and through `gc`. It stops a running ownerless fixture after two hours and removes a stopped fixture whose record is older than three days. It recognizes legacy owner records, stops dead owners, and retains live owners. Changed, invalid, or ambiguous identities are preserved and reported. Status/stop also find old temporary-directory roots, refusing duplicate IDs. A denied process inspection or loopback bind requires native approval or a trusted terminal.
 

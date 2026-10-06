@@ -21,7 +21,7 @@ The selected daemon's discovery results and effective session settings remain th
 | Orchestrator | Own delivery, useful delegation, integration, and cleanup | An integrated result with check evidence and remaining blockers | Medium |
 | Planner | Investigate the code and resolve choices before implementation | A proposed plan with scope, dependencies, risks, and acceptance criteria | High |
 | Worker | Complete an authorized, bounded assignment | Assigned changes with focused check evidence | Medium |
-| Adviser | Answer a bounded question without implementation | A recommendation with evidence, tradeoffs, and uncertainty | Medium |
+| Adviser | Answer a bounded question without implementation | A recommendation with evidence, tradeoffs, and uncertainty | Codex High, Claude Medium |
 
 An Orchestrator can implement a small task directly. Delegation is not a requirement.
 A Planner supports an interactive plan-and-approval workflow.
@@ -229,11 +229,11 @@ Keep Planner planning controls as specified.
   {
     "name": "Toolkit Codex Adviser",
     "provider": "codex",
-    "model": "gpt-6-astra",
-    "thinkingOptionId": "medium",
+    "model": "gpt-6.1-sol",
+    "thinkingOptionId": "high",
     "modeId": "auto",
     "featureValues": { "plan_mode": false, "fast_mode": false },
-    "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish. Astra is a preference to calibrate, not a proven advantage for this role."
+    "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   },
   {
     "name": "Toolkit Claude Adviser",
@@ -543,7 +543,8 @@ A new worktree contains committed history unless the coordinator deliberately su
 
 ## Reasoning and model choices
 
-Medium is the routine starting point for Orchestrator, Worker, and Adviser.
+Medium is the routine starting point for Orchestrator, Worker, and Claude Adviser.
+Codex Adviser uses Sol with High effort for bounded second opinions.
 High is the Planner default for substantial choices, risks, dependencies, and acceptance criteria.
 For a straightforward plan, select Medium before launch.
 
@@ -562,8 +563,7 @@ API defaults do not prove effective Paseo launch settings.
 Effort labels do not represent equal reasoning budgets across providers or models.
 Extra High, Max, and Ultra Code are not routine defaults in this recipe.
 
-Astra for Codex Adviser is an optional preference, not a demonstrated role-specific advantage.
-Sol can also answer advisory questions. Keep Astra only if your tasks justify the choice.
+Astra remains an optional task-specific choice. The Codex Adviser default is Sol with High effort.
 Sonnet 5.5 is an optional Worker adjustment after task-level comparison.
 Honor explicit human model and effort choices rather than substituting automatically.
 

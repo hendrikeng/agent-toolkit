@@ -25,6 +25,90 @@ const noDownload = (command, args) => {
   assert.ok(args.includes('--ignore-scripts'))
 }
 
+test('default reviewer networking updates selected homes, preserves user configuration and creates no config backups', t => {
+  const f = fixture(t)
+  const original = '# Human configuration\nmodel="chosen"\n\n[plugins."user@local"]\nenabled=true\n'
+  const config = f.put('.codex-work/config.toml', original)
+  const other = f.put('.codex-accounts/other/config.toml', 'model="other"\n')
+  const claudeConfig = f.put('.claude-work/settings.json', '{\n// Human sandbox policy\n"model":"chosen", "sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":["github.com"]}},"permissions":{"deny":["Bash(git push *)"]}\n}\n')
+  const options = { installPi: false, codexHome: path.dirname(config), claudeDir: path.dirname(claudeConfig) }
+  const backup = install(f.plan(options), noDownload)
+  const once = fs.readFileSync(config, 'utf8')
+  const parsed = require('smol-toml').parse(once)
+  assert.equal(parsed.sandbox_mode, 'workspace-write')
+  assert.equal(parsed.approval_policy, 'on-request')
+  assert.equal(parsed.approvals_reviewer, 'auto_review')
+  assert.equal(parsed.sandbox_workspace_write.network_access, true)
+  assert.equal(parsed.default_permissions, undefined)
+  assert.equal(parsed.model, 'chosen')
+  assert.equal(parsed.plugins['user@local'].enabled, true)
+  assert.ok(once.includes('# Human configuration'))
+  assert.equal(fs.readFileSync(other, 'utf8'), 'model="other"\n')
+  assert.equal(fs.existsSync(path.join(backup, '.codex-work/config.toml')), false)
+  const claudeOnce = fs.readFileSync(claudeConfig, 'utf8')
+  const claude = require('jsonc-parser').parse(claudeOnce)
+  assert.equal(claude.sandbox.enabled, true)
+  assert.equal(claude.sandbox.autoAllowBashIfSandboxed, true)
+  assert.equal(claude.sandbox.network.allowLocalBinding, true)
+  assert.equal(claude.sandbox.allowUnsandboxedCommands, false)
+  assert.deepEqual(claude.sandbox.network.allowedDomains, ['github.com', 'api.openai.com', 'chatgpt.com', 'auth.openai.com', 'api.anthropic.com'])
+  assert.deepEqual(claude.permissions.deny, ['Bash(git push *)'])
+  assert.equal(claude.model, 'chosen')
+  assert.ok(claudeOnce.includes('// Human sandbox policy'))
+  assert.equal(fs.existsSync(path.join(backup, '.claude-work/settings.json')), false)
+  assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
+  assert.match(fs.readFileSync(path.join(path.dirname(claudeConfig), 'CLAUDE.md'), 'utf8'), /normal model requests/)
+  install(f.plan(options), noDownload)
+  assert.equal(fs.readFileSync(config, 'utf8'), once)
+  assert.equal(fs.readFileSync(claudeConfig, 'utf8'), claudeOnce)
+  install(f.plan({ ...options, reviewNetwork: false }), noDownload)
+  assert.equal(fs.readFileSync(config, 'utf8'), once)
+  assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
+})
+
+test('failed default network installation restores config bytes and permissions without a persistent config backup', t => {
+  const f = fixture(t)
+  const original = 'model="chosen"\n[sandbox_workspace_write]\nnetwork_access=false\nwritable_roots=["/chosen"]\n'
+  const config = f.put('.codex/config.toml', original)
+  const claudeOriginal = '{"sandbox":{"enabled":true,"network":{"allowedDomains":["github.com"]}}}'
+  const claude = f.put('.claude/settings.json', claudeOriginal)
+  fs.chmodSync(config, 0o640)
+  const symlink = fs.symlinkSync
+  fs.symlinkSync = () => { throw Error('Fixture deployment failure') }
+  try {
+    assert.throws(() => install(f.plan({ installPi: false }), noDownload), /Fixture deployment failure/)
+    assert.equal(fs.readFileSync(config, 'utf8'), original)
+    assert.equal(fs.statSync(config).mode & 0o777, 0o640)
+    assert.equal(fs.readFileSync(claude, 'utf8'), claudeOriginal)
+  } finally { fs.symlinkSync = symlink }
+})
+
+test('an explicit Claude model-domain denial stops default setup before changing either provider', t => {
+  const f = fixture(t)
+  const config = f.put('.codex/config.toml', 'model="chosen"\n')
+  for (const original of ['{"sandbox":{"network":{"deniedDomains":["*.openai.com"]}}}', '{"permissions":{"deny":["WebFetch(domain:api.openai.com)"]}}', '{"sandbox":{"network":{"deniedDomains":["api.openai.com:443"]}}}', '{"sandbox":{"network":{"deniedDomains":["*:443"]}}}']) {
+    const claude = f.put('.claude/settings.json', original)
+    assert.throws(() => f.plan({ installPi: false }), /explicitly denied/)
+    assert.equal(fs.readFileSync(config, 'utf8'), 'model="chosen"\n')
+    assert.equal(fs.readFileSync(claude, 'utf8'), original)
+    assert.equal(fs.existsSync(path.join(f.home, '.local/share/agent-toolkit')), false)
+  }
+  f.put('.claude/settings.json', '{"sandbox":{"network":{"deniedDomains":["*:80"]}}}')
+  assert.doesNotThrow(() => f.plan({ installPi: false }))
+})
+
+test('default setup refuses to replace existing Codex filesystem policies; permission-preserving setup leaves them intact', t => {
+  const f = fixture(t)
+  for (const original of ['sandbox_mode="read-only"\n', 'sandbox_mode="danger-full-access"\n', 'default_permissions="project-edit"\n[permissions.project-edit]\nextends=":workspace"\n[permissions.project-edit.filesystem.":workspace_roots"]\n"**/*.env"="deny"\n']) {
+    const config = f.put('.codex/config.toml', original)
+    assert.throws(() => f.plan({ installPi: false }), /existing filesystem policy/)
+    assert.equal(fs.readFileSync(config, 'utf8'), original)
+    assert.equal(fs.existsSync(path.join(f.home, '.claude/settings.json')), false)
+    const plan = f.plan({ installPi: false, reviewNetwork: false })
+    assert.equal(plan.files.has(config), false)
+  }
+})
+
 test('legacy Pi skill preferences survive installation and obsolete directories still require reconciliation', t => {
   const f = fixture(t)
   const settings = f.put('.pi/agent/settings.json', JSON.stringify({ skills: { enableSkillCommands: false, customDirectories: ['~/my-skills'] } }))
@@ -61,7 +145,7 @@ test('native Pi saves during resource deployment survive installer rollback', t 
   } finally { fs.renameSync = rename }
 })
 
-test('install and repeat install preserve configuration, instructions, accounts and both hosts', t => {
+test('permission-preserving install and repeat install preserve configuration, instructions, accounts and both hosts', t => {
   const f = fixture(t)
   const piSettings = { defaultModel: 'chosen', defaultThinkingLevel: 'high', packages: ['npm:user-extension@1.0.0'], markdown: { codeBlockIndent: 'user' }, theme: 'chosen' }
   f.put('.pi/agent/settings.json', JSON.stringify(piSettings))
@@ -82,7 +166,7 @@ test('install and repeat install preserve configuration, instructions, accounts 
   f.put('.claude/CLAUDE.md', 'Human Claude instructions\n')
   f.put('.pi/agent/AGENTS.md', 'Human Pi instructions\n')
   f.put('.pi/web-search.json', '{"apiKey":"fixture-keep","allowBrowserCookies":true}')
-  const backup = install(f.plan(), noDownload)
+  const backup = install(f.plan({ installPi: true, reviewNetwork: false }), noDownload)
   const resources = path.join(f.home, '.local/share/agent-toolkit/resources')
   const installedSkill = path.join(resources, 'skills/ponytail/SKILL.md')
   assert.ok(fs.statSync(installedSkill).isFile())
@@ -97,7 +181,7 @@ test('install and repeat install preserve configuration, instructions, accounts 
   }
   assert.equal(fs.readFileSync(path.join(backup, '.codex/AGENTS.md'), 'utf8'), 'Human Codex instructions\n')
   const once = fs.readFileSync(path.join(f.home, '.pi/agent/settings.json'), 'utf8')
-  install(f.plan(), noDownload)
+  install(f.plan({ installPi: true, reviewNetwork: false }), noDownload)
   assert.equal(fs.readFileSync(path.join(f.home, '.pi/agent/settings.json'), 'utf8'), once)
   const settings = JSON.parse(once)
   for (const [key, value] of Object.entries(piSettings)) if (key !== 'packages') assert.deepEqual(settings[key], value)
@@ -247,7 +331,7 @@ test('commented Claude and Paseo settings are checked without changing their byt
   const f = fixture(t)
   const content = '{\n// user comment\n"url":"https://example.test/*keep*/",\n"quoted":"escaped \\" // keep",\n"items":[1, /* keep */],\n"enabledPlugins":{"ponytail@ponytail":false,},\n}\n'
   const configs = ['.claude/settings.json', '.paseo/config.json'].map(file => f.put(file, content))
-  install(f.plan(), noDownload)
+  install(f.plan({ installPi: true, reviewNetwork: false }), noDownload)
   for (const config of configs) assert.equal(fs.readFileSync(config, 'utf8'), content)
   fs.writeFileSync(configs[0], content.replace(':false,', ':true,'))
   assert.throws(f.plan, /Manual reconciliation/)
