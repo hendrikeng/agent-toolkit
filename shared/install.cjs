@@ -253,10 +253,11 @@ function planInstall(options) {
     if (exists(file)?.isFile()) marked(file)
     link(file, path.join(resources, filename), [])
   }
-  if (process.platform === 'darwin') for (const command of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
+  if (process.platform === 'darwin') for (const command of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep', 'agent-display-off']) {
     const file = path.join(home, '.local/bin', command)
     if (exists(file)?.isFile()) marked(file)
-    link(file, path.join(resources, 'shared/macos/agent-awake'), [path.join(home, '.local/bin/agent-awake')])
+    const script = command === 'agent-display-off' ? command : 'agent-awake'
+    link(file, path.join(resources, 'shared/macos', script), script === 'agent-awake' ? [path.join(home, '.local/bin/agent-awake')] : [])
   }
   // Retire obsolete discovery links only in the folders this installation updates.
   const linkDirectories = new Set([

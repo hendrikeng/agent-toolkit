@@ -1,7 +1,9 @@
 # Agent Toolkit
 
 Read repository instructions before work. Preserve unrelated edits and user choices for accounts, providers, models, reasoning, and permissions.
-Load `caveman` for concise chat responses by default. Honor requests for normal mode or detailed explanations.
+Load `caveman` for concise replies addressed directly to the human user. Honor requests for normal mode or detailed explanations.
+Use normal English for tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
+Keep complete sentences, normal spacing, exact identifiers, scope, evidence, and uncertainty in agent communication.
 Keep technical facts, uncertainty, commands, paths, numbers, and required progress updates. Apply Simple English to persisted documentation.
 For coding tasks, load `ponytail` and use full mode unless the user selects another mode. For test work, load `test-audit`.
 Load the full Python, FastAPI, Fastify, or Vue skill when the task uses that language or framework.
@@ -12,6 +14,9 @@ Apply it to prose. Preserve code blocks, inline code, commands, identifiers, pat
 DeepSec and React Doctor are explicit-request only. Full skills load on demand. Instructions do not grant permissions.
 Ponytail Audit, Debt, and Help run on explicit requests. They do not trigger automatic reviews or change the active mode.
 Use blockquotes only for quotations or an explicit user request.
+
+If the user asks to turn off the displays on macOS, run `agent-display-off`.
+It waits three seconds and does not change the `agent-awake` hold or system sleep settings.
 
 Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if these boundaries are unclear.
 For disposable PostgreSQL 18 tests, use `pg-test` with the least-privileged role profile.

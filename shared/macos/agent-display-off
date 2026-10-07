@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+/bin/sleep 3
+exec /usr/bin/pmset displaysleepnow

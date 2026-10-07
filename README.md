@@ -4,8 +4,10 @@ One shared skill collection for Codex, Claude Code, and Pi, in Orca, native Pase
 
 The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Pi has its own command interfaces in `pi/extensions/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
 
-Chat responses use the pinned [Caveman skill](skills/caveman/SKILL.md) by default across Codex, Claude Code, and Pi.
+Replies addressed directly to the human user use the adapted, pinned [Caveman skill](skills/caveman/SKILL.md) across Codex, Claude Code, and Pi.
 It removes filler and keeps technical meaning. Use `normal mode` or request more detail when needed.
+Tool arguments, delegation briefs, agent messages, worker reports, and handoffs use normal English with complete sentences and normal spacing.
+This exclusion also applies to worker reports addressed to a coordinator and agent messages visible in the user timeline.
 Documentation uses Simple English. Toolkit installs only Caveman skill text, without its proxy, runtime, or hooks.
 Shorter replies can reduce output tokens. This does not guarantee a reduction in reasoning tokens or total subscription usage.
 
@@ -114,9 +116,13 @@ It also records the process start time to detect reused PIDs.
 Repeated starts reuse the tracked process. Stop removes stale state and stops only the tracked caffeinate process, leaving Paseo running.
 The commands use the built-in `lockf` to serialize simultaneous calls. The OS releases locks when a command exits.
 
+Run `agent-display-off` to turn off the displays after a three-second delay. After you press Enter, stop keyboard and mouse input.
+The command does not change the system sleep settings or the `agent-awake` hold.
+Agents can run the command on request. A macOS Shortcut can run the same command for keyboard access.
+
 | Skill | When to use it |
 |---|---|
-| Caveman | Concise chat responses by default; normal prose for documentation and explanations that need detail |
+| Caveman | Concise replies directly to the human user. Agent communication and tool arguments use normal English. |
 | Ponytail | Coding tasks; full mode prefers the smallest correct solution |
 | Test Audit | Writing, changing, reviewing, or auditing tests |
 | Python, FastAPI, Fastify, Vue | Work in the corresponding language or framework |
