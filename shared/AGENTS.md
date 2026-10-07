@@ -19,6 +19,15 @@ If the user asks to turn off the displays on macOS, run `agent-display-off`.
 It waits three seconds and does not change the `agent-awake` hold or system sleep settings.
 
 Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if these boundaries are unclear.
+Register cleanup immediately after each temporary test directory is created, before fixture setup.
+Remove each temporary directory when its owning test or helper finishes, including failed setup and assertions.
+Use the session's temporary directory by default. Do not use `~/Code/.agent-toolkit-scratch` as a new persistent default.
+Keep requested evidence in an explicit output directory, separate from disposable fixtures.
+Keep repository evidence as text: exact commands, observed outcomes, commit references, and unresolved risks.
+Do not commit screenshots, images, videos, or binary evidence, including embedded or base64-encoded media.
+Use temporary captures for visual checks. Record the inspected behavior and result in text.
+If retained media is necessary, link an artifact in an existing approved external store.
+Do not create storage only for evidence. Product assets and required test fixtures remain allowed.
 For disposable PostgreSQL 18 tests, use `pg-test` with the least-privileged role profile.
 Use only its returned fixture URL, keep credentials out of committed files, and run `pg-test stop <id>` when finished.
 

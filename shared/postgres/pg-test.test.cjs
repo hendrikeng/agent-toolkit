@@ -6,7 +6,7 @@ const vm = require('node:vm')
 const test = require('node:test')
 
 const fixtureHomes = []
-test.after(() => { for (const home of fixtureHomes) fs.rmSync(home, { recursive: true, force: true }) })
+test.afterEach(() => { for (const home of fixtureHomes.splice(0)) fs.rmSync(home, { recursive: true, force: true }) })
 
 function fixture(major = '18') {
  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pg-test-fixture-')))

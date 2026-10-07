@@ -536,7 +536,7 @@ Start fresh sessions to verify the updated installed guidance and effective laun
 |---|---|
 | Ponytail skill family (five skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
 | AutoReview | `711711b86294673feced9d1cb636b539daf3c218`; adaptations in its NOTICE |
-| Project blueprint | Git submodule `0ef167cb37d6e8de2fc6370acc24a5f62c19aecf` |
+| Project blueprint | Git submodule `acf07a8b6a99f03d6884ddd9edf064d2f894ceb8` |
 | Pi web access | `npm:pi-web-access@0.13.0`, package skills disabled |
 | Pi file finder | `npm:@ff-labs/pi-fff@0.10.3` |
 | React Doctor | `0.9.13`, locked skill-local dependencies |
@@ -552,6 +552,16 @@ Python, framework, writing, and Test Audit guidance is vendored; revisions and l
 ```
 
 Checks cover installation and repetition, configuration/account preservation, host coexistence, migration refusal, backups and recovery, source/install separation, native Pi credential refresh with two stores, retained Pi interfaces, blueprint update preservation, PostgreSQL role/lifecycle behavior, and AutoReview's deterministic helper contract. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
+
+Tests must remove their temporary directories after the owning test or helper finishes, including failure paths.
+They must register cleanup before fixture setup. Requested evidence uses an explicit output directory.
+Repository evidence must use text: commands, observed outcomes, commit references, and unresolved risks.
+Do not commit screenshots, images, videos, or binary evidence, including embedded or base64-encoded media.
+Use temporary captures for visual checks. Record the inspected behavior and result in text.
+If retained media is necessary, link an artifact in an existing approved external store.
+Do not create storage only for evidence. Product assets and required test fixtures remain allowed.
+`~/Code/.agent-toolkit-scratch` is a legacy location. Paseo workspaces do not require it.
+Project scripts can still use that path until their owning repositories remove the old default.
 
 Paseo setup checks cover profile merging, preserved choices, repeated setup, private backups, concurrent-edit refusal, and partial saves.
 They substitute native CLI persistence. They do not prove live CLI compatibility or support for the saved feature IDs.
