@@ -10,8 +10,9 @@ The ordinary installer still leaves Paseo configuration unchanged.
 The setup command offers a separate, default-off compact block for Paseo's System Prompt.
 Paseo MCP trust defaults to on at the setup save confirmation. It enables the global plugin switch.
 The plugin handles tool confirmations, including worker creation. Other servers, shell approvals, questions, and URL forms keep their existing handling.
+Codex can include `properties: {}` in an empty confirmation schema. The plugin accepts that form and the form without `properties`.
+The plugin leaves schemas with data fields pending. Its logs record successful approvals with request and agent IDs only.
 Provider catalog limits and browser enablement still apply. Trust does not expand the user's assigned task.
-No live profiles, provider permissions, accounts, or daemon settings changed during implementation.
 Plugin type checks and isolated permission-routing tests pass. Live plugin acceptance requires deployment from a trusted human terminal.
 
 The source references use Paseo `v0.10.3`, the version identified in the earlier host inspection.
@@ -189,7 +190,7 @@ Keep Planner planning controls as specified.
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
-    "modeId": "auto",
+    "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
@@ -198,7 +199,7 @@ Keep Planner planning controls as specified.
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
-    "modeId": "default",
+    "modeId": "auto",
     "featureValues": { "fast_mode": false },
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
@@ -207,7 +208,7 @@ Keep Planner planning controls as specified.
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
-    "modeId": "auto",
+    "modeId": "auto-review",
     "featureValues": { "plan_mode": true },
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving Implement for a planning-only assignment."
   },
@@ -225,7 +226,7 @@ Keep Planner planning controls as specified.
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
-    "modeId": "auto",
+    "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
     "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
   },
@@ -234,7 +235,7 @@ Keep Planner planning controls as specified.
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
-    "modeId": "default",
+    "modeId": "auto",
     "featureValues": { "fast_mode": false },
     "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
   },
@@ -243,7 +244,7 @@ Keep Planner planning controls as specified.
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
-    "modeId": "auto",
+    "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
     "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
   },
@@ -252,7 +253,7 @@ Keep Planner planning controls as specified.
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
-    "modeId": "default",
+    "modeId": "auto",
     "featureValues": { "fast_mode": false },
     "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
   },
@@ -261,7 +262,7 @@ Keep Planner planning controls as specified.
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
-    "modeId": "auto",
+    "modeId": "auto-review",
     "featureValues": { "plan_mode": false, "fast_mode": false },
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   },
@@ -270,7 +271,7 @@ Keep Planner planning controls as specified.
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
-    "modeId": "default",
+    "modeId": "auto",
     "featureValues": { "fast_mode": false },
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   }
@@ -302,6 +303,9 @@ The selected local daemon must already run and expose its providers.
 The installed copies must include the new profile presets, role instructions, and context template.
 
 Setup asks once per provider family for the existing account alias and deliberate permission mode.
+The defaults are Codex `auto-review` and Claude `auto`. Claude Planner retains `plan`.
+Codex Auto-review retains the workspace sandbox. Claude Auto uses its native approval classifier.
+Existing profiles retain their saved modes during setup. Change those modes deliberately through the native profile editor.
 Enter `-` to skip a family.
 It separately offers compact context for default primary orchestration and Toolkit guidance references.
 The setup choice defaults to off and leaves the System Prompt unchanged.

@@ -161,7 +161,7 @@ async function main() {
       const provider = (await terminal.question(`${family} provider/account alias (or - to skip) [${family}]: `)).trim() || family
       if (provider === '-') continue
       if (provider !== provider.toLowerCase()) throw Error('The inspected native model command lowercases provider IDs. This alias cannot be validated safely through that route; use the native profile editor without changing accounts.')
-      const defaultMode = family === 'codex' ? 'auto' : 'default'
+      const defaultMode = family === 'codex' ? 'auto-review' : 'auto'
       const modeId = (await terminal.question(`${family} permission mode (${Object.keys(modes[family]).join(', ')}) [${defaultMode}]: `)).trim() || defaultMode
       selections[family] = { provider, modeId }
       models[provider] = native(['provider', 'models', provider, '--thinking', '--home', paseoHome])
