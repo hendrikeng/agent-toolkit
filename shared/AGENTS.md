@@ -55,6 +55,12 @@ Explicit review requests run. `reviews:off` disables automatic reviews until `re
 Review an unchanged bundle once across boundaries. Verify advisory findings and keep fixes in scope.
 After a review changes code, rerun affected checks and that review. Never install AI reviews as Git hooks.
 Use `scripts/autoreview` beside its skill. The helper owns reviewer isolation. Never bypass an isolation or permission denial.
+Use Codex for AutoReview by default, including tasks implemented by Claude or another provider.
+The task provider does not select the reviewer. Pass `--engine codex` unless the user explicitly selects another reviewer.
+If Codex is unavailable or cannot complete the review, use the helper's Claude engine as the fallback.
+This reviewer selection is authorized across provider families. Preserve the intended native account context for each engine.
+Do not use fallback after permission denials, approval-review rejections, isolation failures, or explicit task prohibitions.
+A completed review with findings is not a reviewer failure.
 
 ## Host operations
 

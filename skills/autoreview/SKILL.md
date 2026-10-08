@@ -45,7 +45,7 @@ Cite the user's existing review authorization in the approval justification. Do 
 If approval review rejects the request, obey the rejection and report its exact reason. Existing review authorization cannot override that rejection.
 
 ```sh
-"<skill-directory>/scripts/autoreview" --mode local
+"<skill-directory>/scripts/autoreview" --engine codex --mode local
 ```
 
 Choose the Git target explicitly when the default is ambiguous:
@@ -122,10 +122,23 @@ parent-relative patch; otherwise leave the attribution unknown.
 
 ## Engines
 
+Use Codex for every task by default, including Claude tasks. Do not inherit the implementation provider as the reviewer.
+Pass `--engine codex` to keep this default independent of `AUTOREVIEW_ENGINE`.
+Honor an explicit user selection of another reviewer.
+
+If Codex is unavailable or cannot complete a review, invoke the same helper with `--engine claude`.
+Keep the same Git target.
+Codex unavailability includes a missing CLI, account-access errors, exhausted quota, or a failed reviewer process.
+This policy authorizes the reviewer provider selection. Preserve each engine's intended native account context and the selected source scope.
+Do not switch because a review is slow or returns findings.
+Never use Claude fallback to bypass a permission denial, approval-review rejection, isolation failure, or explicit task prohibition.
+The helper does not switch engines automatically. Inspect the diagnostic before invoking the fallback.
+An exit code of `1` alone does not establish reviewer failure.
+
 Codex is the default: `gpt-6.1-sol`, high reasoning, with a `gpt-5.6-sol` retry
 only for an account-access failure when no model override is selected.
 Explicit CLI and environment model choices disable that retry. Honor explicit engine and model choices. Do not
-switch because a review is slow or rate-limited.
+switch because a review is slow. Use Claude fallback only under the policy above.
 
 Use `--model` and `--thinking` for one review. Use `AUTOREVIEW_CODEX_MODEL` and
 `AUTOREVIEW_CODEX_THINKING` to change defaults for a launcher or terminal:

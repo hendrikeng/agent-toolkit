@@ -150,8 +150,13 @@ Pi provides `/reviews auto`, `/reviews off`, and `/reviews` as a persisted sessi
 AutoReview uses its existing skill-local script on every host:
 
 ```sh
-"<installed-autoreview-skill>/scripts/autoreview" --mode local
+"<installed-autoreview-skill>/scripts/autoreview" --engine codex --mode local
 ```
+
+Codex reviews tasks from every implementation provider, including Claude. The task provider does not select the reviewer.
+If Codex is unavailable or cannot complete the review, use `--engine claude` with the same Git target.
+Honor an explicit user choice of reviewer. Never use fallback to bypass permission denials, approval-review rejections, isolation failures, or task prohibitions.
+The helper does not switch engines automatically. A completed review with findings does not trigger fallback.
 
 Read the skill first and choose the Git target explicitly when needed. The helper owns reviewer isolation, collection, structured reports, and output paths. There is no `autoreview-yolo`. Permission denials use native approval or a trusted human terminal; never disable permissions for a review. The helper does not scan for secrets before sending a review bundle to a provider. Its isolated reviewer can have stricter settings than the ordinary coding session.
 
@@ -162,7 +167,7 @@ Codex's automatic approval reviewer is separate from Toolkit AutoReview. It can 
 For recurring reviews, a human can place this explicit standing authorization in the applicable repository instructions:
 
 ```text
-For explicitly requested reviews and Toolkit's required publication reviews, I authorize the local AutoReview helper to send the selected review source and context to OpenAI through the Codex engine's normal model requests. This does not authorize Codex Cloud tasks, another provider, unrelated files, credentials, or production data.
+For explicitly requested reviews and Toolkit's required publication reviews, I authorize the local AutoReview helper to send the selected review source and context to OpenAI through the Codex engine's normal model requests. If Codex is unavailable or cannot complete the review, I authorize the helper's Claude engine as the fallback. This does not authorize permission or isolation bypasses, Cloud tasks, other providers, account changes, unrelated files, credentials, or production data.
 ```
 
 This wording clarifies authorization. It does not guarantee approval or grant network access.
@@ -394,7 +399,9 @@ Authentication or quota errors stop the affected launch. They do not authorize a
 
 Code reviews remain with AutoReview's existing skill-local helper and Ponytail Review's existing gates.
 A saved Reviewer profile does not replace the helper's isolation or configure its reviewer model.
-For an explicit review, read the AutoReview skill first. Choose one engine and pass its options to the helper:
+For an explicit review, read the AutoReview skill first. Use Codex by default, including for Claude implementation tasks.
+Use Claude only as the fallback if Codex cannot complete the review, or when the user explicitly selects Claude.
+Pass the selected engine's options to the helper:
 
 | Reviewer engine | Helper options |
 |---|---|
