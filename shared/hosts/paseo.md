@@ -3,7 +3,6 @@
 This guidance applies only when Paseo owns the current session. Use normal providers and Paseo's native permission modes.
 Use the installed official `paseo` skill for agents, profiles, workspaces, scripts, supervision, and waiting.
 Use the official `paseo-handoff` skill for ownership transfers. Never duplicate, rewrite, or overwrite official Paseo skills.
-Do not import Orca worker instructions, terminal launchers, sandbox extensions, or lifecycle operations.
 
 Before choosing a worker, read `list_profiles` and every profile's notes. Honor an explicitly requested profile and account alias.
 By default, select workers from the current session's provider family and exact account alias.
@@ -62,7 +61,8 @@ Verify the required evidence is present. New worktrees do not inherit staged, un
 Keep finish notifications enabled and follow official asynchronous waiting rules. Do not poll running workers.
 
 Use Paseo's workspace browser tools and current browser documentation. Browser tools need host enablement and a connected browser host.
-Report missing capabilities. Do not switch to Orca. Use web search/fetch for research and GitHub CLI inspection for PRs and Actions.
+
+Report missing capabilities. Use web search/fetch for research and GitHub CLI inspection for PRs and Actions.
 
 Collect results and check evidence, integrate required changes, then archive disposable agents and temporary editing workspaces explicitly.
 After a task branch is merged and its results are safely delivered, archive its completed disposable workspaces.

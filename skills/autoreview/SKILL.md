@@ -1,6 +1,6 @@
 ---
 name: autoreview
-description: "Structured Codex, Claude, Amp, Pi, or Kimi code review when explicitly requested or risk-gated."
+description: "Structured Codex, Claude, Amp, or Kimi code review when explicitly requested or risk-gated."
 ---
 
 # Auto Review
@@ -192,7 +192,6 @@ split context overrides are unsupported when projection is selected.
 | --------------- | ----------------------------------------------------------------------------------------------------- |
 | Claude          | CLI 2.1.169+; safe mode with web-only tools                                                           |
 | Amp             | `AMP_API_KEY` for a plugin-free account; local POSIX execution, no custom endpoint or cloud/orb agent |
-| Pi              | CLI 0.79.0+; configured model; no tools or project resources                                          |
 | Kimi            | CLI 0.30.0+; configured model; Python 3.11+ or `tomli` for TOML config                                |
 
 ## Runtime boundaries

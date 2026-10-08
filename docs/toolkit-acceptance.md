@@ -11,7 +11,7 @@ Deleting provider homes would also delete user configuration and authentication.
 
 1. Finish active work and close provider sessions before deployment.
 2. Identify the intended Paseo daemon and its provider homes in host settings.
-3. Record `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and `PASEO_HOME` overrides.
+3. Record `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `PASEO_HOME` overrides.
 4. Back up those homes privately, including alternate account homes and historical Toolkit receipts.
 
 For the selected default or overridden homes, use this private backup command:
@@ -25,7 +25,6 @@ printf 'Private backup directory: %s\n' "$toolkit_backup"
 for toolkit_home in \
   "${CODEX_HOME:-$HOME/.codex}" \
   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" \
-  "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" \
   "${PASEO_HOME:-$HOME/.paseo}" \
   "$HOME/.codex-accounts" \
   "$HOME/.agents/skills" \
@@ -54,7 +53,7 @@ If a copy fails, stop and complete that backup before installation.
 These backups can contain credentials. Keep them private and out of repositories.
 Back up additional account homes outside this list separately.
 If an override selects another home, back up the default home separately before changing it.
-For example, `CODEX_HOME` can select an Orca account while native Paseo still uses `~/.codex`.
+For example, `CODEX_HOME` can select a separate account while native Paseo still uses `~/.codex`.
 The directory selected in Paseo's client does not select a local terminal's `PASEO_HOME`.
 
 5. Compare old settings with ownership markers and historical backups.
@@ -75,13 +74,8 @@ enabled = false
 ```
 
 Edit the existing registration, including inline or dotted forms. Do not add a duplicate table.
-For an Orca account, use the exact `config.toml` path reported by preflight.
+For a separate account, use the exact `config.toml` path reported by preflight.
 Do not change generic approval, sandbox, hook-trust, model, or account settings.
-
-Pi can retain an old Ponytail package or explicit skill and extension paths.
-Reconcile only entries named by the installer after comparing their ownership.
-For an old Ponytail package that you retain, native package filters can disable its `skills` and `extensions` with empty arrays.
-Preserve unrelated packages, permission extensions, and account stores.
 
 ## Completely remove the legacy Toolkit
 
@@ -90,9 +84,9 @@ Keep the private backup outside installation paths until the new installation pa
 Backups are recovery data, not an active legacy installation.
 
 1. Remove proven old Toolkit package/plugin registrations through native management or a scoped configuration edit.
-2. Remove proven old Toolkit explicit skill paths, provider prompt/rule references, and retired Pi status integration entries.
+2. Remove proven old Toolkit explicit skill paths, provider prompt/rule references.
 3. Preserve generic native permissions unless historical evidence proves a specific setting belongs to the retired Toolkit design.
-4. Inspect all provider homes, including the exact Orca account home previously named by preflight.
+4. Inspect all provider homes, including the exact account home previously named by preflight.
 
 Disabling a Ponytail plugin stops its hooks but leaves its package installed.
 For complete removal, uninstall only the old plugin that you deliberately replace, using that provider's supported plugin management.
@@ -118,24 +112,19 @@ if not sys.stdout.isatty():
 legacy = home / '.local/libexec/agent-toolkit'
 codex = Path(os.environ.get('CODEX_HOME', str(home / '.codex')))
 claude = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(home / '.claude')))
-pi = Path(os.environ.get('PI_CODING_AGENT_DIR', str(home / '.pi/agent')))
 accounts = [codex]
 registry = home / '.codex-accounts'
 if registry.is_dir():
     accounts += [p for p in registry.iterdir() if p.is_dir() and not p.is_symlink()]
-folders = [home / '.agents/skills', claude / 'skills', pi / 'skills',
-           pi / 'extensions', pi / 'integrations', home / '.local/bin']
+folders = [home / '.agents/skills', claude / 'skills', home / '.local/bin']
 folders += [p / 'skills' for p in accounts]
-files = [claude / 'CLAUDE.md', pi / 'AGENTS.md'] + [p / 'AGENTS.md' for p in accounts]
+files = [claude / 'CLAUDE.md'] + [p / 'AGENTS.md' for p in accounts]
 files += [home / '.local/bin' / n for n in
-          ['codex-yolo', 'claude-yolo', 'pi-yolo', 'autoreview-yolo',
+          ['codex-yolo', 'claude-yolo', 'autoreview-yolo',
            'pg18-fresh-yolo', 'repo-delete', 'pg-test', 'pg18-fresh']]
 files += [p / 'rules' / n for p in accounts for n in
           ['agent-safety.rules', 'agent-toolkit-development.rules']]
-files += [pi / 'extensions' / 'workspace-sandbox' / 'index.ts',
-          pi / 'extensions' / 'python-inline-guard' / 'index.ts',
-          pi / 'extensions' / 'pi-permission-system' / 'config.json']
-for directory in [legacy, codex, claude, pi, registry] + folders + accounts:
+for directory in [legacy, codex, claude, registry] + folders + accounts:
     for ancestor in [directory, *directory.parents]:
         if ancestor.is_symlink():
             raise SystemExit(f'Reconcile symlink directory before removal: {ancestor}')
@@ -208,7 +197,7 @@ Inspect mixed instruction files for old Toolkit sections. Remove only the compar
 An account's `AGENTS.md` can link to a shared user instruction file instead of the legacy runtime.
 Do not classify that link as Toolkit-owned. The installer refuses it rather than following it into another home.
 Reconcile it separately. Preserve the target's user text if you deliberately replace the link with a standalone account instruction file.
-10. Reopen a trusted terminal and verify that normal `codex`, `claude`, and `pi` commands select the intended native CLIs.
+10. Reopen a trusted terminal and verify that normal `codex` and `claude` commands select the intended native CLIs.
 11. Proceed with the fresh installation below.
 
 Do not restore whole global configuration files from old backups after removal.
@@ -219,7 +208,7 @@ Restore only a needed, compared setting. Whole-file restoration can reactivate r
 Keep the current checkout intact. Use a new destination that does not already exist:
 
 ```sh
-git clone --recurse-submodules https://github.com/hendrikeng/agent-toolkit.git \
+git clone https://github.com/hendrikeng/agent-toolkit.git \
   "$HOME/Code/wewereyoung/agent-toolkit-fresh"
 cd "$HOME/Code/wewereyoung/agent-toolkit-fresh"
 npm ci --prefix shared --ignore-scripts --no-audit --no-fund
@@ -237,7 +226,7 @@ Recognized old launchers, rules, and discovery links also retire through the ins
 The complete-removal route above removes the old snapshot after its ownership check.
 Keep private historical backups until acceptance succeeds.
 
-Retiring custom restrictions removes Toolkit's extra filesystem, secret, network, and Pi sandbox constraints.
+Retiring custom restrictions removes Toolkit's extra filesystem, secret, and network constraints.
 Native permissions remain authoritative. Approval prompts are not an OS sandbox.
 
 Run `./install.sh` a second time and inspect the result.
@@ -271,7 +260,7 @@ Start fresh sessions after deployment. Resumed sessions can retain old instructi
 
 Passing fixture checks does not prove live instruction loading or effective permissions.
 Record the selected host, provider/account alias, model, effort, mode, features, and result for each trial.
-Run the common trials in fresh Codex, Claude, and Pi sessions that you actually use.
+Run the common trials in fresh Codex and Claude sessions that you actually use.
 Use native provider commands in a terminal and fresh Paseo sessions to compare delivery.
 
 Create one disposable repository from your trusted terminal:
@@ -378,27 +367,19 @@ Compare saved profiles with launch arguments and effective session settings. Do 
 | Adviser | Ask for a bounded recommendation with edits and delegation prohibited. | Completed analysis, unchanged files, no implementation approval. |
 | Resume | Resume an idle trial and compare its effective settings and host ownership. | Account/model/effort/mode/features remain deliberate. A changed profile does not silently reconfigure the session. |
 | Parallel edits | Explicitly authorize two Workers with separate worktrees and disjoint fixture files. | Correct base/evidence visibility, notifications, integration, and cleanup of only disposable resources. |
-| Browser | Use an enabled Paseo browser host on an authorized local UI fixture. | Actual Paseo browser operations; no switch to Orca. |
+| Browser | Use an enabled Paseo browser host on an authorized local UI fixture. | Actual Paseo browser operations. |
 | Handoff | Explicitly authorize a disposable handoff through the official skill. | Receiving scope, dirty-file context, review mode, publication limits, and retained recipient. |
 
-Repeat applicable role trials for both Codex and Claude. Pi retains its own native capabilities and interfaces.
+Repeat applicable role trials for both Codex and Claude.
 Prompt compliance is separate from an enforced sandbox. Inspect effective native permissions and use only authorized harmless boundary probes.
 Keep failed or unresolved trials and their evidence until the cause is clear.
 
-### Pi interfaces and PostgreSQL helpers
+### PostgreSQL helpers
 
 These capabilities require their actual runtime. The shared skill trials do not establish their acceptance.
 
 | Capability | Human-controlled trial | Acceptance |
 |---|---|---|
-| Pi blueprint | `/project audit .` in a disposable suitable project | Pinned blueprint and read-only report. Adopt/update/new need explicit fixture approval. |
-| Pi accounts | Select two existing test accounts in independent terminal sessions | Account continuity, independent concurrent requests, resume/model choices, unchanged other credentials. Do not add a login as an incidental test. |
-| Pi Fast | `/fast status`, then deliberate off/on/off selections | Persisted intended state and model support; on uses more quota. |
-| Pi side | `/side` and `/side close` in terminal UI | Separate conversation, inherited account/review state, normal workspace permissions. Terminal-only. |
-| Pi clipboard | `/copy-code` on a known response | Exact clipboard content on the host running Pi. |
-| Pi reviews | `/reviews off`, `/reviews`, `/reviews auto` | Deliberate session persistence and side-conversation inheritance. |
-| Pi web | `/web status`, `/web on`, one bounded lookup, `/web off` | Actual on-demand tools, preserved user settings, no cookie import. |
-| Pi publication | `/push` and `/pr` only in an explicitly authorized disposable remote | Confirmation and exact target. Explanation alone does not verify publication. |
 | PostgreSQL | `pg-test start`, returned URL, `pg-test status <id>`, `pg-test stop <id>` | PG18 fixture identity, least-privileged role, actual stop, and removal of database files, socket, and log. Confirm repeated stop and status. Use only its URL. |
 | PostgreSQL profiles | Separately authorized migration/admin fixtures | Intended role permissions and cleanup, no production target. |
 | Fresh PostgreSQL suite | `pg18-fresh` only in its supported reviewed inventory-suite repository | Actual Docker isolation, bounded inventory, invocation-owned cleanup. Otherwise mark unavailable. |

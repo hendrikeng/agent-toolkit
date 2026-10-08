@@ -12,7 +12,7 @@ description: |
   readable", or "write for non-native readers". Applies short sentences,
   consistent terms, simple tenses, active voice, and condition-first commands.
 license: MIT
-compatibility: claude-code cursor codex gemini-cli opencode pi
+compatibility: claude-code cursor codex gemini-cli opencode
 metadata:
   standard: ASD-STE100 Issue 9 (2025-01-15)
 ---

@@ -7,7 +7,6 @@ const { createHash } = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { isDeepStrictEqual } = require('node:util')
 
-const packages = ['npm:pi-web-access@0.13.0', 'npm:@ff-labs/pi-fff@0.10.3']
 const begin = '<!-- agent-toolkit -->'
 const end = '<!-- /agent-toolkit -->'
 const exists = file => { try { return fs.lstatSync(file) } catch (e) { if (e.code !== 'ENOENT') throw e } }
@@ -21,14 +20,6 @@ function parseJsonc(text) {
   const value = require('jsonc-parser').parse(text, errors, { allowTrailingComma: true })
   if (errors.length) throw new SyntaxError(`Invalid JSONC at offset ${errors[0].offset}`)
   return value
-}
-
-function piInstalled() {
-  let version
-  try { version = execFileSync('pi', ['--version'], { encoding: 'utf8' }).trim() }
-  catch (error) { if (error.code === 'ENOENT') return false; throw error }
-  if (version !== '0.99.2') throw Error('Toolkit Pi interfaces require Pi 0.99.2. Select the supported CLI in your trusted terminal; Toolkit does not upgrade it.')
-  return true
 }
 
 function codexNetworkConfig(text) {
@@ -98,14 +89,11 @@ function treeHash(root) {
 }
 
 function planInstall(options) {
-  // Keep the selected interfaces fixed while staging and rechecking the plan.
-  options = { ...options, installPi: options.installPi ?? piInstalled(), reviewNetwork: options.reviewNetwork ?? true }
-  const { installPi } = options
-  const { repo, home, piDir = path.join(home, '.pi/agent'), codexHome = path.join(home, '.codex'), claudeDir = path.join(home, '.claude'), paseoHome = path.join(home, '.paseo'), dataRoot = path.join(home, '.local/share/agent-toolkit'), webDir = piDir === path.join(home, '.pi/agent') ? path.dirname(piDir) : piDir } = options
-  for (const directory of [repo, home, piDir, codexHome, claudeDir, paseoHome, dataRoot, webDir]) {
+  options = { ...options, reviewNetwork: options.reviewNetwork ?? true }
+  const { repo, home, codexHome = path.join(home, '.codex'), claudeDir = path.join(home, '.claude'), paseoHome = path.join(home, '.paseo'), dataRoot = path.join(home, '.local/share/agent-toolkit') } = options
+  for (const directory of [repo, home, codexHome, claudeDir, paseoHome, dataRoot]) {
     if (!path.isAbsolute(directory)) throw Error(`Expected absolute path: ${directory}`)
   }
-  if (installPi && !exists(path.join(repo, 'vendor/agent-project-blueprint/distribution/bootstrap-questionnaire.json'))) throw Error('Initialize the pinned blueprint: git submodule update --init --recursive')
   const resources = path.join(dataRoot, 'resources')
   const receiptPath = path.join(dataRoot, 'installed.json')
   if (exists(receiptPath)?.isSymbolicLink()) refuse(receiptPath)
@@ -114,7 +102,6 @@ function planInstall(options) {
   if (exists(resources) && (!receipt.resourcesHash || treeHash(resources) !== receipt.resourcesHash)) refuse(resources)
   const legacy = path.join(home, '.local/libexec/agent-toolkit')
   const retire = new Set(), links = new Map(), files = new Map()
-  let settingsText
   const accountHomes = exists(path.join(home, '.codex-accounts')) ? fs.readdirSync(path.join(home, '.codex-accounts'), { withFileTypes: true }).filter(e => e.isDirectory()).map(e => path.join(home, '.codex-accounts', e.name)) : []
   const codexHomes = new Set([codexHome, ...accountHomes])
   function ownedLink(file, oldSources = []) {
@@ -138,11 +125,8 @@ function planInstall(options) {
   function prompt(file) {
     let text = ''
     const stat = exists(file)
-    if (stat?.isSymbolicLink()) {
-      const target = path.resolve(path.dirname(file), fs.readlinkSync(file))
-      if (file !== path.join(piDir, 'AGENTS.md') || target !== path.join(legacy, 'AGENTS.md')) refuse(file)
-      marked(target); retire.add(file)
-    } else if (stat) {
+    if (stat?.isSymbolicLink()) refuse(file)
+    if (stat) {
       if (!stat.isFile()) refuse(file)
       text = read(file)
     }
@@ -184,37 +168,6 @@ function planInstall(options) {
       networkConfigPaths.add(file)
     }
   }
-  if (installPi) {
-    const settingsPath = path.join(piDir, 'settings.json')
-    if (exists(settingsPath)?.isSymbolicLink()) refuse(settingsPath)
-    settingsText = exists(settingsPath) ? read(settingsPath) : undefined
-    const settings = settingsText === undefined ? {} : JSON.parse(settingsText)
-    if (settings.skills && typeof settings.skills === 'object' && !Array.isArray(settings.skills)) {
-      settings.enableSkillCommands ??= settings.skills.enableSkillCommands
-      const directories = settings.skills.customDirectories
-      if (Array.isArray(directories) && directories.length) settings.skills = directories
-      else delete settings.skills
-    }
-    const source = entry => typeof entry === 'string' ? entry : entry.source
-    if ((settings.packages ?? []).some(entry => /ponytail/.test(source(entry)) && !(typeof entry === 'object' && entry.extensions?.length === 0 && entry.skills?.length === 0))) refuse(`${settingsPath} packages (disable the old Ponytail package resources to avoid duplicate guidance/hooks)`)
-    // Explicit skill paths can otherwise resurrect retired aliases and cause collisions.
-    if ((settings.skills ?? []).some(entry => /(?:\.codex|\.pi\/agent)\/skills\/(?:autoreview|handoff)/.test(entry))) refuse(`${settingsPath} skills (reconcile obsolete explicit paths)`)
-    const statusPath = path.join(piDir, 'integrations/status-format')
-    if ((settings.extensions ?? []).includes(statusPath)) refuse(`${settingsPath} extensions (retired status formatter)` )
-    settings.packages ??= []
-    for (const pin of packages) {
-      const name = pin.slice(0, pin.lastIndexOf('@'))
-      const existing = settings.packages.find(entry => source(entry) === name || source(entry)?.startsWith(`${name}@`))
-      if (existing && source(existing) !== pin) refuse(`${settingsPath} ${name} (preserve selected package version)`)
-      if (!existing) settings.packages.push(pin === packages[0] ? { source: pin, skills: [] } : pin)
-    }
-    files.set(settingsPath, JSON.stringify(settings, null, 2) + '\n')
-    const webConfig = path.join(webDir, 'web-search.json')
-    if (exists(webConfig)?.isSymbolicLink()) refuse(webConfig)
-    const web = exists(webConfig) ? JSON.parse(read(webConfig)) : {}
-    for (const [key, value] of Object.entries(JSON.parse(read(path.join(repo, 'shared/pi-web-access/defaults.json'))))) web[key] ??= value
-    files.set(webConfig, JSON.stringify(web, null, 2) + '\n')
-  }
 
   for (const directory of codexHomes) {
     if (exists(path.join(directory, 'AGENTS.override.md'))) refuse(path.join(directory, 'AGENTS.override.md'))
@@ -226,25 +179,11 @@ function planInstall(options) {
     }
   }
   prompt(path.join(claudeDir, 'CLAUDE.md'))
-  if (installPi) prompt(path.join(piDir, 'AGENTS.md'))
   for (const name of fs.readdirSync(path.join(repo, 'skills'))) {
-    const old = name === 'autoreview' ? 'codex/skills/autoreview' : name === 'simple-english' ? 'pi/extensions/simple-english' : `pi/skills/${name}`
-    const oldSources = [path.join(repo, old), path.join(legacy, 'resources', old)]
+    const oldSources = name === 'autoreview' ? [path.join(repo, 'codex/skills/autoreview'), path.join(legacy, 'resources/codex/skills/autoreview')] : []
     link(path.join(home, '.agents/skills', name), path.join(resources, 'skills', name), oldSources)
     link(path.join(claudeDir, 'skills', name), path.join(resources, 'skills', name), oldSources)
-    for (const directory of [...codexHomes, ...(installPi ? [piDir] : [])]) ownedLink(path.join(directory, 'skills', name), oldSources)
-  }
-  if (installPi) {
-    for (const name of fs.readdirSync(path.join(repo, 'pi/extensions')).filter(name => exists(path.join(repo, 'pi/extensions', name, 'index.ts')))) {
-      const file = path.join(piDir, 'extensions', name)
-      link(file, path.join(resources, 'pi/extensions', name), [path.join(repo, 'pi/extensions', name), path.join(legacy, 'resources/pi/extensions', name)])
-    }
-    for (const name of ['workspace-sandbox', 'python-inline-guard']) marked(path.join(piDir, 'extensions', name, 'index.ts'))
-    for (const name of ['legacy-session-filter', 'orca-permission-bell', 'status-format']) ownedLink(path.join(piDir, 'extensions', name), [path.join(repo, 'pi/extensions', name), path.join(legacy, 'resources/pi/extensions', name)])
-    ownedLink(path.join(piDir, 'integrations/status-format'), [path.join(repo, 'pi/extensions/status-format'), path.join(legacy, 'resources/pi/extensions/status-format')])
-    marked(path.join(piDir, 'extensions/pi-permission-system/config.json'))
-    marked(path.join(home, '.local/bin/pi-yolo'))
-    marked(path.join(legacy, 'AGENTS.md'))
+    for (const directory of codexHomes) ownedLink(path.join(directory, 'skills', name), oldSources)
   }
   for (const name of ['codex-yolo', 'claude-yolo', 'autoreview-yolo', 'pg18-fresh-yolo', 'repo-delete']) marked(path.join(home, '.local/bin', name))
   for (const name of ['autoreview', 'development-policy.cjs', 'development.rules', 'pg18-fresh-yolo', 'repository-trust.cjs', 'git', 'open', 'pg-test', 'package.json', 'package-lock.json']) marked(path.join(legacy, name))
@@ -263,7 +202,6 @@ function planInstall(options) {
   const linkDirectories = new Set([
     path.join(home, '.agents/skills'), path.join(claudeDir, 'skills'), path.join(home, '.local/bin'),
     ...Array.from(codexHomes, directory => path.join(directory, 'skills')),
-    ...(installPi ? ['skills', 'extensions', 'integrations'].map(directory => path.join(piDir, directory)) : []),
   ])
   for (const file of Object.keys(receipt.links)) {
     if (links.has(file) || (!retire.has(file) && !linkDirectories.has(path.dirname(file)))) continue
@@ -276,16 +214,15 @@ function planInstall(options) {
       if (exists(parent)?.isSymbolicLink()) refuse(parent)
     }
   }
-  return { options, repo, home, piDir, dataRoot, resources, receiptPath, receipt, retire, links, files, settingsText, networkConfigPaths }
+  return { options, repo, home, dataRoot, resources, receiptPath, receipt, retire, links, files, networkConfigPaths }
 }
 
 function install(plan, run = execFileSync) {
-  const { repo, resources, dataRoot, receiptPath, piDir } = plan
+  const { repo, resources, dataRoot, receiptPath } = plan
   fs.mkdirSync(dataRoot, { recursive: true, mode: 0o700 })
   const lock = path.join(dataRoot, 'install.lock')
   fs.mkdirSync(lock) // A crashed install requires inspection; never steal its lock.
   let stage
-  const settingsPath = path.join(piDir, 'settings.json')
   const restored = [], created = []
   const configRollback = []
   let backup
@@ -309,11 +246,6 @@ function install(plan, run = execFileSync) {
     const copy = (source, target) => fs.cpSync(source, target, { recursive: true, filter: file => !['.git', 'node_modules', '__pycache__', '.DS_Store'].includes(path.basename(file)) })
     for (const directory of ['skills', 'shared/hosts', 'shared/postgres', 'shared/macos', 'paseo/tool-trust']) {
       copy(path.join(repo, directory), path.join(stage, directory))
-    }
-    for (const directory of ['pi/extensions', 'vendor/agent-project-blueprint']) {
-      const source = path.join(plan.options.installPi ? repo : resources, directory)
-      if (plan.options.installPi) copy(source, path.join(stage, directory))
-      else if (exists(source)) fs.cpSync(source, path.join(stage, directory), { recursive: true })
     }
     fs.copyFileSync(path.join(repo, 'shared/AGENTS.md'), path.join(stage, 'shared/AGENTS.md'))
     fs.copyFileSync(path.join(repo, 'shared/paseo-service.cjs'), path.join(stage, 'shared/paseo-service.cjs'))
@@ -340,11 +272,11 @@ function install(plan, run = execFileSync) {
     }
     const replacements = new Set([...retire, ...links.keys(), resources, receiptPath])
     for (const [file, content] of files) if (!exists(file) || read(file) !== content) replacements.add(file)
-    for (const file of replacements) if (file !== settingsPath) move(file)
+    for (const file of replacements) move(file)
     fs.renameSync(stage, resources)
     created.push(resources)
     for (const [file, content] of files) {
-      if (!replacements.has(file) || file === settingsPath) continue
+      if (!replacements.has(file)) continue
       fs.mkdirSync(path.dirname(file), { recursive: true })
       const temporary = `${file}.agent-toolkit-${process.pid}`
       writeNew(temporary, content)
@@ -359,27 +291,6 @@ function install(plan, run = execFileSync) {
     receipt.links = { ...receipt.links, ...Object.fromEntries(links) }
     receipt.resourcesHash = treeHash(resources)
     writeNew(receiptPath, JSON.stringify(receipt, null, 2) + '\n')
-    if (replacements.has(settingsPath)) {
-      // Match Pi's short, synchronous settings-write critical section. Never hold
-      // its expiring lock across resource copies, npm, receipt hashing or rollback.
-      const settingsLock = settingsPath + '.lock'
-      fs.mkdirSync(piDir, { recursive: true })
-      fs.mkdirSync(settingsLock)
-      const restoreStart = restored.length, createStart = created.length
-      try {
-        if ((exists(settingsPath) ? read(settingsPath) : undefined) !== plan.settingsText) throw Error('Pi settings changed during installation; retry from the trusted terminal.')
-        move(settingsPath)
-        const temporary = `${settingsPath}.agent-toolkit-${process.pid}`
-        writeNew(temporary, files.get(settingsPath))
-        fs.renameSync(temporary, settingsPath)
-        created.push(settingsPath)
-      } catch (error) {
-        for (const file of created.splice(createStart).reverse()) fs.rmSync(file, { recursive: true, force: true })
-        for (const [file, destination] of restored.splice(restoreStart).reverse()) transfer(destination, file)
-        throw error
-      } finally { fs.rmdirSync(settingsLock) }
-    }
-    // Pi resolves pinned packages at next startup. Do not invoke a second settings writer.
     return backup
   } catch (error) {
     try {
@@ -404,8 +315,8 @@ if (require.main === module) {
     if (Number(process.versions.node.split('.')[0]) !== 24) throw Error('Node.js 24 is required.')
     const home = os.homedir(), repo = path.resolve(__dirname, '..')
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
-    const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), piDir: process.env.PI_CODING_AGENT_DIR, codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME, webDir: process.env.PI_CODING_AGENT_DIR ?? (process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, 'pi') : path.join(home, '.pi')) })
+    const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME })
     const backup = install(plan)
-    console.log(`Installed copied resources. Backups: ${backup}\n${plan.options.installPi ? 'Pi interfaces installed.' : 'Pi CLI absent; Pi settings and interfaces left untouched.'}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. No persistent config backups created.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
+    console.log(`Installed copied resources. Backups: ${backup}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. No persistent config backups created.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
   } catch (error) { console.error(error.message); process.exitCode = 1 }
 }

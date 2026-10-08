@@ -422,7 +422,7 @@ If a required false value is absent after saving, toggle On, then Off, and save 
 Profile notes guide selection. They do not become the worker's system prompt.
 Put the common block, one role block, and the actual brief in the first prompt or delegated `initialPrompt`.
 The same role block serves both provider variants.
-Use these prompts only in a fresh Paseo-owned session. They do not transfer an existing Orca session to Paseo.
+Use these prompts only in a fresh Paseo-owned session.
 
 The installed startup guidance still supplies recurring skills and review rules.
 Do not duplicate all skill bodies in these prompts.

@@ -1,3 +1,0 @@
-[submodule "vendor/agent-project-blueprint"]
-	path = vendor/agent-project-blueprint
-	url = https://github.com/hendrikeng/agent-project-blueprint.git

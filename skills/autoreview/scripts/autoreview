@@ -34,7 +34,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, NamedTuple
 
 
-ENGINES = ("codex", "claude", "amp", "pi", "kimi")
+ENGINES = ("codex", "claude", "amp", "kimi")
 ENGINE_GIT_CONFIG_OVERRIDES = (
     ("core.fsmonitor", "false"),
     ("core.pager", "cat"),
@@ -286,69 +286,6 @@ class PreparationProgress:
 DEFAULT_ENGINE_PATHS = ("/usr/local/bin", "/usr/bin", "/bin")
 # Keep this explicit: suffix matching leaks unrelated process credentials such
 # as package-registry and telemetry tokens into reviewer subprocesses.
-MULTI_PROVIDER_CREDENTIAL_ENV_KEYS = {
-    "AI_GATEWAY_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_OAUTH_TOKEN",
-    "ANT_LING_API_KEY",
-    "AZURE_OPENAI_API_KEY",
-    "CEREBRAS_API_KEY",
-    "CF_AIG_TOKEN",
-    "CLOUDFLARE_API_KEY",
-    "CLOUDFLARE_API_TOKEN",
-    "DEEPSEEK_API_KEY",
-    "FIREWORKS_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_CLOUD_API_KEY",
-    "GROQ_API_KEY",
-    "HF_TOKEN",
-    "KIMI_API_KEY",
-    "MINIMAX_API_KEY",
-    "MINIMAX_CN_API_KEY",
-    "MISTRAL_API_KEY",
-    "MOONSHOT_API_KEY",
-    "NVIDIA_API_KEY",
-    "OPENAI_API_KEY",
-    "OPENROUTER_API_KEY",
-    "SNOWFLAKE_CORTEX_PAT",
-    "SNOWFLAKE_CORTEX_TOKEN",
-    "TOGETHER_API_KEY",
-    "XAI_API_KEY",
-    "XIAOMI_API_KEY",
-    "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
-    "XIAOMI_TOKEN_PLAN_CN_API_KEY",
-    "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
-    "ZAI_API_KEY",
-    "ZAI_CODING_CN_API_KEY",
-}
-CUSTOM_PROVIDER_ENV_NAME_PATTERN = re.compile(
-    r"^[A-Z][A-Z0-9_]*(?:API_KEY|ACCESS_KEY|AUTH_TOKEN|ACCESS_TOKEN|API_TOKEN|TOKEN|PAT)$"
-)
-MULTI_PROVIDER_ENV_KEYS = {
-    "AWS_CONTAINER_AUTHORIZATION_TOKEN",
-    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
-    "AWS_BEDROCK_FORCE_HTTP1",
-    "AWS_BEDROCK_SKIP_AUTH",
-    "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
-    "AWS_ROLE_ARN",
-    "AWS_ROLE_SESSION_NAME",
-    "AZURE_COGNITIVE_SERVICES_RESOURCE_NAME",
-    "AZURE_OPENAI_API_VERSION",
-    "AZURE_OPENAI_BASE_URL",
-    "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
-    "AZURE_OPENAI_RESOURCE_NAME",
-    "AZURE_RESOURCE_NAME",
-    "CLOUDFLARE_ACCOUNT_ID",
-    "CLOUDFLARE_GATEWAY_ID",
-    "GCLOUD_PROJECT",
-    "GOOGLE_CLOUD_LOCATION",
-    "GOOGLE_CLOUD_PROJECT",
-    "HF_TOKEN",
-    "SNOWFLAKE_ACCOUNT",
-    "VERTEXAI_LOCATION",
-    "VERTEXAI_PROJECT",
-}
 CLAUDE_CLOUD_CREDENTIAL_ENV_KEYS = {
     "AWS_CONTAINER_AUTHORIZATION_TOKEN",
     "AWS_CONTAINER_CREDENTIALS_FULL_URI",
@@ -400,15 +337,10 @@ THINKING_LEVELS_BY_ENGINE = {
     "amp": set(AMP_THINKING_VALUES),
     "codex": {"none", "minimal", "low", "medium", "high", "xhigh", "max"},
     "claude": {"low", "medium", "high", "xhigh", "max"},
-    "pi": {"off", "minimal", "low", "medium", "high", "xhigh"},
     "kimi": {"off", "on"},
 }
 CLAUDE_SAFE_MODE_MIN_VERSION = (2, 1, 169)
 CLAUDE_FABLE_MIN_VERSION = (2, 1, 170)
-# Pi's reviewed-repo trust override first appears in the current
-# @earendil-works/pi-coding-agent 0.79.0 CLI line. Older legacy binaries can
-# ignore unknown flags, so the Pi engine must fail closed below this floor.
-PI_TRUST_ISOLATION_MIN_VERSION = (0, 79, 0)
 # Kimi 0.30.0 added Markdown custom agents (--agent-file) to the CLI, the last
 # isolation primitive this helper needs; the rest of the boundary is the staged
 # KIMI_CODE_HOME plus --skills-dir. Flag probing below still fails closed on
@@ -1027,41 +959,6 @@ def safe_engine_env(
         "CLAUDE_CODE_USE_VERTEX",
         "CLOUD_ML_REGION",
     } | CLAUDE_CLOUD_CREDENTIAL_ENV_KEYS
-    multi_provider_allowed_exact = {
-        "ANTHROPIC_AWS_BASE_URL",
-        "ANTHROPIC_AWS_WORKSPACE_ID",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_BEDROCK_BASE_URL",
-        "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
-        "ANTHROPIC_BEDROCK_SERVICE_TIER",
-        "ANTHROPIC_CUSTOM_HEADERS",
-        "ANTHROPIC_FOUNDRY_BASE_URL",
-        "ANTHROPIC_FOUNDRY_RESOURCE",
-        "ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION",
-        "ANTHROPIC_VERTEX_BASE_URL",
-        "ANTHROPIC_VERTEX_PROJECT_ID",
-        "ANTHROPIC_WORKSPACE_ID",
-        "AWS_ACCESS_KEY_ID",
-        "AWS_BEARER_TOKEN_BEDROCK",
-        "AWS_DEFAULT_REGION",
-        "AWS_PROFILE",
-        "AWS_REGION",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-        "AZURE_OPENAI_ENDPOINT",
-        "CLOUD_ML_REGION",
-        "COPILOT_GITHUB_TOKEN",
-        "GITHUB_TOKEN",
-        "GH_TOKEN",
-        "OPENAI_BASE_URL",
-        "OPENAI_ORGANIZATION",
-        "OPENAI_PROJECT",
-    } | MULTI_PROVIDER_ENV_KEYS
-    pi_allowed_exact = multi_provider_allowed_exact | {
-        "PI_OFFLINE",
-        "PI_SKIP_VERSION_CHECK",
-        "PI_TELEMETRY",
-    }
     kimi_allowed_exact = {
         "KIMI_API_KEY",
         "KIMI_BASE_URL",
@@ -1085,21 +982,8 @@ def safe_engine_env(
         "claude": claude_allowed_exact,
         "codex": codex_allowed_exact,
         "kimi": kimi_allowed_exact,
-        "pi": pi_allowed_exact,
     }.get(engine or "", set())
     allowed_prefixes = ("AUTOREVIEW_FAKE_",)
-    custom_provider_env_keys: set[str] = set()
-    if engine == "pi":
-        for raw_key in os.environ.get("AUTOREVIEW_PROVIDER_ENV_ALLOW", "").split(","):
-            key = raw_key.strip()
-            if not key:
-                continue
-            if not CUSTOM_PROVIDER_ENV_NAME_PATTERN.fullmatch(key):
-                raise SystemExit(
-                    "invalid AUTOREVIEW_PROVIDER_ENV_ALLOW entry; use comma-separated "
-                    "credential variable names such as CORP_LLM_API_KEY"
-                )
-            custom_provider_env_keys.add(key)
     env = {
         key: value
         for key, value in os.environ.items()
@@ -1107,14 +991,6 @@ def safe_engine_env(
             key in common_allowed_exact
             or key in engine_allowed_exact
             or any(key.startswith(prefix) for prefix in allowed_prefixes)
-            or (
-                engine == "pi"
-                and (
-                    key in MULTI_PROVIDER_CREDENTIAL_ENV_KEYS
-                    or key in MULTI_PROVIDER_ENV_KEYS
-                    or key in custom_provider_env_keys
-                )
-            )
         )
     }
     for key in PROXY_ENV_KEYS:
@@ -1131,7 +1007,6 @@ def safe_engine_env(
     engine_config_paths = {
         "claude": ("CLAUDE_CONFIG_DIR",),
         "codex": ("CODEX_HOME",),
-        "pi": ("PI_CODING_AGENT_DIR",),
     }
     for key in engine_config_paths.get(engine or "", ()):
         value = os.environ.get(key)
@@ -1159,7 +1034,7 @@ def safe_engine_env(
             )
             if normalized:
                 env[key] = normalized
-    if engine in {"claude", "kimi", "pi"}:
+    if engine in {"claude", "kimi"}:
         for key in PROVIDER_CREDENTIAL_PATH_ENV_KEYS:
             value = os.environ.get(key)
             env.pop(key, None)
@@ -4537,18 +4412,6 @@ def claude_cli_fallback_models(models: str) -> str:
     )
 
 
-def pi_review_isolation_flags() -> list[str]:
-    return [
-        "--no-approve",
-        "--no-session",
-        "--no-context-files",
-        "--no-extensions",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-themes",
-    ]
-
-
 def parse_cli_version(text: str) -> tuple[int, int, int] | None:
     match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", text)
     if not match:
@@ -4638,40 +4501,6 @@ def ensure_amp_isolation_supported(args: argparse.Namespace, repo: Path) -> str:
             + detail
         )
     return amp_bin
-
-
-def ensure_pi_isolation_supported(args: argparse.Namespace, repo: Path) -> str:
-    pi_bin = resolve_command(args.pi_bin, repo)
-    engine_env = safe_engine_env(repo, [Path(pi_bin).parent], engine="pi")
-    with tempfile.TemporaryDirectory(
-        prefix="autoreview-pi-probe.",
-        dir=safe_temp_root(repo),
-    ) as tempdir:
-        probe_cwd = Path(tempdir)
-        result = run([pi_bin, "--version"], probe_cwd, check=False, env=engine_env)
-        help_result = run([pi_bin, "--help"], probe_cwd, check=False, env=engine_env)
-    if result.returncode != 0:
-        raise SystemExit(f"pi engine requires Pi >= {format_version(PI_TRUST_ISOLATION_MIN_VERSION)}; --version failed")
-    version = parse_cli_version(f"{result.stdout}\n{result.stderr}")
-    if version is None:
-        raise SystemExit(f"pi engine requires Pi >= {format_version(PI_TRUST_ISOLATION_MIN_VERSION)} for --no-approve; could not parse --version output")
-    if version < PI_TRUST_ISOLATION_MIN_VERSION:
-        raise SystemExit(
-            f"pi engine requires Pi >= {format_version(PI_TRUST_ISOLATION_MIN_VERSION)} "
-            f"for reviewed-repo trust isolation (found {format_version(version)})"
-        )
-    help_text = f"{help_result.stdout}\n{help_result.stderr}"
-    required_flags = [
-        "--print",
-        *pi_review_isolation_flags(),
-        "--no-tools",
-        "--thinking",
-    ]
-    missing = [flag for flag in required_flags if flag not in help_text]
-    if help_result.returncode != 0 or missing:
-        detail = ", ".join(missing) if missing else "--help failed"
-        raise SystemExit(f"pi engine requires Pi isolation flags missing from --help: {detail}")
-    return pi_bin
 
 
 def ensure_kimi_isolation_supported(args: argparse.Namespace, repo: Path) -> str:
@@ -5826,42 +5655,6 @@ def amp_review_result(result: subprocess.CompletedProcess[str], review_root: Pat
         raise ReviewerUnavailable(str(exc), reason="runtime_validation_failed", result=result) from None
 
 
-def run_pi(args: argparse.Namespace, repo: Path, prompt: str) -> str:
-    pi_bin = ensure_pi_isolation_supported(args, repo)
-    cmd = [
-        pi_bin,
-        "--print",
-        *pi_review_isolation_flags(),
-    ]
-    if args.model:
-        cmd.extend(["--model", args.model])
-    if args.thinking:
-        cmd.extend(["--thinking", args.thinking])
-    # Pi's built-in read tools accept absolute paths and have no repository
-    # confinement, so an untrusted review prompt must never receive them.
-    cmd.append("--no-tools")
-    with tempfile.TemporaryDirectory(
-        prefix="autoreview-pi-run.",
-        dir=safe_temp_root(repo),
-    ) as tempdir:
-        result = run_with_heartbeat(
-            cmd,
-            Path(tempdir),
-            input_text=prompt,
-            label="pi",
-            max_runtime_seconds=getattr(args, "engine_timeout_seconds", None),
-            stream_output=args.stream_engine_output,
-            env=safe_engine_env(
-                repo,
-                [Path(cmd[0]).parent],
-                engine="pi",
-            ),
-        )
-    if result.returncode != 0:
-        raise ReviewerUnavailable(f"pi engine failed ({result.returncode})\n{result.stderr or result.stdout}", result=result)
-    return result.stdout
-
-
 def run_kimi(args: argparse.Namespace, repo: Path, prompt: str) -> str:
     kimi_bin = ensure_kimi_isolation_supported(args, repo)
     config, source_share = load_kimi_review_config(repo)
@@ -6579,7 +6372,7 @@ def parse_args() -> argparse.Namespace:
         action="append",
         help="Model override or engine=model. Repeatable. Defaults: codex=gpt-6.1-sol at high thinking with an access-only gpt-5.6-sol retry, claude=claude-fable-5, amp=openai/gpt-6.1-sol.",
     )
-    parser.add_argument("--thinking", action="append", help="Thinking/effort override or engine=level. Repeatable. Codex: none, minimal, low, medium, high, xhigh, max; gpt-6-astra and gpt-6.1-sol require low through max. Claude: low, medium, high, xhigh, max. Amp: none, low, medium, high, xhigh, max. Pi: off, minimal, low, medium, high, xhigh. Kimi: off, on.")
+    parser.add_argument("--thinking", action="append", help="Thinking/effort override or engine=level. Repeatable. Codex: none, minimal, low, medium, high, xhigh, max; gpt-6-astra and gpt-6.1-sol require low through max. Claude: low, medium, high, xhigh, max. Amp: none, low, medium, high, xhigh, max. Kimi: off, on.")
     parser.add_argument(
         "--fallback-model",
         action="append",
@@ -6604,9 +6397,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--claude-bin", default=os.environ.get("CLAUDE_BIN", "claude"))
     parser.add_argument("--amp-bin", default=os.environ.get("AMP_BIN", "amp"))
-    parser.add_argument("--pi-bin", default=os.environ.get("PI_BIN", "pi"))
     parser.add_argument("--kimi-bin", default=os.environ.get("KIMI_BIN", "kimi"))
-    parser.add_argument("--no-tools", dest="tools", action="store_false", default=True, help="Disable tools for engines that support it. Amp, Pi, and Kimi always run without tools; Codex rejects no-tools review.")
+    parser.add_argument("--no-tools", dest="tools", action="store_false", default=True, help="Disable tools for engines that support it. Amp and Kimi always run without tools; Codex rejects no-tools review.")
     parser.add_argument("--no-web-search", dest="web_search", action="store_false", default=True)
     parser.add_argument(
         "--claude-allowed-tools",
@@ -6649,8 +6441,6 @@ def run_engine(args: argparse.Namespace, repo: Path, prompt: str) -> str:
         return run_claude(args, repo, prompt)
     if args.engine == "amp":
         return run_amp(args, repo, prompt)
-    if args.engine == "pi":
-        return run_pi(args, repo, prompt)
     if args.engine == "kimi":
         return run_kimi(args, repo, prompt)
     raise SystemExit(f"unsupported engine: {args.engine}")
@@ -6760,7 +6550,7 @@ def reviewer_args(args: argparse.Namespace) -> list[argparse.Namespace]:
     clone.model = model
     clone.thinking = thinking
     clone.fallback_model = fallback_model
-    clone.tools = False if engine in {"amp", "pi", "kimi"} else args.tools
+    clone.tools = False if engine in {"amp", "kimi"} else args.tools
     return [clone]
 
 
@@ -6779,7 +6569,6 @@ ENGINE_ISOLATION_PROBES: dict[str, Callable[[argparse.Namespace, Path], object]]
     "codex": ensure_codex_isolation_supported,
     "claude": ensure_claude_isolation_supported,
     "amp": ensure_amp_isolation_supported,
-    "pi": ensure_pi_isolation_supported,
     "kimi": ensure_kimi_isolation_supported,
 }
 
@@ -6792,10 +6581,10 @@ def resolve_engine_binary(reviewer: argparse.Namespace, repo: Path) -> tuple[boo
     reported unavailable with that same reason, and the selected engine is
     checked for a resolvable CLI binary on PATH.
 
-    Once a binary resolves, codex/claude/pi/kimi are also put through the same
+    Once a binary resolves, codex/claude/kimi are also put through the same
     local version and required-flag probes their real runners perform
     before contacting the engine (ensure_codex_isolation_supported,
-    ensure_claude_isolation_supported, ensure_pi_isolation_supported,
+    ensure_claude_isolation_supported,
     ensure_kimi_isolation_supported), so a dry run cannot report OK for a
     configuration a real run would reject immediately (unsupported CLI
     version, missing required flag, or a launcher that fails under the
@@ -6829,12 +6618,8 @@ def resolve_engine_binary(reviewer: argparse.Namespace, repo: Path) -> tuple[boo
     invokes the CLI (see run_claude, gated on args.tools); that is a pure,
     non-mutating computation over --claude-allowed-tools/--no-web-search
     with no I/O, so it is replayed here too and can reject a non-read-only
-    or malformed tool rule the same way the real run would. pi and other
-    engines have no equivalent raising callable between their isolation
-    probe and engine spawn (see run_pi): pi only builds an argv list, and
-    write_kimi_review_files (kimi's file-write staging step) only fails on
-    tmp-state errors (e.g. disk full), never on user setup, so it is not
-    mirrored here.
+    or malformed tool rule the same way the real run would.
+    Kimi's file-write staging only fails on temporary state errors.
     """
     engine = reviewer.engine
     if engine == "codex" and not getattr(reviewer, "tools", True):
@@ -6846,7 +6631,6 @@ def resolve_engine_binary(reviewer: argparse.Namespace, repo: Path) -> tuple[boo
         "codex": getattr(reviewer, "codex_bin", None),
         "claude": getattr(reviewer, "claude_bin", None),
         "amp": getattr(reviewer, "amp_bin", None),
-        "pi": getattr(reviewer, "pi_bin", None),
         "kimi": getattr(reviewer, "kimi_bin", None),
     }
     bin_name = bin_by_engine.get(engine)

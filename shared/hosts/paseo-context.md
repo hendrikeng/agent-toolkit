@@ -1,5 +1,5 @@
 Orchestration host for fresh sessions launched by this daemon: Paseo.
-A resumed session keeps its original owner. Do not transfer an Orca session implicitly.
+A resumed session keeps its original owner.
 Toolkit resources: `%TOOLKIT%`.
 If the Toolkit startup guidance is absent, read `%TOOLKIT%/shared/AGENTS.md` in full.
 Resource placeholders in that file refer to this Toolkit resource directory.

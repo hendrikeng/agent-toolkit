@@ -125,35 +125,6 @@ print(json.dumps(report))
 '''
 
 
-def fake_pi_script() -> str:
-    return r'''#!/usr/bin/env python3
-import json
-import os
-from pathlib import Path
-import sys
-
-args = sys.argv[1:]
-invocations = os.environ.get("AUTOREVIEW_FAKE_PI_INVOCATIONS")
-if invocations:
-    with open(invocations, "a", encoding="utf-8") as file:
-        file.write(json.dumps({"argv": args, "cwd": os.getcwd()}) + "\n")
-if "--version" in args or "-v" in args:
-    print(os.environ.get("AUTOREVIEW_FAKE_PI_VERSION", "0.79.0"))
-    raise SystemExit(0)
-if "--help" in args or "-h" in args:
-    print(os.environ.get("AUTOREVIEW_FAKE_PI_HELP", "--print\n--no-approve\n--no-session\n--no-context-files\n--no-extensions\n--no-skills\n--no-prompt-templates\n--no-themes\n--tools\n--no-tools\n--thinking"))
-    raise SystemExit(0)
-record = os.environ["AUTOREVIEW_FAKE_RECORD"]
-Path(record).write_text(json.dumps({"argv": args, "cwd": os.getcwd(), "stdin": sys.stdin.read()}))
-report = {
-    "findings": [],
-    "overall_correctness": "patch is correct",
-    "overall_explanation": "fake pi clean",
-    "overall_confidence": 0.99,
-    "review_completion": "complete",
-}
-print(json.dumps(report))
-	'''
 
 
 def fake_kimi_script() -> str:
@@ -1312,7 +1283,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
     def test_powershell_harness_exposes_runnable_engines_only(self) -> None:
         harness = SCRIPT.with_name("test-review-harness.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("[ValidateSet('codex', 'claude', 'amp', 'pi', 'kimi')]", harness)
+        self.assertIn("[ValidateSet('codex', 'claude', 'amp', 'kimi')]", harness)
 
     def test_local_bundle_omits_sensitive_untracked_file_without_blocking(self) -> None:
         for rel in (".env", "tokens/session.dat", "secrets/local.py"):
@@ -1750,7 +1721,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
                 ("branch", base, {e2e}, 2),
                 ("local", base, {source, e2e}, 1),
             )
-            for engine in ("codex", "claude", "amp", "pi", "kimi"):
+            for engine in ("codex", "claude", "amp", "kimi"):
                 for mode, ref, accepted, expected_exit in cases:
                     with self.subTest(engine=engine, mode=mode, ref=bool(ref)):
                         sends = []
@@ -3997,7 +3968,6 @@ class AutoreviewHardeningTests(unittest.TestCase):
                 os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/run/user/1000/bus"
                 os.environ["XDG_RUNTIME_DIR"] = "/run/user/1000"
                 os.environ["CLAUDE_CONFIG_DIR"] = "/tmp/claude-auth"
-                os.environ["PI_CODING_AGENT_DIR"] = "/tmp/pi-auth"
                 os.environ["CLAUDE_CODE_USE_FOUNDRY"] = "1"
                 os.environ["CLOUD_ML_REGION"] = "us-east5"
                 os.environ["ANTHROPIC_AUTH_TOKEN"] = "test-auth-token"
@@ -4025,7 +3995,6 @@ class AutoreviewHardeningTests(unittest.TestCase):
 
                 env = self.helper["safe_engine_env"](repo, engine="codex")
                 claude_env = self.helper["safe_engine_env"](repo, engine="claude")
-                pi_env = self.helper["safe_engine_env"](repo, engine="pi")
 
                 self.assertNotEqual(env.get("GIT_DIR"), "/tmp/unsafe-git-dir")
                 self.assertEqual(
@@ -4070,7 +4039,6 @@ class AutoreviewHardeningTests(unittest.TestCase):
                     claude_env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"],
                     "1",
                 )
-                self.assertEqual(pi_env["PI_CODING_AGENT_DIR"], "/tmp/pi-auth")
                 self.assertEqual(claude_env["CLAUDE_CODE_USE_FOUNDRY"], "1")
                 self.assertEqual(claude_env["CLOUD_ML_REGION"], "us-east5")
                 self.assertEqual(
@@ -4727,7 +4695,7 @@ else:
                 os.environ.clear()
                 os.environ.update(old)
 
-    def test_multi_provider_engines_preserve_provider_auth(self) -> None:
+    def test_claude_and_codex_preserve_provider_auth(self) -> None:
         old = os.environ.copy()
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir).resolve()
@@ -4773,9 +4741,6 @@ else:
                 os.environ["CODEX_API_KEY"] = "test-token-placeholder"
                 os.environ["CODEX_CA_CERTIFICATE"] = str(root / "codex-ca.pem")
                 os.environ["COPILOT_GITHUB_TOKEN"] = "test-token-placeholder"
-                os.environ["PI_OFFLINE"] = "1"
-                os.environ["PI_SKIP_VERSION_CHECK"] = "1"
-                os.environ["PI_TELEMETRY"] = "0"
                 os.environ["NPM_TOKEN"] = "test-token-placeholder"
                 os.environ["SENTRY_API_KEY"] = "test-token-placeholder"
                 os.environ["SENTRY_AUTH_TOKEN"] = "test-token-placeholder"
@@ -4783,42 +4748,6 @@ else:
                 os.environ["GITLAB_TOKEN"] = "test-token-placeholder"
                 os.environ["NODE_OPTIONS"] = "--require=/tmp/unsafe.js"
                 os.environ["GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES"] = "1"
-                env = self.helper["safe_engine_env"](repo, engine="pi")
-                for key in (
-                            "AWS_ROLE_ARN",
-                            "AWS_CONTAINER_AUTHORIZATION_TOKEN",
-                            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-                            "AWS_BEDROCK_FORCE_HTTP1",
-                            "AWS_BEDROCK_SKIP_AUTH",
-                            "AWS_CONFIG_FILE",
-                            "AWS_SHARED_CREDENTIALS_FILE",
-                            "AWS_WEB_IDENTITY_TOKEN_FILE",
-                            "CEREBRAS_API_KEY",
-                            "CLOUDFLARE_ACCOUNT_ID",
-                            "CLOUDFLARE_API_TOKEN",
-                            "COPILOT_GITHUB_TOKEN",
-                            "DEEPSEEK_API_KEY",
-                            "GOOGLE_APPLICATION_CREDENTIALS",
-                            "NODE_EXTRA_CA_CERTS",
-                            "SSL_CERT_DIR",
-                            "SSL_CERT_FILE",
-                            "SNOWFLAKE_ACCOUNT",
-                            "SNOWFLAKE_CORTEX_TOKEN",
-                            "AZURE_RESOURCE_NAME",
-                            "ANTHROPIC_OAUTH_TOKEN",
-                ):
-                    self.assertEqual(env[key], os.environ[key])
-                self.assertNotIn("NODE_OPTIONS", env)
-                self.assertNotIn("NPM_TOKEN", env)
-                self.assertNotIn("SENTRY_API_KEY", env)
-                self.assertNotIn("SENTRY_AUTH_TOKEN", env)
-                self.assertNotIn("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", env)
-                self.assertNotIn("DIGITALOCEAN_ACCESS_TOKEN", env)
-                self.assertNotIn("GITLAB_TOKEN", env)
-                self.assertEqual(env["PI_OFFLINE"], "1")
-                self.assertEqual(env["PI_SKIP_VERSION_CHECK"], "1")
-                self.assertEqual(env["PI_TELEMETRY"], "0")
-
                 claude_env = self.helper["safe_engine_env"](repo, engine="claude")
                 for key in (
                     "AZURE_CLIENT_ID",
@@ -4850,31 +4779,6 @@ else:
                 os.environ.clear()
                 os.environ.update(old)
 
-    def test_multi_provider_custom_credentials_require_explicit_safe_names(self) -> None:
-        old = os.environ.copy()
-        with tempfile.TemporaryDirectory() as tempdir:
-            repo = init_repo(Path(tempdir))
-            try:
-                os.environ["CORP_LLM_API_KEY"] = "test-token-placeholder"
-                os.environ["CORP_AUTH_TOKEN"] = "test-token-placeholder"
-                os.environ["AUTOREVIEW_PROVIDER_ENV_ALLOW"] = (
-                    "CORP_LLM_API_KEY,CORP_AUTH_TOKEN"
-                )
-
-                env = self.helper["safe_engine_env"](repo, engine="pi")
-                self.assertEqual(env["CORP_LLM_API_KEY"], os.environ["CORP_LLM_API_KEY"])
-                self.assertEqual(env["CORP_AUTH_TOKEN"], os.environ["CORP_AUTH_TOKEN"])
-                self.assertNotIn("AUTOREVIEW_PROVIDER_ENV_ALLOW", env)
-
-                os.environ["AUTOREVIEW_PROVIDER_ENV_ALLOW"] = "NODE_OPTIONS"
-                with self.assertRaisesRegex(
-                    SystemExit,
-                    "invalid AUTOREVIEW_PROVIDER_ENV_ALLOW entry",
-                ):
-                    self.helper["safe_engine_env"](repo, engine="pi")
-            finally:
-                os.environ.clear()
-                os.environ.update(old)
 
     def test_provider_credential_paths_are_forwarded_as_absolute(self) -> None:
         old_env = os.environ.copy()
@@ -4889,7 +4793,7 @@ else:
                     ("../tls/one", "../tls/two"),
                 )
 
-                env = self.helper["safe_engine_env"](repo, engine="pi")
+                env = self.helper["safe_engine_env"](repo, engine="claude")
 
                 self.assertEqual(
                     env["AWS_CONFIG_FILE"],
@@ -4916,19 +4820,16 @@ else:
             try:
                 os.environ["CLAUDE_CONFIG_DIR"] = str(repo / ".claude")
                 os.environ["CODEX_HOME"] = str(repo / ".codex")
-                os.environ["PI_CODING_AGENT_DIR"] = str(repo / ".pi")
                 os.environ["CODEX_CA_CERTIFICATE"] = str(repo / "codex-ca.pem")
                 os.environ["SSL_CERT_FILE"] = str(repo / "tls-ca.pem")
                 os.environ["HOME"] = str(repo)
                 os.environ["USERPROFILE"] = str(repo)
                 claude_env = self.helper["safe_engine_env"](repo, engine="claude")
                 codex_env = self.helper["safe_engine_env"](repo, engine="codex")
-                pi_env = self.helper["safe_engine_env"](repo, engine="pi")
                 self.assertNotIn("CLAUDE_CONFIG_DIR", claude_env)
                 self.assertNotIn("CODEX_HOME", codex_env)
                 self.assertNotIn("CODEX_CA_CERTIFICATE", codex_env)
                 self.assertNotIn("SSL_CERT_FILE", codex_env)
-                self.assertNotIn("PI_CODING_AGENT_DIR", pi_env)
                 self.assertNotIn("HOME", claude_env)
                 self.assertNotIn("USERPROFILE", claude_env)
             finally:
@@ -6284,82 +6185,6 @@ os.execv(target, [str(target), *sys.argv[1:]])
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("bundle: constructible", result.stdout)
             self.assertIn("prompt: OK", result.stdout)
-
-    @unittest.skipIf(os.name == "nt", "the fake executable is POSIX-only")
-    def test_dry_run_flag_exits_nonzero_when_pi_version_unsupported(self) -> None:
-        # run_pi() calls ensure_pi_isolation_supported(), which requires
-        # Pi >= 0.79.0 for --no-approve trust isolation before the CLI is
-        # ever invoked for a review; --dry-run must reuse that same local
-        # --version probe rather than reporting pi available just because
-        # the binary resolves on PATH.
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            repo = init_repo(root)
-            pi_bin = write_executable(
-                root / "pi",
-                fake_pi_script(),
-            )
-            env = os.environ.copy()
-            env["AUTOREVIEW_FAKE_PI_VERSION"] = "0.50.0"
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "--mode",
-                    "local",
-                    "--engine",
-                    "pi",
-                    "--pi-bin",
-                    str(pi_bin),
-                    "--dry-run",
-                ],
-                cwd=repo,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertRegex(result.stdout, r"engine check: pi[^\n]* UNAVAILABLE")
-            self.assertIn("0.79.0", result.stdout)
-
-    @unittest.skipIf(os.name == "nt", "the fake executable is POSIX-only")
-    def test_dry_run_flag_exits_zero_when_pi_version_supported(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            repo = init_repo(root)
-            source = repo / "source.txt"
-            source.write_text("staged\n", encoding="utf-8")
-            git(repo, "add", "source.txt")
-            pi_bin = write_executable(
-                root / "pi",
-                fake_pi_script(),
-            )
-            env = os.environ.copy()
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "--mode",
-                    "local",
-                    "--engine",
-                    "pi",
-                    "--pi-bin",
-                    str(pi_bin),
-                    "--dry-run",
-                ],
-                cwd=repo,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertRegex(result.stdout, r"engine check: pi[^\n]* OK\b")
 
     @unittest.skipIf(os.name == "nt", "the fake executable is POSIX-only")
     def test_dry_run_flag_exits_nonzero_when_kimi_version_unsupported(self) -> None:

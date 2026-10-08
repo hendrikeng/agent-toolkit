@@ -43,7 +43,6 @@ Use the provider's supported skill syntax:
 |---|---|---|
 | Codex | `$ponytail full` | `$ponytail-help` |
 | Claude Code | `/ponytail full` | `/ponytail-help` |
-| Pi | `/skill:ponytail full` | `/skill:ponytail-help` |
 
 Replace `ponytail-help` with another skill name for its explicit invocation.
 Natural-language requests also work through skill descriptions and startup guidance.
@@ -62,7 +61,6 @@ For local source changes, run `./verify.sh` and `./install.sh` instead.
 Then start fresh provider sessions.
 Upstream skill versions change through reviewed Toolkit source updates, not plugin auto-updates.
 
-These shared skills work through normal providers in Orca, native Paseo, or a terminal.
-Pi's `/side` interface requires its terminal UI; shared Ponytail skills do not.
+These shared skills work through normal providers in native Paseo or a terminal.
 
 Upstream project: https://github.com/DietrichGebert/ponytail

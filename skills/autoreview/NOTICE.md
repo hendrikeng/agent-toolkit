@@ -21,7 +21,7 @@ Other explicit CLI arguments and environment overrides retain their upstream beh
 
 ## Compatibility
 
-This version supports Codex, Claude, Amp, Pi, and Kimi. Upstream removed Droid,
+This version supports Codex, Claude, Amp, and Kimi. Toolkit removes the unused reviewer backend. Upstream removed Droid,
 Copilot, Cursor, OpenCode, panels, and the `--self-test` entry point.
 
 AutoReview does not invoke TruffleHog. Secret findings occur after the review

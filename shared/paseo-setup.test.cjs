@@ -97,7 +97,7 @@ function writer(file, writes) {
 test('setup fills the catalog, preserves existing choices, backs up original bytes, and repeats without writes', t => {
   const f = fixture(t), config = configuration()
   const existing = { id: 'human-ui', name: 'Toolkit Codex UI Worker', provider: 'another-account', model: 'human-choice', featureValues: { fast_mode: true }, notes: 'Human specialty' }
-  const unrelated = { id: 'user-profile', name: 'My preset', provider: 'pi', featureValues: { custom: false } }
+  const unrelated = { id: 'user-profile', name: 'My preset', provider: 'user-provider', featureValues: { custom: false } }
   config.daemon.agentProfiles = [existing, unrelated]
   const original = '// Human configuration comment\n' + JSON.stringify(config, null, 2).replace(/\n}$/, ',\n}')
   fs.writeFileSync(f.file, original)

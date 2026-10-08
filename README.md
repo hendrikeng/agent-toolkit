@@ -1,10 +1,10 @@
 # Agent Toolkit
 
-One shared skill collection for Codex, Claude Code, and Pi, in Orca, native Paseo, or a terminal. Start with normal provider commands. Orca workspaces do not require special launchers.
+One shared skill collection for Codex and Claude Code, in native Paseo or a terminal. Start with normal provider commands.
 
-The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Pi has its own command interfaces in `pi/extensions/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
+The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
 
-Replies addressed directly to the human user use the adapted, pinned [Caveman skill](skills/caveman/SKILL.md) across Codex, Claude Code, and Pi.
+Replies addressed directly to the human user use the adapted, pinned [Caveman skill](skills/caveman/SKILL.md) across Codex and Claude Code.
 It removes filler and keeps technical meaning. Use `normal mode` or request more detail when needed.
 Tool arguments, delegation briefs, agent messages, worker reports, and handoffs use normal English with complete sentences and normal spacing.
 This exclusion also applies to worker reports addressed to a coordinator and agent messages visible in the user timeline.
@@ -13,12 +13,13 @@ Shorter replies can reduce output tokens. This does not guarantee a reduction in
 
 ## Install and start
 
-Use Node.js 24, npm, Git, Python 3.11+, and your chosen provider CLIs. Pi is optional: when its CLI is absent, installation supplies shared skills and Codex/Claude guidance, leaving Pi settings and interfaces untouched. When present, Pi interfaces require `@earendil-works/pi-coding-agent` 0.99.2; an unsupported version stops installation. Install the supported Pi CLI and rerun the same installer when you want those interfaces. Verification skips unavailable native Pi checks and reports them as unverified. Codex 0.160.0 and Claude Code 2.1.289 were inspected during the rebuild. Toolkit does not install or upgrade provider CLIs, choose models, or change accounts. Install the official Orca or Paseo skills through those hosts when using their operations.
+Use Node.js 24, npm, Git, Python 3.11+, and your chosen provider CLIs. Toolkit does not install or upgrade provider CLIs.
+It preserves selected models and accounts. Install the official Paseo skills through Paseo for host operations.
 
 From a trusted human terminal:
 
 ```sh
-git clone --recurse-submodules https://github.com/hendrikeng/agent-toolkit.git
+git clone https://github.com/hendrikeng/agent-toolkit.git
 cd agent-toolkit
 npm ci --prefix shared --ignore-scripts --no-audit --no-fund
 ./verify.sh
@@ -45,12 +46,11 @@ Repeat installs retain this authorization. No persistent provider-config backups
 Other installed Toolkit resources retain the installer's normal backups.
 The former `--review-network` option remains accepted, with the same behavior as normal installation.
 
-An existing checkout needs `git submodule update --init --recursive`. Add `~/.local/bin` to `PATH` for PostgreSQL helpers. Restart old sessions, then use:
+Add `~/.local/bin` to `PATH` for PostgreSQL helpers. Restart old sessions, then use:
 
 ```sh
 codex
 claude
-pi
 ```
 
 For optional native Paseo profiles, run this command after installation from a trusted human terminal on the daemon machine:
@@ -62,11 +62,12 @@ For optional native Paseo profiles, run this command after installation from a t
 Use the intended local `PASEO_HOME`. A host selected in a phone or desktop client does not select this command's daemon.
 See the [profile setup and instructions](docs/paseo-profiles.md).
 
-The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits and Pi `/reload` do not deploy changes. Normal installation configures reviewer networking from a trusted human terminal. The `--preserve-permissions` option leaves provider permissions unchanged. Start fresh sessions after setup. In Paseo, select Codex Auto-review mode to retain automatic approval review.
+The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits do not deploy changes. Normal installation configures reviewer networking from a trusted human terminal. The `--preserve-permissions` option leaves provider permissions unchanged. Start fresh sessions after setup. In Paseo, select Codex Auto-review mode to retain automatic approval review.
 
-The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It appends a marked instruction block without replacing human instructions. It adds missing, pinned Pi packages and web defaults while retaining other settings. Pi's native resolver downloads missing packages on its next startup. React Doctor's locked dependencies are installed with `npm ci --ignore-scripts`.
+The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It appends a marked instruction block without replacing human instructions. React Doctor's locked dependencies are installed with `npm ci --ignore-scripts`.
 
-Copies include skill-local scripts and PostgreSQL helpers. A Pi installation also copies its extensions and pinned blueprint. When Pi is skipped, existing installed extension and blueprint contents stay at their previous versions. Shared skills still update for all providers. Installation does not make the checkout read-only. Editing a source script cannot change an installed executable until a human installs it again.
+Copies include skill-local scripts and PostgreSQL helpers. Installation does not make the checkout read-only.
+Editing a source script cannot change an installed executable until a human installs it again.
 
 ### Provider discovery
 
@@ -74,13 +75,14 @@ Copies include skill-local scripts and PostgreSQL helpers. A Pi installation als
 |---|---|---|
 | Codex | `~/.agents/skills/<name>` | `$CODEX_HOME/AGENTS.md`, default `~/.codex/AGENTS.md` |
 | Claude Code | `$CLAUDE_CONFIG_DIR/skills/<name>`, default `~/.claude/skills` | `$CLAUDE_CONFIG_DIR/CLAUDE.md`, default `~/.claude/CLAUDE.md` |
-| Pi | `~/.agents/skills/<name>` | `$PI_CODING_AGENT_DIR/AGENTS.md`, default `~/.pi/agent/AGENTS.md` |
 
-Codex and Pi use the same global discovery directory. Claude symlinks resolve to the same installed collection. These are [Codex's supported skill paths](https://developers.openai.com/codex/skills/) and [Claude's personal skill mechanism](https://code.claude.com/docs/en/skills); Pi documents `.agents/skills` in its installed `docs/skills.md`. Full skill bodies load on demand.
+Codex and Claude symlinks resolve to the same installed collection.
+These are [Codex's supported skill paths](https://developers.openai.com/codex/skills/) and [Claude's personal skill mechanism](https://code.claude.com/docs/en/skills).
+Full skill bodies load on demand.
 
-Toolkit honors `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and `PASEO_HOME` during installation. It also adds guidance to existing `~/.codex-accounts/*/` account homes. Install with the same directory overrides you use to start a provider. It stops if `AGENTS.override.md` would hide the Codex block. Web configuration follows Pi web access's `PI_CODING_AGENT_DIR`, then `XDG_CONFIG_HOME/pi`, then `~/.pi` convention.
+Toolkit honors `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `PASEO_HOME` during installation. It also adds guidance to existing `~/.codex-accounts/*/` account homes. Install with the same directory overrides you use to start a provider. It stops if `AGENTS.override.md` would hide the Codex block.
 
-Installing another provider home preserves the first home's discovery links, instruction files, and ownership records. Obsolete links retire only in the discovery folders being updated. Reinstall each home to refresh its startup guidance. All homes share the copied skill resources; installed Pi homes also share the copied extension resources.
+Installing another provider home preserves the first home's discovery links, instruction files, and ownership records. Obsolete links retire only in the discovery folders being updated. Reinstall each home to refresh its startup guidance. All homes share the copied skill resources.
 
 ### Startup instructions and full skills
 
@@ -96,7 +98,6 @@ For explicit loading:
 |---|---|---|
 | Codex | `$ponytail full` | `$test-audit` |
 | Claude Code | `/ponytail full` | `/test-audit` |
-| Pi | `/skill:ponytail full` | `/skill:test-audit` |
 
 Startup guidance replaces the old Ponytail coding hooks. Shared instructions are essential, but native instruction files already supply them. Paseo setup offers a separate, default-off compact System Prompt context that references installed guidance. Instructions guide the model. They do not enforce permissions or guarantee model behavior.
 The extra Paseo prompt is not required for task-skill discovery or coding guidance.
@@ -145,8 +146,6 @@ Automatic reviews occur only when the user requests a commit, push, PR, merge, o
 - Review an unchanged bundle once across boundaries. Verify advisory findings. After an accepted review fix, rerun affected checks and that review.
 - `reviews:off` disables automatic reviews; `reviews:auto` restores the gates. Explicit reviews remain available. There are no Git review hooks.
 
-Pi provides `/reviews auto`, `/reviews off`, and `/reviews` as a persisted session control. Codex and Claude use the text instructions above.
-
 AutoReview uses its existing skill-local script on every host:
 
 ```sh
@@ -181,52 +180,11 @@ Earlier task-specific transmission blocks remain binding until the user explicit
 For explicit manual skills:
 
 ```text
-Pi:     /skill:deepsec plan
 Claude: /deepsec plan
 Codex:  $deepsec plan
 ```
 
 Use the same syntax with `react-doctor changed`. DeepSec AI stages can incur substantial charges and run agents with shell access. Read its skill and obtain the requested scope and cost approval.
-
-## Pi interfaces
-
-These interfaces are Pi extensions. Codex and Claude retain their own supported commands; Toolkit does not invent matching commands for them.
-
-| Command | Behavior |
-|---|---|
-| `/project audit .` | Read-only project audit against the blueprint |
-| `/project adopt .` | Approved adoption of blueprint conventions |
-| `/project update .` | Approved update; changed managed files stop the update |
-| `/project new ../project` | Create and configure an approved new project |
-| `/account`, `/account add`, `/account email@example.com` | Pick a session account, add an OpenAI login, or select a unique email |
-| `/fast on`, `/fast off`, `/fast status` | Persist OpenAI Codex priority service selection; it uses more quota |
-| `/side question`, `/side close` | Terminal UI only; separate side conversation; explicitly requested edits still affect the workspace |
-| `/copy-code [number\|all]` | Copy one or all clean fenced code blocks |
-| `/push` | Confirm one non-force push through a validated SSH target |
-| `/pr` | Create a confirmed GitHub PR using the repository template |
-| `/reviews auto`, `/reviews off`, `/reviews` | Control automatic AI review policy |
-| `/web on`, `/web off`, `/web status` | Enable installed web tools on demand |
-| `/simple-english check|rewrite …` | Load the shared writing skill for a check or rewrite |
-
-The question interface supplies structured choices for `/project`. Blueprint decisions come from repository evidence, with questions only for missing choices. Mutating project operations require confirmation. Web tools start behind a compact loader; the default workflow is `none` and browser-cookie access is disabled. Existing user web preferences are preserved.
-
-A side conversation reads main-conversation context without inserting side messages into it. It loads the user's normal trusted extensions and permissions and inherits the main review mode when opened. It has no private OS sandbox. Close and reopen it after switching accounts or review mode to adopt the new selection.
-
-The `/side` interface requires Pi's terminal UI. It is unavailable in Paseo's chat interface. Other Pi interfaces need the native UI or RPC capabilities their operations require; live Paseo acceptance remains unverified. `/copy-code` also has the terminal shortcut `Ctrl+Shift+X`. Its clipboard targets the host running Pi; remote clipboard behavior remains unverified.
-
-Pi exposes `inspect_pull_request` for PR status, inline comments, reviews, checks, and failed Actions logs. It also exposes `comment_on_pull_request` for explicitly requested, confirmed PR comments. These are model tools, not additional slash commands.
-
-### Accounts
-
-The account interface is retained because Pi's normal CLI has one authentication store per agent directory. Per-session account selection with shared settings and extensions requires a small interface. Pi's stored default OAuth login takes precedence over a replacement provider's API-key resolver. Its public extension API cannot replace the session's credential store.
-
-The interface therefore registers one native provider entry, `toolkit-openai-codex`, for the selected account. It keeps the selected model ID, thinking level, original transport, and request identifiers. Native Pi handles credential refresh and locking in the selected profile store. The default `openai-codex` login remains separate. An existing user-configured `toolkit-openai-codex` entry requires reconciliation. No runtime copy, credential synchronization, or Paseo provider alias is created.
-
-Each Pi account lives in `~/.pi/agent/auth-profiles/<profile>/auth.json` (or the selected agent directory). `/account add` uses normal `codex login` with a separate `CODEX_HOME=~/.codex-accounts/<profile>`, then imports that login once. Existing Pi credentials remain authoritative. Codex credentials are never erased or synchronized. Reauthenticate a profile when its independent login requires it.
-
-Account choice is stored in the Pi session and as a default for future sessions. Selecting one account does not switch another running Pi process. Different profile stores refresh independently. Codex model changes in that session continue to use the selected account. A restored account or selected-account model that cannot load stops instead of silently falling back. Account/quota status shows the selected Pi account.
-
-On resume, the session's recorded account and model remain selected. Explicit native model, provider, and thinking arguments take precedence.
 
 Codex CLI account selection is independent:
 
@@ -236,27 +194,27 @@ CODEX_HOME="$HOME/.codex-accounts/work" codex
 
 A newly created Codex account home receives its own native configuration choices; Toolkit does not mirror a previous account's settings. Run installation again to append shared guidance to new account homes. Preserve provider aliases, models, reasoning, and credentials in each home.
 
-## Orca and native Paseo
+## Native Paseo
 
 The small shared block selects host guidance only from the current session's ownership context. Skill availability or an installed host binary does not establish ownership. If it is unclear, ask before delegation, browser control, handoff, or cleanup; ordinary coding can continue.
 
-Orca owns workspaces and worker lifecycle. Its host guidance loads the version-matched official `orca-cli` and `orchestration` skills for delegation and handoffs. Use normal provider commands in the assigned worktree. Use Orca's embedded browser through `orca-cli`; use appropriate computer-use or page automation for external windows. Toolkit grants no socket or sandbox extensions.
-
-Native Paseo uses normal providers, its native permission modes, and official Paseo skills. Toolkit never installs, overwrites, or duplicates those skills. Ordinary installation leaves Paseo configuration unchanged. The optional trusted-terminal setup adds missing profiles and offers a separate, default-off System Prompt context. It preserves existing profiles, human text, and provider security settings. It does not inject Orca worker instructions into Paseo sessions. Profile notes, account aliases, provider/model/reasoning choices, and asynchronous lifecycle rules come from the official skills. Paseo browser control uses Paseo's enabled browser host.
+Native Paseo uses normal providers, its native permission modes, and official Paseo skills. Toolkit never installs, overwrites, or duplicates those skills. Ordinary installation leaves Paseo configuration unchanged. The optional trusted-terminal setup adds missing profiles and offers a separate, default-off System Prompt context. It preserves existing profiles, human text, and provider security settings. Profile notes, account aliases, provider/model/reasoning choices, and asynchronous lifecycle rules come from the official skills. Paseo browser control uses Paseo's enabled browser host.
 
 Paseo launches the installed providers with their configuration and skills. The same native discovery paths serve sessions in Paseo and ordinary terminals. Toolkit installation belongs on the machine and under the user account that runs the Paseo daemon. A phone or remote desktop client does not supply that daemon's skill files. See [Paseo providers](https://paseo.sh/docs/providers).
 
-The startup block must reach the provider home that Paseo uses. An Orca terminal can select a separate account through `CODEX_HOME`. Installation then writes Codex guidance to that selected home and existing `~/.codex-accounts/*/` homes. It does not also write to the default `~/.codex` home unless that home is selected. An Orca account registry outside `~/.codex-accounts` requires its home as `CODEX_HOME`. The shared Codex skill directory remains `~/.agents/skills`.
+The startup block must reach the provider home that Paseo uses. A terminal can select a separate account through `CODEX_HOME`.
+Installation writes guidance to that home and existing `~/.codex-accounts/*/` homes.
+It writes to `~/.codex` only when that home is selected. The shared Codex skill directory remains `~/.agents/skills`.
 
 Before installation, inspect the host's provider configuration and your terminal's directory overrides:
 
 ```sh
-printenv CODEX_HOME CLAUDE_CONFIG_DIR PI_CODING_AGENT_DIR PASEO_HOME
+printenv CODEX_HOME CLAUDE_CONFIG_DIR PASEO_HOME
 ```
 
 If no override exists, the command prints no value for that variable. Use the same provider homes for installation and fresh sessions. For hosts with different homes, run the same installer for each intended configuration from a trusted terminal. Preserve each home's accounts, models, permissions, and human instructions. A successful install into one account does not prove startup guidance in another account.
 
-Both hosts require explicit ownership for handoffs. A resumed session keeps its original owner. Collect results before integrating or archiving disposable work; keep unresolved and user-retained resources. Do not archive the active user workspace or a handoff recipient. No timer-based collector runs.
+Handoffs require explicit ownership. A resumed session keeps its original owner. Collect results before integrating or archiving disposable work; keep unresolved and user-retained resources. Do not archive the active user workspace or a handoff recipient. No timer-based collector runs.
 
 The [central Paseo worktree guide](docs/paseo-worktrees.md) covers project setup, cross-repository workers, previews, and cleanup.
 Each project keeps its native `paseo.json`. The shared workflow stays in this Toolkit guide.
@@ -425,21 +383,15 @@ For parallel edits, verify the intended base and required dirty files before lau
 A new worktree contains committed history. It does not automatically include staged, unstaged, or untracked source changes.
 
 The inspected host runs Paseo 0.10.3. Current public documentation includes later features and fixes.
-The [0.11.0-beta.4 changelog](https://paseo.sh/changelog) includes Pi 0.99 MCP injection, mode persistence, and thinking-display fixes.
-The installed adapter checks for `pi-mcp-adapter` before supplying Pi with MCP servers.
-Pi's actual Paseo tool access therefore needs a fresh-session check. A model launch alone is insufficient.
-Pi remains an explicitly selected alternative. Its provider modes, RPC limits, account selection, and permissions differ from Codex's.
-No Pi copy of these profiles is required.
 
 ## Permissions and the security tradeoff
 
 Toolkit preserves existing provider and host permissions. Approval policy controls whether a tool may run; an OS sandbox constrains what the process can access. They are different protections.
 
-Retiring the old wrappers removes Toolkit's extra workspace scope, denied credential and `.env` paths, network allowlist, isolated Git settings, Pi Bash-through-Codex sandbox, publication rules, and legacy Git/process guards. Normal commands use only the protections configured in the provider and host. Existing native Codex/Claude sandboxes remain as configured; Toolkit neither enables nor disables them.
+Retiring the old wrappers removes Toolkit's extra workspace scope, denied credential and `.env` paths, network allowlist, isolated Git settings, publication rules, and legacy Git/process guards. Normal commands use only the protections configured in the provider and host. Existing native Codex/Claude sandboxes remain as configured; Toolkit neither enables nor disables them.
 
-Pi's normal tools and trusted extensions are host processes. Project trust and a user-installed approval extension do not supply an OS sandbox. Without an approval extension, Pi can execute tools with the local account's access. Host terminal brokers, MCP servers, Docker, and frontend services also have their own privileges. Workspace selection alone cannot protect other projects or secrets. Keep appropriate native sandbox settings and backups.
-
-`/push` and `/pr` confirm their own bounded operations. They do not prohibit direct Git or GitHub commands in other flows. Publication follows native permission settings and user authorization. PostgreSQL and reviewer helpers receive no automatic permission exception.
+Host terminal brokers, MCP servers, Docker, and frontend services have their own privileges.
+Workspace selection alone cannot protect other projects or secrets. Keep appropriate native sandbox settings and backups.
 
 ## Disposable PostgreSQL
 
@@ -479,19 +431,19 @@ See [PostgreSQL shared-memory configuration](https://www.postgresql.org/docs/18/
 
 Stop active providers before installation. Inspect current settings and historical backups in a trusted human terminal. Old installations can contain both native sandbox settings and Toolkit approval extensions. A generic setting such as `sandbox.enabled` or `approval_policy` is not proof of Toolkit ownership.
 
-The installer completes a read-only preflight before deployment. It parses Ponytail registrations structurally in the selected Codex home and every existing account home that receives guidance. TOML table indentation, dotted keys, and inline tables do not bypass detection. Claude and Paseo configuration can contain comments and trailing commas. Preflight reads those files without changing their bytes. It stops for manual reconciliation when an existing resource, managed instruction block, active Ponytail plugin/package, or retired Pi reference has unclear ownership. Pi-specific checks and changes apply only when installing Pi interfaces. It preserves accounts, credentials, provider aliases, models, reasoning, hooks, official host skills, and unrelated settings. Do not clear a directory to resolve a conflict.
+The installer completes a read-only preflight before deployment. It parses Ponytail registrations structurally in the selected Codex home and every existing account home that receives guidance. TOML table indentation, dotted keys, and inline tables do not bypass detection. Claude and Paseo configuration can contain comments and trailing commas. Preflight reads those files without changing their bytes. It stops for manual reconciliation when an existing resource, managed instruction block, active Ponytail plugin/package has unclear ownership. It preserves accounts, credentials, provider aliases, models, reasoning, hooks, official host skills, and unrelated settings. Do not clear a directory to resolve a conflict.
 
 Use the [migration and acceptance runbook](docs/toolkit-acceptance.md) for a fresh checkout, safe retirement, and copyable test prompts.
 There is no blanket uninstall command. Preserve provider homes and migrate proven Toolkit resources through the installer.
 
 For complete removal before a fresh install, use the runbook's [legacy removal procedure](docs/toolkit-acceptance.md#completely-remove-the-legacy-toolkit).
-It includes all selected provider homes, even if Pi is absent, and removes the old snapshot after human ownership classification.
+It includes all selected provider homes and removes the old snapshot after human ownership classification.
 
 The following steps are the alternative migration route, which retains historical snapshots until later inspection:
 
 1. Back up the relevant configuration and compare it with the old Toolkit backups and ownership markers.
 2. Reconcile proven old Ponytail plugin/package registrations so they cannot duplicate the shared skill or execute coding-guidance hooks. If a registration is user-owned and should stay, stop and resolve the conflict deliberately.
-3. Remove only proven stale Pi explicit skill paths, status-formatter references, or Toolkit-specific provider prompt/rule references. Preserve unrelated packages and native permission choices.
+3. Remove only proven stale Toolkit provider prompt/rule references. Preserve unrelated packages and native permission choices.
 4. Run `./install.sh`. Only exact marked legacy files and recognized Toolkit symlink targets are retired. Modified or unmarked files stop installation. The installer leaves unmanifested legacy resource snapshots intact for manual inspection.
 5. Restart normal providers and verify behavior before removing any remaining historical data.
 
@@ -520,9 +472,7 @@ enabled = false
 
 Keep the hook trust records and native permission configuration. Start fresh sessions after migration. Disabling the plugin stops its hooks in those sessions. It does not disable an OS sandbox.
 
-Pi can retain an old Ponytail package, explicit skill paths, or a retired status extension. Reconcile the named entries individually. Keep unrelated packages, approval extensions, credentials, and preferences. After each deliberate change, rerun `./install.sh`. Another named conflict requires its own ownership check.
-
-Replaced resources and instruction/configuration files are backed up under `~/.local/share/agent-toolkit/backups/`. The receipt records owned links, exact instruction blocks, and the copied source snapshot. Modified installed skill/script resources stop replacement; dependency caches are rebuilt from the lockfile. Repeat installation preserves human text outside the block. Installation re-reads settings under Pi's native settings lock, and restores replaced files if deployment fails. A crash or an existing lock requires manual inspection, not automatic lock theft. Backups can contain private settings: keep them private. Restore specific files after comparing them; do not blindly restore an entire global configuration.
+Replaced resources and instruction/configuration files are backed up under `~/.local/share/agent-toolkit/backups/`. The receipt records owned links, exact instruction blocks, and the copied source snapshot. Modified installed skill/script resources stop replacement; dependency caches are rebuilt from the lockfile. Repeat installation preserves human text outside the block. Installation re-reads configuration after staging and restores replaced files if deployment fails. A crash or an existing lock requires manual inspection, not automatic lock theft. Backups can contain private settings: keep them private. Restore specific files after comparing them; do not blindly restore an entire global configuration.
 
 To update from a trusted human terminal:
 
@@ -530,7 +480,7 @@ To update from a trusted human terminal:
 ./update.sh
 ```
 
-The script requires a clean checkout, confirms its actual upstream, fast-forwards, initializes the pinned submodule, runs checks, and installs copies. It does not blanket-update global skills, official host skills, provider CLIs, or user packages. Toolkit never updates itself or its skill pins at startup.
+The script requires a clean checkout, confirms its actual upstream, fast-forwards, runs checks, and installs copies. It does not blanket-update global skills, official host skills, provider CLIs, or user packages. Toolkit never updates itself or its skill pins at startup.
 
 After an update, rerun `./setup-paseo.sh` to add missing presets. Select context refresh only if you use its owned block.
 Existing profiles keep their aliases, models, thinking levels, modes, features, and notes. Setup does not reset them to new defaults.
@@ -543,14 +493,11 @@ Start fresh sessions to verify the updated installed guidance and effective laun
 |---|---|
 | Ponytail skill family (five skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
 | AutoReview | `711711b86294673feced9d1cb636b539daf3c218`; adaptations in its NOTICE |
-| Project blueprint | Git submodule `acf07a8b6a99f03d6884ddd9edf064d2f894ceb8` |
-| Pi web access | `npm:pi-web-access@0.13.0`, package skills disabled |
-| Pi file finder | `npm:@ff-labs/pi-fff@0.10.3` |
 | React Doctor | `0.9.13`, locked skill-local dependencies |
 | DeepSec | `npx deepsec@2.3.9`, manual only |
 | Installer configuration parsers | `smol-toml@1.9.0`, `jsonc-parser@3.3.1`, locked in `shared/` |
 
-Python, framework, writing, and Test Audit guidance is vendored; revisions and licenses are kept beside the skill where supplied. Change pins deliberately in source, check, then reinstall. A conflicting user-selected Pi package version requires reconciliation instead of silent replacement.
+Python, framework, writing, and Test Audit guidance is vendored; revisions and licenses are kept beside the skill where supplied. Change pins deliberately in source, check, then reinstall.
 
 ## Verification and limits
 
@@ -558,7 +505,7 @@ Python, framework, writing, and Test Audit guidance is vendored; revisions and l
 ./verify.sh
 ```
 
-Checks cover installation and repetition, configuration/account preservation, host coexistence, migration refusal, backups and recovery, source/install separation, native Pi credential refresh with two stores, retained Pi interfaces, blueprint update preservation, PostgreSQL role/lifecycle behavior, and AutoReview's deterministic helper contract. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
+Checks cover installation and repetition, configuration/account preservation, Paseo preservation, migration refusal, backups and recovery, source/install separation, PostgreSQL role/lifecycle behavior, and AutoReview's deterministic helper contract. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
 
 Tests must remove their temporary directories after the owning test or helper finishes, including failure paths.
 They must register cleanup before fixture setup. Requested evidence uses an explicit output directory.
@@ -583,14 +530,13 @@ The coordinator must inspect the exact provider and selected settings before lau
 4. Start a fresh native Paseo session in a disposable repository for each provider you use. Explicitly load Ponytail and Test Audit with the syntax in the table. Inspect the skill expansion or file-read event for the full copied body.
 5. Exercise small coding, test, and Markdown documentation tasks without explicit skill requests. Verify full Ponytail, Test Audit, and Simple English reads respectively. A skill listing or the model's unsupported claim is insufficient.
 6. Explicitly request a small AutoReview through its skill-local script. Verify the isolated reviewer and report through normal approval. A permission denial leaves this check unverified.
-7. For host operations, verify that only the session owner's guidance loads. Native Paseo uses official Paseo skills. Orca uses its official skills.
-8. In Pi, exercise `/project audit`, side conversations, review-off inheritance, web toggling, and concurrent accounts.
-9. After optional Paseo setup, inspect `list_profiles` on the selected daemon. Verify effective models, thinking, modes, and features. Inspect actual context and role-guidance reads in fresh sessions.
+7. For host operations, verify that Paseo guidance and official Paseo skills load.
+8. After optional Paseo setup, inspect `list_profiles` on the selected daemon. Verify effective models, thinking, modes, and features. Inspect actual context and role-guidance reads in fresh sessions.
 
-Passing `./verify.sh` proves the covered fixture and SDK behavior. It does not prove that your live installation or fresh Paseo sessions meet these acceptance checks.
-The [acceptance runbook](docs/toolkit-acceptance.md#fresh-session-tests) covers all shared skills, host roles, Pi interfaces, and PostgreSQL helpers.
+Passing `./verify.sh` proves the covered fixture behavior. It does not prove that your live installation or fresh Paseo sessions meet these acceptance checks.
+The [acceptance runbook](docs/toolkit-acceptance.md#fresh-session-tests) covers all shared skills, host roles and PostgreSQL helpers.
 
-A fresh Pi SDK process verifies copied Ponytail, Test Audit, and Simple English bodies through native command expansion and review-off instructions in the outgoing request. It also verifies Simple English is visible for automatic model selection. The transport is stopped before a model call. No live installation was changed during this rebuild. Automatic skill use by a real model, fresh installed CLI use, Codex/Claude skill loading, and a live review remain unverified. The validation record, old-origin comparison, and current migration blockers are in [docs/rebuild-validation.md](docs/rebuild-validation.md).
+Automatic skill use by a real model, fresh Codex/Claude skill loading, and a live review require fresh-session acceptance.
 
 ## Layout
 
@@ -598,12 +544,9 @@ A fresh Pi SDK process verifies copied Ponytail, Test Audit, and Simple English 
 |---|---|
 | `skills/` | One shared collection, including skill-local scripts and upstream notices |
 | `shared/AGENTS.md` | Small coding/review and host-selection guidance |
-| `shared/hosts/` | Separate Orca and Paseo instructions |
+| `shared/hosts/` | Paseo instructions |
 | `shared/install.cjs` | Human-terminal installation and conservative migration |
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
 | `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
-| `shared/pi-web-access/defaults.json` | Missing web preferences only |
-| `pi/extensions/` | Pi-only interfaces |
-| `vendor/agent-project-blueprint/` | Pinned blueprint |
 | `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |

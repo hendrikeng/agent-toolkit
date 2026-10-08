@@ -66,7 +66,6 @@ A completed review with findings is not a reviewer failure.
 
 Use the session's host context, not installed binaries or skill availability, to identify its owner.
 Paseo sessions load `%TOOLKIT%/shared/hosts/paseo.md` before host operations.
-Orca sessions load `%TOOLKIT%/shared/hosts/orca.md` before host operations.
 If the owner is unclear, ask before delegation, browser control, handoff, or cleanup. Ordinary coding can continue.
 A provider session keeps its original owner on resume. Cross-host ownership transfers require an explicit handoff.
 Never install, repair, or broaden live permissions from an agent session. Installation and migration use a trusted human terminal.

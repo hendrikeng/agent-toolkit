@@ -86,7 +86,6 @@ if [[ -n $("${safe_git[@]}" status --porcelain --untracked-files=all) ]] ||
   exit 1
 fi
 "${safe_git[@]}" pull --ff-only --no-tags "$upstream_remote" "$merge_ref"
-"${safe_git[@]}" submodule update --init --recursive
 npm ci --prefix "$repo_dir/shared" --ignore-scripts --no-audit --no-fund
 "$repo_dir/verify.sh"
 "$repo_dir/install.sh"

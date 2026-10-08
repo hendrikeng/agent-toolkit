@@ -1150,7 +1150,7 @@ class AutoreviewInputTests(unittest.TestCase):
 
 
     def test_every_provider_reviews_each_pack_without_a_scanner(self) -> None:
-        for engine in ("codex", "claude", "amp", "pi", "kimi"):
+        for engine in ("codex", "claude", "amp", "kimi"):
             with self.subTest(engine=engine), tempfile.TemporaryDirectory() as tempdir:
                 args = argparse.Namespace(engine=engine, max_priority="P0")
                 prompts = [f"complete pack {index}: unicode π\r\n-context\n+change\n" for index in range(2)]
