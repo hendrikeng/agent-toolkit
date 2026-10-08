@@ -33,11 +33,37 @@ function prepareSetup({ config, presets, context, resources, previousPrompt, sel
   const profiles = config.daemon?.agentProfiles ?? []
   if (!Array.isArray(profiles) || profiles.some(p => !p || typeof p.id !== 'string' || typeof p.name !== 'string')) throw Error('Invalid existing profile list.')
   if (new Set(profiles.map(p => p.id)).size !== profiles.length) throw Error('Duplicate existing profile IDs require reconciliation.')
-  const next = [...profiles], added = [], preserved = []
+  const next = [...profiles], added = [], preserved = [], updated = []
   for (const preset of presets) {
     const matches = profiles.filter(p => p.name === preset.name)
     if (matches.length > 1) throw Error(`Ambiguous profile name: ${preset.name}`)
-    if (matches.length) { preserved.push(preset.name); continue }
+    if (matches.length) {
+      const existing = matches[0], selection = selections.codex
+      // 7f58ade/0f0d570 delivered Sol/High with these notes and either
+      // supported mode. Older saved profiles can omit fast_mode. Receipts
+      // own context only: main must explicitly confirm this candidate update.
+      const legacy = {
+        id: 'toolkit-codex-adviser', name: 'Toolkit Codex Adviser',
+        provider: selection?.provider, model: 'gpt-6.1-sol', thinkingOptionId: 'high',
+        modeId: existing.modeId, featureValues: existing.featureValues,
+        notes: 'Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish.',
+      }
+      const features = isDeepStrictEqual(existing.featureValues, { plan_mode: false }) ||
+        isDeepStrictEqual(existing.featureValues, { plan_mode: false, fast_mode: false })
+      if (selection && preset.name === legacy.name && features &&
+          Object.hasOwn(modes.codex, existing.modeId) && isDeepStrictEqual(existing, legacy)) {
+        const provider = providers.find(p => p.provider === existing.provider)
+        if (!provider || provider.status !== 'available' || provider.enabled !== 'Enabled' ||
+            (existing.provider !== 'codex' && config.agents?.providers?.[existing.provider]?.extends !== 'codex') ||
+            typeof provider.modes !== 'string' || !provider.modes.includes(modes.codex[existing.modeId]) ||
+            !models[existing.provider]?.find(m => m.id === existing.model)?.thinkingOptionIds?.includes('medium')) {
+          throw Error('Cannot validate the existing Toolkit Codex Adviser account/model/mode for Medium. No changes saved.')
+        }
+        next[next.indexOf(existing)] = { ...existing, thinkingOptionId: 'medium' }
+        updated.push(existing.name)
+      } else preserved.push(preset.name)
+      continue
+    }
     const family = preset.provider, selection = selections[family]
     if (!selection) continue
     if (!Object.hasOwn(modes[family] ?? {}, selection.modeId)) throw Error(`Select an explicit supported ${family} permission mode.`)
@@ -56,7 +82,7 @@ function prepareSetup({ config, presets, context, resources, previousPrompt, sel
   }
   const text = config.daemon?.appendSystemPrompt ?? ''
   if (typeof text !== 'string') throw Error('Invalid existing System Prompt.')
-  if (!installContext) return { profiles: next, prompt: text, block: null, added, preserved }
+  if (!installContext) return { profiles: next, prompt: text, block: null, added, preserved, updated }
   const block = `${begin}\n${context.replaceAll('%TOOLKIT%', resources).trimEnd()}\n${end}`
   const start = text.indexOf(begin), stop = text.indexOf(end)
   let prompt
@@ -64,7 +90,7 @@ function prepareSetup({ config, presets, context, resources, previousPrompt, sel
     if (start < 0 || stop < start || text.indexOf(begin, start + begin.length) >= 0 || text.indexOf(end, stop + end.length) >= 0 || text.slice(start, stop + end.length) !== previousPrompt) throw Error('Changed or unowned Toolkit System Prompt block requires reconciliation.')
     prompt = text.slice(0, start) + block + text.slice(stop + end.length)
   } else prompt = text + (text ? '\n\n' : '') + block + '\n'
-  return { profiles: next, prompt, block, added, preserved }
+  return { profiles: next, prompt, block, added, preserved, updated }
 }
 
 function applySetup({ paseoHome, dataRoot, original, plan }, run = native) {
@@ -77,7 +103,7 @@ function applySetup({ paseoHome, dataRoot, original, plan }, run = native) {
   const changeProfiles = !isDeepStrictEqual(old.daemon?.agentProfiles ?? [], plan.profiles)
   const changePrompt = (old.daemon?.appendSystemPrompt ?? '') !== plan.prompt
   unchanged(original)
-  if (!changeProfiles && !changePrompt) return { added: [], preserved: plan.preserved, backup: null }
+  if (!changeProfiles && !changePrompt) return { added: [], updated: [], preserved: plan.preserved, backup: null }
   fs.mkdirSync(path.join(dataRoot, 'backups'), { recursive: true, mode: 0o700 })
   const backup = fs.mkdtempSync(path.join(dataRoot, 'backups/paseo-'))
   fs.writeFileSync(path.join(backup, 'config.json'), original, { mode: 0o600, flag: 'wx' })
@@ -100,7 +126,7 @@ function applySetup({ paseoHome, dataRoot, original, plan }, run = native) {
   try {
     if (changeProfiles) save('daemon.agentProfiles', plan.profiles)
     if (changePrompt) save('daemon.appendSystemPrompt', plan.prompt)
-    return { added: plan.added, preserved: plan.preserved, backup }
+    return { added: plan.added, updated: plan.updated, preserved: plan.preserved, backup }
   } catch (error) {
     throw Error(`${error.message} Setup can be partially saved. Inspect ${configPath} and private backup ${backup}; no automatic rollback or restart was attempted.`)
   } finally {
@@ -154,7 +180,7 @@ async function main() {
   const previousPrompt = fs.existsSync(receiptPath) ? json(receiptPath).prompt : undefined
   const terminal = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    console.log(`Selected local Paseo home: ${paseoHome}\nUses installed resource copies. Existing profiles and human System Prompt text stay intact.\nDo not edit profiles in Paseo during setup. No worker is launched; existing provider security configuration stays intact.`)
+    console.log(`Selected local Paseo home: ${paseoHome}\nUses installed resource copies. Customized profiles and human System Prompt text stay intact.\nDo not edit profiles in Paseo during setup. No worker is launched; existing provider security configuration stays intact.`)
     console.log('Available provider IDs: ' + providers.filter(p => p.status === 'available' && p.enabled === 'Enabled').map(p => p.provider).join(', '))
     const selections = {}, models = {}
     for (const family of ['codex', 'claude']) {
@@ -172,11 +198,12 @@ async function main() {
     if (!['', 'y', 'n'].includes(trustChoice)) throw Error('Enter y or n for Paseo tool trust; no changes saved.')
     const trustTools = trustChoice !== 'n'
     const plan = prepareSetup({ config, presets, context, resources, previousPrompt, selections, providers, models, installContext })
+    if (plan.updated.length) console.log('Review candidate: Toolkit Codex Adviser matches the legacy Sol/High preset. Receipts do not prove profile ownership. Save only if High was the Toolkit default, not your deliberate choice. Only Thinking changes to Medium; all other fields stay intact.')
     console.log(`Add: ${plan.added.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'}\n${trustTools ? 'Enable plugins and install Paseo MCP tool trust.' : 'Leave plugin trust unchanged.'} Provider modes and tool-injection settings stay unchanged.`)
-    if ((await terminal.question('Save these changes through the native Paseo CLI? [y/N]: ')).trim().toLowerCase() !== 'y') { console.log('Cancelled. No changes saved.'); return }
+    if ((await terminal.question(`Save these changes${plan.updated.length ? ', including Toolkit Codex Adviser High to Medium' : ''} through the native Paseo CLI? [y/N]: `)).trim().toLowerCase() !== 'y') { console.log('Cancelled. No changes saved.'); return }
     const result = applySetup({ paseoHome, dataRoot, original, plan })
     if (trustTools) installToolTrust({ paseoHome, resources })
-    console.log(`Added ${result.added.length} profiles. ${result.backup ? `Private backup: ${result.backup}` : 'Profiles already configured.'}\nStart fresh Paseo sessions and verify effective settings, features, and skill loading. Tool injection still needs your deliberate host selection.`)
+    console.log(`Added ${result.added.length} profiles. Updated ${result.updated.length} profiles. ${result.backup ? `Private backup: ${result.backup}` : 'Profiles already configured.'}\nStart fresh Paseo sessions and verify effective settings, features, and skill loading. Tool injection still needs your deliberate host selection.`)
   } finally { terminal.close() }
 }
 

@@ -155,6 +155,66 @@ test('unsupported choices and ambiguous ownership refuse before mutation; an omi
   assert.ok(plan.profiles.every(p => p.provider === 'codex-work'))
 })
 
+test('setup migrates only reviewed legacy Adviser candidates, preserves bytes in backup, and repeats without writes', t => {
+  const f = fixture(t)
+  for (const modeId of ['auto', 'auto-review']) {
+    for (const featureValues of [{ plan_mode: false }, { plan_mode: false, fast_mode: false }]) {
+      const config = configuration()
+      const legacy = {
+        id: 'toolkit-codex-adviser', name: 'Toolkit Codex Adviser', provider: 'codex-work',
+        model: 'gpt-6.1-sol', thinkingOptionId: 'high', modeId, featureValues,
+        notes: 'Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish.',
+      }
+      config.daemon.agentProfiles = [legacy]
+      const value = { ...input(config), presets: [presets.find(p => p.name === legacy.name)], installContext: false }
+      const original = '// Keep original bytes\n' + JSON.stringify(config)
+      fs.writeFileSync(f.file, original)
+      const plan = prepareSetup(value), writes = []
+      assert.deepEqual(plan.profiles, [{ ...legacy, thinkingOptionId: 'medium' }])
+      assert.deepEqual(plan.updated, [legacy.name])
+      const result = applySetup({ ...f, original, plan }, writer(f.file, writes))
+      assert.deepEqual(writes, ['agentProfiles'])
+      assert.deepEqual(result.updated, [legacy.name])
+      assert.equal(fs.readFileSync(path.join(result.backup, 'config.json'), 'utf8'), original)
+      const current = JSON.parse(fs.readFileSync(f.file, 'utf8'))
+      assert.deepEqual(current, { ...config, daemon: { ...config.daemon, agentProfiles: [{ ...legacy, thinkingOptionId: 'medium' }] } })
+      const repeat = prepareSetup({ ...value, config: current })
+      assert.deepEqual(repeat.updated, [])
+      assert.equal(applySetup({ ...f, original: fs.readFileSync(f.file, 'utf8'), plan: repeat }, () => assert.fail('Repeat must not write')).backup, null)
+
+      // Each negative control reaches the matching-name path, not another refusal.
+      for (const mutate of [
+        p => { p.id = 'human-id' }, p => { p.model = 'gpt-6-astra' },
+        p => { p.thinkingOptionId = 'medium' }, p => { p.notes += ' Human choice.' },
+        p => { p.modeId = 'full-access' }, p => { p.provider = 'codex-other' },
+        p => { delete p.featureValues.plan_mode }, p => { p.featureValues.plan_mode = true },
+        p => { p.featureValues.fast_mode = true }, p => { p.featureValues.extra = false },
+        p => { p.extra = 'Human choice' },
+      ]) {
+        const custom = structuredClone(legacy)
+        mutate(custom)
+        const kept = prepareSetup({ ...value, config: { ...config, daemon: { ...config.daemon, agentProfiles: [custom] } } })
+        assert.deepEqual(kept.updated, [])
+        assert.deepEqual(kept.profiles, [custom])
+      }
+      const skipped = prepareSetup({ ...value, selections: {} })
+      assert.deepEqual(skipped.profiles, [legacy])
+      assert.deepEqual(skipped.updated, [])
+      const otherAlias = prepareSetup({ ...value, selections: { codex: { provider: 'codex-other', modeId: 'auto-review' } } })
+      assert.deepEqual(otherAlias.profiles, [legacy])
+      for (const mutate of [
+        v => { v.models['codex-work'][0].thinkingOptionIds = ['high'] },
+        v => { v.config.agents.providers['codex-work'].extends = 'claude' },
+        v => { v.providers[0].status = 'unavailable' },
+      ]) {
+        const unsupported = structuredClone(value)
+        mutate(unsupported)
+        assert.throws(() => prepareSetup(unsupported), /Cannot validate/)
+      }
+    }
+  }
+})
+
 test('profile-only setup preserves all prompt bytes and creates no context receipt; skipping both families is a no-op', t => {
   const f = fixture(t), config = configuration()
   config.daemon.appendSystemPrompt = 'Human text\n<!-- agent-toolkit-paseo-context -->\nUnowned custom context\n<!-- /agent-toolkit-paseo-context -->\n'
