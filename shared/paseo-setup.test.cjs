@@ -111,7 +111,7 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   assert.equal(worker.featureValues.plan_mode, false)
   const adviser = plan.profiles.find(p => p.name === 'Toolkit Codex Adviser')
   assert.equal(adviser.model, 'gpt-6.1-sol')
-  assert.equal(adviser.thinkingOptionId, 'high')
+  assert.equal(adviser.thinkingOptionId, 'medium')
   const planner = plan.profiles.find(p => p.name === 'Toolkit Claude Planner')
   assert.equal(planner.modeId, 'plan')
   assert.equal(planner.thinkingOptionId, 'high')

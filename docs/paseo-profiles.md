@@ -26,7 +26,7 @@ The selected daemon's discovery results and effective session settings remain th
 | Orchestrator | Own delivery, useful delegation, integration, and cleanup | An integrated result with check evidence and remaining blockers | Medium |
 | Planner | Investigate the code and resolve choices before implementation | A proposed plan with scope, dependencies, risks, and acceptance criteria | High |
 | Worker | Complete an authorized, bounded assignment | Assigned changes with focused check evidence | Medium |
-| Adviser | Answer a bounded question without implementation | A recommendation with evidence, tradeoffs, and uncertainty | Codex High, Claude Medium |
+| Adviser | Answer a bounded question without implementation | A recommendation with evidence, tradeoffs, and uncertainty | Medium |
 
 An Orchestrator can implement a small task directly. Delegation is not a requirement.
 A Planner supports an interactive plan-and-approval workflow.
@@ -261,7 +261,7 @@ Keep Planner planning controls as specified.
     "name": "Toolkit Codex Adviser",
     "provider": "codex",
     "model": "gpt-6.1-sol",
-    "thinkingOptionId": "high",
+    "thinkingOptionId": "medium",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": false, "fast_mode": false },
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
@@ -364,6 +364,9 @@ Manual creation remains an available fallback.
 Rerun `./setup-paseo.sh` to add missing presets. Select context refresh only if you use its owned block.
 Existing matching profiles keep their IDs, accounts, models, effort, modes, features, and notes.
 Compare deliberate changes with the canonical presets, then edit through native Paseo settings.
+For an existing Toolkit Codex Adviser, set Thinking to Medium in Settings → your daemon host → Agents → Agent profiles.
+Preserve its account alias, model, permission mode, features, and notes. Setup preserves an existing High value.
+See the [trusted-terminal update commands](../README.md#migration-backups-and-update) for the permission-preserving installation alternative.
 Start fresh sessions to verify the installed guidance and effective launch settings.
 
 Setup adds up to five missing profiles for each selected provider family.
@@ -599,12 +602,12 @@ Workspace placement does not change provider, account, parentage, review policy,
 
 ## Reasoning and model choices
 
-Medium is the routine starting point for Orchestrator, Worker, and Claude Adviser.
-Codex Adviser uses Sol with High effort for bounded second opinions.
+Medium is the routine starting point for Orchestrator, Worker, UI Worker, and Adviser.
+Codex Adviser uses Sol with Medium effort for bounded second opinions.
 High is the Planner default for substantial choices, risks, dependencies, and acceptance criteria.
 For a straightforward plan, select Medium before launch.
 
-High also fits difficult debugging, migrations, concurrency, security-sensitive work, and cross-repository integration.
+High also fits difficult debugging, migrations, concurrency, security-sensitive work, and difficult cross-repository integration.
 It is not reserved for the Planner, and it does not require a failed Medium attempt first.
 Select effort for the task. Keep the same profiles rather than creating an effort variant for every role.
 
@@ -619,7 +622,7 @@ API defaults do not prove effective Paseo launch settings.
 Effort labels do not represent equal reasoning budgets across providers or models.
 Extra High, Max, and Ultra Code are not routine defaults in this recipe.
 
-Astra remains an optional task-specific choice. The Codex Adviser default is Sol with High effort.
+Astra remains an optional task-specific choice. The Codex Adviser default is Sol with Medium effort.
 Sonnet 5.5 is an optional Worker adjustment after task-level comparison.
 Honor explicit human model and effort choices rather than substituting automatically.
 

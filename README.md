@@ -272,7 +272,7 @@ These task-based defaults use your existing subscriptions:
 | Toolkit Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
 | Toolkit Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
 | Toolkit Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend components, responsive layouts, accessibility, styling, and visual verification |
-| Toolkit Codex Adviser | `gpt-6.1-sol` | High | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
+| Toolkit Codex Adviser | `gpt-6.1-sol` | Medium | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
 | Toolkit Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | A completed recommendation or second opinion on a bounded question |
 
 These profiles are launch presets. Select them for the tasks that need their roles.
@@ -280,8 +280,8 @@ The Orchestrator can complete ordinary changes directly. Delegation needs useful
 The Planner adds a repeatable native planning workflow. The Adviser returns a judgment through an analysis-only task prompt.
 Code review remains a separate role through AutoReview's existing helper and Ponytail Review.
 
-Medium is the routine default for coordination, bounded implementation, simple planning, and Claude advice.
-Codex Adviser defaults to Sol with High effort for bounded second opinions.
+Medium is the routine default for coordination, bounded implementation, simple planning, and advice.
+Codex Adviser defaults to Sol with Medium effort for bounded second opinions.
 Planner defaults to High for substantial planning that resolves design choices, dependencies, risks, and acceptance criteria before handoff.
 High also fits ambiguous architecture, difficult integration, security-sensitive work, concurrency, migrations, and difficult debugging.
 A small change can still need High. Select it before a difficult assignment rather than waiting for a failed attempt.
@@ -477,14 +477,27 @@ Replaced resources and instruction/configuration files are backed up under `~/.l
 To update from a trusted human terminal:
 
 ```sh
+cd /Users/hendrik/Code/wewereyoung/agent-toolkit
 ./update.sh
 ```
 
 The script requires a clean checkout, confirms its actual upstream, fast-forwards, runs checks, and installs copies. It does not blanket-update global skills, official host skills, provider CLIs, or user packages. Toolkit never updates itself or its skill pins at startup.
 
+The update script has no `--preserve-permissions` option. To preserve current provider permissions, use this alternative from a clean checkout:
+
+```sh
+cd /Users/hendrik/Code/wewereyoung/agent-toolkit
+git pull --ff-only --no-tags
+npm ci --prefix shared --ignore-scripts --no-audit --no-fund
+./verify.sh
+./install.sh --preserve-permissions
+```
+
 After an update, rerun `./setup-paseo.sh` to add missing presets. Select context refresh only if you use its owned block.
 Existing profiles keep their aliases, models, thinking levels, modes, features, and notes. Setup does not reset them to new defaults.
 Compare deliberate profile changes with the [canonical presets](shared/hosts/paseo-profiles.json), then edit through native Paseo settings.
+For an existing Toolkit Codex Adviser, set Thinking to Medium in Settings → your daemon host → Agents → Agent profiles.
+Preserve its account alias, model, permission mode, features, and notes. Setup preserves an existing High value.
 Start fresh sessions to verify the updated installed guidance and effective launch settings.
 
 ### Pins
