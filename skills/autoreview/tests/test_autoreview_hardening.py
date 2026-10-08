@@ -5,6 +5,7 @@ import argparse
 import base64
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import os
@@ -741,6 +742,301 @@ class AutoreviewMixedTargetTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, r"mixed source src/migrate-\d.py .*prompt limit"):
                     self.helper["prepare_review_prompts"](repo, "local", None, captured, "", datasets, budget)
             provider.assert_not_called()
+
+    @contextlib.contextmanager
+    def oversized_mixed(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo = init_repo(Path(tempdir))
+            git(repo, "config", "core.autocrlf", "false")
+            lines = [f"safe row {number:05d} 界\r\t\x1b\u2028\u0085 context {'x' * 35}\n" for number in range(11000)]
+            lines[120] = "base removed\r\t界\n"
+            base = "".join(lines)
+            path = repo / "large.py"
+            path.write_bytes(base.encode())
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "oversized base")
+            lines[120] = "INDEX_DEFECT()\r\t界\n"
+            lines[5100] = "staged long '" + "界" * 50000 + "'\n"
+            index = "".join(lines)
+            path.write_bytes(index.encode())
+            git(repo, "add", ".")
+            lines[120] = "fixed_index()\r\t界\n"
+            lines[-30] = "WORKING_DEFECT()\n"
+            working = "".join(lines)
+            path.write_bytes(working.encode())
+            yield repo, index.encode(), working.encode()
+
+    def test_oversized_mixed_prompts_reconstruct_sources_changes_and_aggregate_both_defects(self):
+        with self.oversized_mixed() as (repo, index, working):
+            captured = self.helper["local_bundle"](repo)
+            record, = captured.mixed
+            prefix = "  Whole execution contract 界\r\t\n"
+            instructions = prefix + "I" * (40343 - len(prefix.encode()))
+            self.assertGreater(len(index), 512000)
+            self.assertGreater(len(working), 512000)
+            passes = self.helper["prepare_review_prompts"](repo, "local", None, captured, instructions, [], 512000)
+            self.assertGreater(len(passes), 4)
+            recovered, removed, transitions, observed = {}, {}, set(), []
+            original = b""
+
+            # Read byte-counted owner snapshots from actual outgoing prompts.
+            # This parser does not call the product's renderer or slice helper.
+            def snapshots(prompt):
+                data, cursor = prompt.encode(), 0
+                while True:
+                    start = data.find(b"Source snapshot: ", cursor)
+                    if start < 0:
+                        return
+                    end = data.index(b"\n", start)
+                    meta = json.loads(data[start + len(b"Source snapshot: "):end])
+                    content = data[end + 1:end + 1 + meta["content_bytes"]]
+                    cursor = end + 1 + meta["content_bytes"]
+                    yield meta, content
+
+            for item in passes:
+                self.assertLessEqual(len(item.prompt.encode()), 512000)
+                self.assertIn(instructions, item.prompt)
+                self.assertIn("independent, complete assignment", item.prompt)
+                for meta, content in snapshots(item.prompt):
+                    self.assertEqual(meta["source_id"], getattr(record, meta["target"]).identity)
+                    key = (meta["target"], meta["byte_offset"])
+                    if key in recovered:
+                        self.assertEqual(recovered[key], content)
+                    recovered[key] = content
+                    self.assertEqual(len(content.decode().split("\n")) - (content.endswith(b"\n")),
+                                     meta["line_end"] - meta["line_start"] + 1)
+                for line in item.prompt.split("\n"):
+                    if line.startswith("Removed source: "):
+                        meta = json.loads(line[len("Removed source: "):])
+                        for number, text in meta["lines"]:
+                            key = (meta["target"], number)
+                            if key in removed:
+                                self.assertEqual(removed[key], text)
+                            removed[key] = text
+                transitions.update(item.chunk.transitions)
+                if not item.chunk.change_context:
+                    self.assertEqual(item.chunk.byte_offset, len(original))
+                    original += item.chunk.content.encode()
+            self.assertEqual(original, captured.text.encode())
+            self.assertEqual(transitions, {("large.py", "index"), ("large.py", "working_tree")})
+            for target, expected in (("index", index), ("working_tree", working)):
+                offset, reconstructed = 0, b""
+                for (name, start), content in sorted(recovered.items()):
+                    if name == target:
+                        self.assertEqual(start, offset)
+                        reconstructed += content
+                        offset += len(content)
+                self.assertEqual(reconstructed, expected)
+            self.assertEqual(removed, {("index", number): text for number, text in record.index_removed}
+                             | {("working_tree", number): text for number, text in record.working_tree_removed})
+
+            def engine(_args, _repo, prompt):
+                findings = []
+                for meta, content in snapshots(prompt):
+                    for number, line in enumerate(content.decode().split("\n"), meta["line_start"]):
+                        for defect in ("INDEX_DEFECT()", "WORKING_DEFECT()"):
+                            if defect not in line:
+                                continue
+                            findings.append({
+                                "title": defect, "body": "Concrete synthetic defect.", "priority": "P2",
+                                "confidence": 0.9, "category": "bug",
+                                "code_location": {"file_path": "large.py", "line": number},
+                                "source_attribution": {"target": meta["target"], "side": "present",
+                                    "source_id": meta["source_id"], "record_id": meta["record_id"],
+                                    "column": line.index(defect) + 1, "excerpt": defect},
+                            })
+                observed.append(prompt)
+                return json.dumps({"findings": findings,
+                    "overall_correctness": "patch is incorrect" if findings else "patch is correct",
+                    "overall_explanation": "Finished the supplied slice.", "overall_confidence": 0.9,
+                    "review_completion": "complete"})
+
+            output, status = repo.parent / "result.json", repo.parent / "status.json"
+            argv = [str(SCRIPT), "--mode", "local", "--prompt", instructions,
+                    "--json-output", str(output), "--status-output", str(status),
+                    "--require-finding", "INDEX_DEFECT", "--require-finding", "WORKING_DEFECT"]
+            with mock.patch.dict(self.helper["main_impl"].__globals__, {
+                "repo_root": lambda: repo, "run_engine": engine,
+            }), mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.helper["main_impl"](), 1)
+            report = json.loads(output.read_text())
+            self.assertEqual(report["review_status"], "findings")
+            self.assertEqual({finding["title"] for finding in report["findings"]},
+                             {"INDEX_DEFECT()", "WORKING_DEFECT()"})
+            self.assertEqual(len(observed), len(passes))
+            self.assertNotIn("attribution_rejected_findings", report)
+            self.assertEqual(report["scope_coverage"]["bundle_bytes"], len(original))
+            self.assertEqual(report["scope_coverage"]["bundle_sha256"], hashlib.sha256(original).hexdigest())
+            self.assertEqual(report["scope_coverage"]["files"], ["large.py"])
+            self.assertEqual(len(report["scope_coverage"]["hunks"]), 4)
+            for hunk in report["scope_coverage"]["hunks"]:
+                data = original[hunk["start"]:hunk["end"]]
+                self.assertTrue(data.startswith(b"@@ "))
+                self.assertEqual(hunk["sha256"], hashlib.sha256(data).hexdigest())
+            for source in report["scope_coverage"]["sources"]:
+                if source["side"] == "present":
+                    expected = index if source["target"] == "index" else working
+                    self.assertEqual(source["sha256"], hashlib.sha256(expected).hexdigest())
+                    self.assertEqual(source["content_bytes"], len(expected))
+            for entry, prompt in zip(report["pass_reports"], observed):
+                coverage = entry["report"]["coverage"]
+                for meta, content in snapshots(prompt):
+                    part = next(part for part in coverage["sources"] if part["target"] == meta["target"]
+                                and part["side"] == "present" and part["byte_offset"] == meta["byte_offset"])
+                    self.assertEqual(part["sha256"], hashlib.sha256(content).hexdigest())
+                    self.assertEqual(part["line_start"], meta["line_start"])
+                    self.assertEqual(part["line_end"], meta["line_end"])
+                change = coverage["change"]
+                data = original[change["byte_offset"]:change["byte_offset"] + change["bytes"]]
+                self.assertEqual(change["sha256"], hashlib.sha256(data).hexdigest())
+            self.assertTrue(json.loads(status.read_text())["report_produced"])
+
+    def test_oversized_mixed_rejects_cross_slice_anchors_drift_and_late_failure(self):
+        with self.oversized_mixed() as (repo, *_):
+            captured = self.helper["local_bundle"](repo)
+            record, = captured.mixed
+            passes = self.helper["prepare_review_prompts"](repo, "local", None, captured, "", [], 512000)
+            unavailable = next(item for item in passes if item.chunk.sources and item.chunk.source_slices
+                               and all(part.target != "index" or part.side != "present" or
+                                       not part.start < 121 <= part.end for part in item.chunk.source_slices))
+            finding = {"title": "Cross-slice claim", "body": "An unavailable source anchor.",
+                "priority": "P2", "confidence": 0.9, "category": "bug",
+                "code_location": {"file_path": "large.py", "line": 121},
+                "source_attribution": {"target": "index", "side": "present", "column": 1,
+                    "excerpt": "INDEX_DEFECT()", "source_id": record.index.identity, "record_id": record.identity}}
+            provider = {"findings": [finding], "overall_correctness": "patch is incorrect",
+                "overall_explanation": "Synthetic claim.", "overall_confidence": 0.9, "review_completion": "complete"}
+            args = argparse.Namespace(engine="codex", max_priority="P2")
+            with mock.patch.dict(self.helper["run_reviewer"].__globals__, {"run_engine": lambda *_: json.dumps(provider)}):
+                result = self.helper["run_reviewer"](args, repo, unavailable, captured, [])
+            self.assertEqual(result.report["findings"], [])
+            self.assertEqual(result.report["attribution_rejected_findings"][0]["attribution_rejection_reason"],
+                             "source anchor line was not supplied in this pass")
+            finding["source_attribution"].update(side="removed", source_id=record.base.identity,
+                                                 excerpt="base removed")
+            for permitted in (True, False):
+                item = next(item for item in passes if item.chunk.sources and item.chunk.source_slices and
+                            any(part.target == "index" and part.side == "removed" and
+                                part.start == 0 for part in item.chunk.source_slices) == permitted)
+                with mock.patch.dict(self.helper["run_reviewer"].__globals__, {"run_engine": lambda *_: json.dumps(provider)}):
+                    result = self.helper["run_reviewer"](args, repo, item, captured, [])
+                self.assertEqual(bool(result.report["findings"]), permitted)
+
+            for failure in ("engine", "drift", "final drift"):
+                with self.subTest(failure=failure):
+                    output, status = repo.parent / f"{failure}.json", repo.parent / f"{failure}-status.json"
+                    calls = []
+                    original = (repo / "large.py").read_bytes()
+                    def engine(*_):
+                        calls.append(1)
+                        if failure == "engine" and len(calls) == len(passes):
+                            raise self.helper["ReviewerUnavailable"]("late engine failure", reason="engine_failed")
+                        if (failure == "drift" and len(calls) == 2 or
+                                failure == "final drift" and len(calls) == len(passes)):
+                            (repo / "large.py").write_bytes(original.replace(b"fixed_index", b"other_index"))
+                        return json.dumps({**provider, "findings": [], "overall_correctness": "patch is correct"})
+                    argv = [str(SCRIPT), "--mode", "local", "--json-output", str(output), "--status-output", str(status)]
+                    try:
+                        with mock.patch.dict(self.helper["main_impl"].__globals__, {
+                            "repo_root": lambda: repo, "run_engine": engine,
+                        }), mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()), \
+                                contextlib.redirect_stderr(io.StringIO()):
+                            with self.assertRaisesRegex(SystemExit, "late engine failure|mixed source changed"):
+                                self.helper["main_impl"]()
+                        self.assertFalse(output.exists())
+                        if failure == "engine":
+                            self.assertEqual(len(calls), len(passes))
+                            self.assertFalse(json.loads(status.read_text())["report_produced"])
+                        else:
+                            self.assertFalse(status.exists())
+                            self.assertEqual(len(calls), 2 if failure == "drift" else len(passes))
+                    finally:
+                        (repo / "large.py").write_bytes(original)
+
+    def test_bounded_mixed_sources_keep_empty_absent_states_and_fail_on_indivisible_lines(self):
+        for state in ("empty index", "absent index", "absent working", "indivisible"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as tempdir:
+                repo = init_repo(Path(tempdir))
+                path = repo / "source.py"
+                path.write_bytes(b"base\n")
+                git(repo, "add", ".")
+                git(repo, "commit", "-qm", "base")
+                large = b"line context\n" * 6000
+                if state == "absent index":
+                    git(repo, "rm", "-q", "source.py")
+                    path.write_bytes(large)
+                else:
+                    path.write_bytes(b"" if state == "empty index" else large)
+                    git(repo, "add", ".")
+                    if state == "absent working":
+                        path.unlink()
+                    else:
+                        path.write_bytes(large if state == "empty index" else b"X" * 30000)
+                captured = self.helper["local_bundle"](repo)
+                if state == "indivisible":
+                    with self.assertRaisesRegex(SystemExit, "indivisible source fragment cannot fit"):
+                        self.helper["prepare_review_prompts"](repo, "local", None, captured, "", [], 20000)
+                    continue
+                passes = self.helper["prepare_review_prompts"](repo, "local", None, captured, "", [], 20000)
+                record, = captured.mixed
+                version = "working_tree" if state == "absent working" else "index"
+                item = next(item for item in passes if item.chunk.sources and item.chunk.source_slices and
+                            any(part.target == version and part.side == "present" for part in item.chunk.source_slices))
+                source = getattr(record, version)
+                self.assertEqual(source.content, "" if state == "empty index" else None)
+                finding = {"title": "File-level claim", "body": "Synthetic file-level defect.",
+                    "priority": "P2", "confidence": 0.9, "category": "bug",
+                    "code_location": {"file_path": "source.py", "line": 1},
+                    "source_attribution": {"target": version, "side": "present", "column": 1,
+                        "excerpt": "", "source_id": source.identity, "record_id": record.identity}}
+                report = {"findings": [finding], "overall_correctness": "patch is incorrect",
+                          "overall_explanation": "Synthetic claim.", "overall_confidence": 0.9}
+                self.helper["validate_report"](report, repo, captured.paths, [], captured.mixed,
+                                               {record.identity}, item.chunk.source_slices)
+                self.assertEqual(bool(report["findings"]), state == "empty index")
+                self.assertTrue(all(len(item.prompt.encode()) <= 20000 for item in passes))
+
+    def test_near_capacity_instructions_split_short_source_lines_instead_of_refusing(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo = init_repo(Path(tempdir))
+            path = repo / "source.py"
+            path.write_bytes(b"base\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            index = b"line context\n" * 40
+            working = b"line context\n" * 39 + b"changed last\n"
+            path.write_bytes(index)
+            git(repo, "add", ".")
+            path.write_bytes(working)
+            captured = self.helper["local_bundle"](repo)
+            # Fixed budgets reproduce framing overflow and the full-record
+            # continuation boundary. No expected budget comes from a renderer.
+            for instruction_bytes in (505218, 505018, 504818, 504000):
+                with self.subTest(instruction_bytes=instruction_bytes):
+                    instructions = "I" * instruction_bytes
+                    passes = self.helper["prepare_review_prompts"](repo, "local", None, captured,
+                                                                  instructions, [], 512000)
+                    original = b""
+                    recovered = {"index": {}, "working_tree": {}}
+                    for item in passes:
+                        self.assertLessEqual(len(item.prompt.encode()), 512000)
+                        self.assertIn(instructions, item.prompt)
+                        if not item.chunk.change_context:
+                            self.assertEqual(item.chunk.byte_offset, len(original))
+                            original += item.chunk.content.encode()
+                        data, cursor = item.prompt.encode(), 0
+                        while (start := data.find(b"Source snapshot: ", cursor)) >= 0:
+                            end = data.index(b"\n", start)
+                            meta = json.loads(data[start + len(b"Source snapshot: "):end])
+                            cursor = end + 1 + meta["content_bytes"]
+                            recovered[meta["target"]][meta["byte_offset"]] = data[end + 1:cursor]
+                    self.assertEqual(original, captured.text.encode())
+                    for target, expected in (("index", index), ("working_tree", working)):
+                        content = b""
+                        for offset, fragment in sorted(recovered[target].items()):
+                            self.assertEqual(offset, len(content))
+                            content += fragment
+                        self.assertEqual(content, expected)
 
 
     def test_mixed_results_keep_index_exit_stale_rejections_filters_and_raw_reports(self):

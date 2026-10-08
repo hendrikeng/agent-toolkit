@@ -32,6 +32,11 @@ The helper owns reviewer isolation, Git scope, and validated reports.
 Native permission denials require the provider’s normal approval path or a trusted human terminal.
 Never disable permissions to run a review.
 
+For an explicitly authorized helper development task, the canonical source helper supports direct execution after checks and review.
+Run `<toolkit-checkout>/skills/autoreview/scripts/autoreview` from the target repository with the usual arguments.
+The current directory selects the review repository. The source helper retains the same isolation, source verification, and report validation.
+This invocation does not update installed resources. Routine sessions continue to use the installed helper.
+
 ### Local execution and model requests
 
 The Codex engine launches local `codex exec`. It does not create a Codex Cloud task.
@@ -223,8 +228,12 @@ temporary directory. Other engines and platforms retain their normal isolation.
 Tools installed in shared scratch or requiring writes there will be denied too.
 
 Review files have no size/count cap and are never truncated. Large diffs and
-datasets are partitioned automatically. Intact instructions and required mixed
-source context must still fit the per-pass prompt budget. A failed pass does not
+datasets are partitioned automatically. Oversized mixed records use complete physical-line slices of both authoritative snapshots and removed lines.
+Each slice receives both transition sequences across bounded passes. Findings require an exact anchor in a supplied slice.
+Pass coverage records preserve source identities, physical lines, byte offsets, and hashes. Repeated change fragments count as context only.
+Original change bytes appear once per evidence batch. The planner checks complete source and change coverage before execution.
+Intact instructions and each indivisible physical line must fit the per-pass prompt budget. Cross-slice dependency context can remain unavailable to a pass.
+A failed pass does not
 produce a partial clean verdict. Each pass is an independent assignment. Its
 private completion field must confirm a finished assessment.
 

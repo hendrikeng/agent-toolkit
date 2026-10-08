@@ -157,6 +157,8 @@ class ReviewChunk(NamedTuple):
     byte_offset: int = 0
     sources: tuple[MixedPath, ...] = ()
     transitions: tuple[tuple[str, str], ...] = ()
+    source_slices: tuple[MixedSourceSlice, ...] | None = None
+    change_context: bool = False
 
 
 class ReviewDataset(NamedTuple):
@@ -203,6 +205,15 @@ class SourceSpan(NamedTuple):
     target: str
 
 
+class MixedSourceSlice(NamedTuple):
+    record_id: str
+    target: str
+    side: str
+    start: int
+    end: int
+    byte_offset: int = 0
+
+
 class ReviewPass(NamedTuple):
     prompt: str
     chunk: ReviewChunk
@@ -216,7 +227,7 @@ class ReviewResult(NamedTuple):
 
 
 class MixedContextCapacityError(SystemExit):
-    """A pack may fit after rebatching evidence, never by detaching source."""
+    """Intact instructions or an indivisible source line cannot fit a pass."""
 
 
 class EvidenceFile(NamedTuple):
@@ -3583,12 +3594,17 @@ def render_mixed_context(chunk: ReviewChunk) -> str:
         an empty line and column 1; a present zero-byte source uses virtual line 1.
         Use present for target content, removed only for a listed removed line from its
         predecessor. Never claim removed index text is present in working_tree.
-        Any line in a selected file is in scope, including unchanged context.
+        Any supplied line in a selected file is in scope, including unchanged context.
+        Bounded source slices retain original physical line numbers and byte offsets.
+        Anchor findings only to supplied slices. Absent context is not proof of a defect.
+        Each slice is a complete assignment for its supplied evidence, not a deferred review.
         Null attribution is permitted only for paths without mixed records.
         Repeated source records are context, never additional change bytes.
     """).strip()]
     parts.append("Original fragment ownership: " + json.dumps(chunk.transitions))
     parts.append(f"Original bundle byte offset: {chunk.byte_offset}")
+    if chunk.change_context:
+        parts.append("This change fragment repeats as context for this source slice; it adds no original change bytes.")
     for record in chunk.sources:
         manifest = {
             "path": record.path, "record_id": record.identity,
@@ -3598,26 +3614,183 @@ def render_mixed_context(chunk: ReviewChunk) -> str:
                                               ("working_tree", record.working_tree))},
         }
         parts.append("Mixed record: " + json.dumps(manifest))
-        for target, source, previous, removed in (
-            ("index", record.index, record.base, record.index_removed),
-            ("working_tree", record.working_tree, record.index, record.working_tree_removed),
-        ):
-            content = source.content or ""
-            parts.append("Source snapshot: " + json.dumps({
-                "path": record.path, "target": target, "side": "present",
-                "source_id": source.identity, "content_bytes": utf8_size(content),
-                "line_count": len(literal_lf_lines(content)),
-            }) + "\n" + content + "\nEnd source snapshot: " + source.identity)
-            parts.append("Removed source: " + json.dumps({
-                "path": record.path, "target": target, "side": "removed",
-                "source_id": previous.identity, "lines": removed,
-            }, ensure_ascii=False))
+        slices = (tuple(part for part in chunk.source_slices if part.record_id == record.identity)
+                  if chunk.source_slices is not None else full_mixed_slices(record))
+        for part in slices:
+            metadata, content = mixed_slice_payload(record, part)
+            if part.side == "present":
+                parts.append("Source snapshot: " + json.dumps(metadata) + "\n" + content
+                             + "\nEnd source snapshot: " + metadata["source_id"])
+            else:
+                parts.append("Removed source: " + json.dumps(metadata, ensure_ascii=False))
     return "\n\n" + "\n".join(parts)
+
+
+def mixed_slice_lines(record: MixedPath, target: str, side: str) -> list | tuple:
+    if side == "removed":
+        return record.index_removed if target == "index" else record.working_tree_removed
+    # A present empty source has a virtual line. An absent source has no anchor.
+    source = getattr(record, target)
+    return (literal_lf_lines(source.content or "") or [""]) if source.mode else []
+
+
+def full_mixed_slices(record: MixedPath) -> tuple[MixedSourceSlice, ...]:
+    return tuple(MixedSourceSlice(record.identity, target, side, 0,
+                                 len(mixed_slice_lines(record, target, side)))
+                 for target in ("index", "working_tree") for side in ("present", "removed"))
+
+
+def mixed_slice_payload(record: MixedPath, part: MixedSourceSlice) -> tuple[dict, str]:
+    source = ((record.base if part.target == "index" else record.index)
+              if part.side == "removed" else getattr(record, part.target))
+    lines = mixed_slice_lines(record, part.target, part.side)
+    selected = lines[part.start:part.end]
+    metadata = {"path": record.path, "record_id": record.identity, "target": part.target,
+                "side": part.side, "source_id": source.identity,
+                "slice_start": part.start, "slice_end": part.end}
+    if part.side == "removed":
+        metadata["lines"] = selected
+        return metadata, ""
+    content = "".join(selected)
+    metadata.update(content_bytes=utf8_size(content), source_bytes=utf8_size(source.content or ""),
+                    byte_offset=part.byte_offset, line_start=part.start + 1,
+                    line_end=part.end, line_count=len(literal_lf_lines(source.content or "")))
+    return metadata, content
+
+
+def mixed_pass_coverage(chunk: ReviewChunk) -> dict[str, Any]:
+    slices = chunk.source_slices
+    if slices is None:
+        slices = tuple(part for record in chunk.sources for part in full_mixed_slices(record))
+    records = {record.identity: record for record in chunk.sources}
+    sources = []
+    for part in slices:
+        metadata, content = mixed_slice_payload(records[part.record_id], part)
+        # Removed lines are already represented by original patch bytes. Keep
+        # their ownership in the ledger without duplicating their text there.
+        removed = metadata.pop("lines", None)
+        if removed is not None:
+            metadata["physical_lines"] = [line for line, _ in removed]
+            content = json.dumps(removed, ensure_ascii=False)
+        metadata["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        sources.append(metadata)
+    return {"change": {"byte_offset": chunk.byte_offset, "bytes": utf8_size(chunk.content),
+                       "sha256": hashlib.sha256(chunk.content.encode("utf-8")).hexdigest(),
+                       "context_only": chunk.change_context},
+            "transitions": chunk.transitions, "sources": sources}
+
+
+def mixed_scope_coverage(captured: CapturedBundle) -> dict[str, Any]:
+    data = captured.text.encode("utf-8")
+    hunks = []
+    for span in captured.spans:
+        position = span.start
+        owned = []
+        for line in literal_lf_lines(data[span.start:span.end].decode("utf-8")):
+            match = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+            if match:
+                if owned:
+                    owned[-1]["end"] = position
+                owned.append({"path": span.path, "target": span.target, "start": position, "end": span.end,
+                              "old_line": int(match[1]), "old_count": int(match[2] or 1),
+                              "new_line": int(match[3]), "new_count": int(match[4] or 1)})
+            position += utf8_size(line)
+        for hunk in owned:
+            hunk["sha256"] = hashlib.sha256(data[hunk["start"]:hunk["end"]]).hexdigest()
+        hunks.extend(owned)
+    return {"bundle_bytes": len(data), "bundle_sha256": hashlib.sha256(data).hexdigest(),
+            "files": sorted(captured.paths), "transitions": [span._asdict() for span in captured.spans],
+            "hunks": hunks,
+            "sources": [source for record in captured.mixed
+                        for source in mixed_pass_coverage(ReviewChunk("", sources=(record,)))["sources"]]}
+
+
+def bounded_mixed_slices(
+    record: MixedPath, branch: str, target: str, target_ref: str | None,
+    extra_prompt: str, rendered: str, max_prompt_bytes: int,
+) -> list[tuple[MixedSourceSlice, ...]]:
+    template = ReviewChunk("xxxx", sources=(record,), transitions=((record.path, "index"),
+                                                               (record.path, "working_tree")),
+                           source_slices=())
+    overhead = utf8_size(render_review_prompt(branch, target, target_ref, template,
+                                             extra_prompt, rendered, (999_999, 999_999)))
+    allowance = (max_prompt_bytes - overhead) // 2
+    groups = []
+    for full in full_mixed_slices(record):
+        lines = mixed_slice_lines(record, full.target, full.side)
+        start = offset = 0
+        while start < len(lines) or (start == 0 and not lines):
+            end, size = start, 0
+            while end < len(lines):
+                line = lines[end]
+                cost = utf8_size(line if full.side == "present" else json.dumps(line, ensure_ascii=False))
+                if end > start and size + cost > allowance:
+                    break
+                size += cost
+                end += 1
+                if size > allowance:
+                    break
+            lower, upper = min(start + 1, end), end
+            while lower < upper:
+                middle = (lower + upper + 1) // 2
+                part = full._replace(start=start, end=middle, byte_offset=offset)
+                probe = template._replace(source_slices=(part,))
+                required = utf8_size(render_review_prompt(branch, target, target_ref, probe,
+                                                          extra_prompt, rendered, (999_999, 999_999)))
+                # Include the actual slice framing in the allowance. Keep room
+                # for change continuation headers and repeated-context labels.
+                if required - overhead <= allowance:
+                    lower = middle
+                else:
+                    upper = middle - 1
+            end = lower
+            part = full._replace(start=start, end=end, byte_offset=offset)
+            required = utf8_size(render_review_prompt(branch, target, target_ref,
+                                                      template._replace(source_slices=(part,)),
+                                                      extra_prompt, rendered, (999_999, 999_999)))
+            if required > max_prompt_bytes:
+                raise mixed_capacity_error(record, required, max_prompt_bytes)
+            groups.append((part,))
+            if not lines:
+                break
+            if full.side == "present":
+                offset += utf8_size("".join(lines[start:end]))
+            start = end
+    return groups
 
 
 def mixed_bundle_chunk(captured: CapturedBundle) -> ReviewChunk:
     return ReviewChunk(captured.text, "", 0, captured.mixed,
                        tuple(dict.fromkeys((span.path, span.target) for span in captured.spans)))
+
+
+def verify_mixed_pass_coverage(captured: CapturedBundle, chunks: list[ReviewChunk]) -> None:
+    recovered = b""
+    coverage = {}
+    for chunk in chunks:
+        if not chunk.change_context:
+            if chunk.byte_offset != len(recovered):
+                raise SystemExit("internal error: mixed bundle offsets changed")
+            recovered += chunk.content.encode("utf-8")
+        parts = chunk.source_slices
+        if parts is None:
+            parts = tuple(part for record in chunk.sources for part in full_mixed_slices(record))
+        for part in parts:
+            coverage.setdefault((part.record_id, part.target, part.side), []).append((part.start, part.end))
+    if recovered != captured.text.encode("utf-8"):
+        raise SystemExit("internal error: mixed bundle coverage changed")
+    for record in captured.mixed:
+        for full in full_mixed_slices(record):
+            end = 0
+            ranges = coverage.get((record.identity, full.target, full.side), [])
+            if not ranges:
+                raise SystemExit("internal error: missing mixed source coverage")
+            for start, stop in sorted(ranges):
+                if start > end or start < 0 or stop < start or stop > full.end:
+                    raise SystemExit("internal error: mixed source coverage changed")
+                end = max(end, stop)
+            if end != full.end:
+                raise SystemExit("internal error: incomplete mixed source coverage")
 
 
 def mixed_capacity_error(record: MixedPath, required: int, limit: int) -> MixedContextCapacityError:
@@ -3627,7 +3800,7 @@ def mixed_capacity_error(record: MixedPath, required: int, limit: int) -> MixedC
         f"mixed source {display_escape(record.path, 500)} ({sizes}; "
         f"base removed={utf8_size(json.dumps(record.index_removed, ensure_ascii=False))} bytes): "
         f"mandatory context/instructions/continuation and fragment require {required} bytes; "
-        f"prompt limit {limit}; cannot split authoritative context"
+        f"prompt limit {limit}; intact instructions or indivisible source fragment cannot fit"
     )
 
 
@@ -3652,36 +3825,55 @@ def build_mixed_change_passes(
     if offset < len(data):
         ranges.append((offset, len(data), (), ()))
     chunks = []
-    for start, end, sources, transitions in ranges:
-        template = ReviewChunk("", "", start, sources, transitions)
-        overhead = utf8_size(render_review_prompt(
-            branch, target, target_ref, template, extra_prompt, rendered, (999_999, 999_999),
+    variants = {}
+    for record in captured.mixed:
+        probe = ReviewChunk("xxxx", sources=(record,), transitions=((record.path, "index"),
+                                                                  (record.path, "working_tree")))
+        required = utf8_size(render_review_prompt(branch, target, target_ref, probe,
+                                                  extra_prompt, rendered, (999_999, 999_999)))
+        variants[record.identity] = ([None] if required <= max_prompt_bytes else bounded_mixed_slices(
+            record, branch, target, target_ref, extra_prompt, rendered, max_prompt_bytes,
         ))
-        limit = max_prompt_bytes - overhead
-        while limit >= 4:
-            pieces = split_review_bundle(data[start:end].decode("utf-8"), limit)
-            owned = []
-            position = start
-            for piece in pieces:
-                owned.append(piece._replace(byte_offset=position, sources=sources, transitions=transitions))
-                position += utf8_size(piece.content)
-            largest = max(utf8_size(render_review_prompt(
-                branch, target, target_ref, piece, extra_prompt, rendered, (999_999, 999_999),
-            )) for piece in owned)
-            if largest <= max_prompt_bytes:
-                chunks.extend(owned)
-                break
-            limit -= largest - max_prompt_bytes
-        else:
-            required = max_prompt_bytes - limit + 4
-            if sources:
-                raise mixed_capacity_error(sources[0], required, max_prompt_bytes)
-            raise MixedContextCapacityError(
-                f"review instructions/evidence/continuation and fragment require {required} bytes; "
-                f"prompt limit {max_prompt_bytes}"
-            )
-    if "".join(chunk.content for chunk in chunks) != captured.text:
-        raise SystemExit("internal error: mixed bundle coverage changed")
+    for start, end, sources, transitions in ranges:
+        choices = list(variants[sources[0].identity] if sources else [None])
+        original = True
+        while choices:
+            slices = choices.pop(0)
+            template = ReviewChunk("", "", start, sources, transitions, slices, not original)
+            overhead = utf8_size(render_review_prompt(
+                branch, target, target_ref, template, extra_prompt, rendered, (999_999, 999_999),
+            ))
+            limit = max_prompt_bytes - overhead
+            while limit >= 4:
+                pieces = split_review_bundle(data[start:end].decode("utf-8"), limit)
+                owned = []
+                position = start
+                for piece in pieces:
+                    owned.append(piece._replace(byte_offset=position, sources=sources, transitions=transitions,
+                                                source_slices=slices, change_context=not original))
+                    position += utf8_size(piece.content)
+                largest = max(utf8_size(render_review_prompt(
+                    branch, target, target_ref, piece, extra_prompt, rendered, (999_999, 999_999),
+                )) for piece in owned)
+                if largest <= max_prompt_bytes:
+                    chunks.extend(owned)
+                    original = False
+                    break
+                limit -= largest - max_prompt_bytes
+            else:
+                required = max_prompt_bytes - limit + 4
+                if sources and slices is None:
+                    choices = bounded_mixed_slices(sources[0], branch, target, target_ref,
+                                                   extra_prompt, rendered, max_prompt_bytes)
+                    variants[sources[0].identity] = list(choices)
+                    continue
+                if sources:
+                    raise mixed_capacity_error(sources[0], required, max_prompt_bytes)
+                raise MixedContextCapacityError(
+                    f"review instructions/evidence/continuation and fragment require {required} bytes; "
+                    f"prompt limit {max_prompt_bytes}"
+                )
+    verify_mixed_pass_coverage(captured, chunks)
     return [ReviewPass(render_review_prompt(
         branch, target, target_ref, chunk, extra_prompt, rendered, (index, len(chunks)),
     ), chunk, tuple(datasets)) for index, chunk in enumerate(chunks, 1)]
@@ -3696,15 +3888,14 @@ def build_mixed_review_passes(
     prompt = render_review_prompt(branch, target, target_ref, full, extra_prompt, render_datasets(datasets))
     if utf8_size(prompt) <= max_prompt_bytes:
         return [ReviewPass(prompt, full, tuple(datasets))]
-    # Establish that every mandatory record fits even with no evidence before
-    # spending time rebatching. Source context is never scheduled independently.
+    # Check indivisible source lines with intact instructions before rebatching.
     for record in captured.mixed:
-        chunk = ReviewChunk("xxxx", "", 0, (record,), ((record.path, "working_tree"),))
+        chunk = ReviewChunk("xxxx", sources=(record,), transitions=((record.path, "working_tree"),))
         required = utf8_size(render_review_prompt(
             branch, target, target_ref, chunk, extra_prompt, "", (999_999, 999_999),
         ))
         if required > max_prompt_bytes:
-            raise mixed_capacity_error(record, required, max_prompt_bytes)
+            bounded_mixed_slices(record, branch, target, target_ref, extra_prompt, "", max_prompt_bytes)
     try:
         return build_mixed_change_passes(
             branch, target, target_ref, captured, extra_prompt, datasets, max_prompt_bytes,
@@ -6066,6 +6257,7 @@ def validate_attribution_shape(value: Any, index: int) -> None:
 
 def mixed_attribution_error(
     finding: dict[str, Any], record: MixedPath, available: set[str],
+    available_slices: tuple[MixedSourceSlice, ...] | None = None,
 ) -> str | None:
     attribution = finding.get("source_attribution")
     if attribution is None:
@@ -6093,6 +6285,20 @@ def mixed_attribution_error(
         if line > len(lines):
             return "source anchor line is out of range"
         text = lines[line - 1].removesuffix("\n")
+    if available_slices is not None:
+        permitted = False
+        for part in available_slices:
+            if (part.record_id, part.target, part.side) != (record.identity, target, attribution["side"]):
+                continue
+            if removed:
+                owned = mixed_slice_lines(record, target, "removed")[part.start:part.end]
+                permitted = any(number == line for number, _ in owned)
+            else:
+                permitted = part.start < line <= part.end
+            if permitted:
+                break
+        if not permitted:
+            return "source anchor line was not supplied in this pass"
     column = attribution["column"] - 1
     excerpt = attribution["excerpt"]
     if ((not excerpt and (text != "" or column != 0))
@@ -6108,6 +6314,7 @@ def _validate_report(
     required: list[str],
     mixed: tuple[MixedPath, ...] = (),
     available: set[str] | None = None,
+    available_slices: tuple[MixedSourceSlice, ...] | None = None,
 ) -> None:
     allowed_top = {"findings", "overall_correctness", "overall_explanation", "overall_confidence"}
     extra_top = set(report) - allowed_top
@@ -6184,7 +6391,7 @@ def _validate_report(
             continue
         reason = None
         if rel in records:
-            reason = mixed_attribution_error(finding, records[rel], available or set())
+            reason = mixed_attribution_error(finding, records[rel], available or set(), available_slices)
         elif finding.get("source_attribution") is not None:
             reason = "source attribution has no owner-built mixed record for this path"
         if reason:
@@ -6240,9 +6447,10 @@ def validate_report(
     required: list[str],
     mixed: tuple[MixedPath, ...] = (),
     available: set[str] | None = None,
+    available_slices: tuple[MixedSourceSlice, ...] | None = None,
 ) -> None:
     try:
-        _validate_report(report, repo, changed_paths, required, mixed, available)
+        _validate_report(report, repo, changed_paths, required, mixed, available, available_slices)
     except SystemExit as exc:
         if isinstance(exc.code, str):
             raise SystemExit(
@@ -6794,7 +7002,8 @@ def run_reviewer(
         if not isinstance(completion, str) or completion not in {"complete", "incomplete"}:
             raise SystemExit("review engine returned missing or invalid review_completion")
         provider_report = copy.deepcopy(report)
-        validate_report(report, repo, paths, [], mixed, available)
+        validate_report(report, repo, paths, [], mixed, available,
+                        prompt.chunk.source_slices if isinstance(prompt, ReviewPass) else None)
     except (SystemExit, ValueError, RecursionError) as exc:
         # Only parsing/schema validation is inside this boundary. Scanner,
         # isolation, attribution refusals, and required-finding gates stay distinct.
@@ -6803,6 +7012,7 @@ def run_reviewer(
     report["provider_report"] = provider_report
     if mixed:
         report["available_source_records"] = sorted(available)
+        report["coverage"] = mixed_pass_coverage(prompt.chunk)
     require_findings(report, required)
     return ReviewResult(report, completion == "complete")
 
@@ -7076,6 +7286,8 @@ def main_impl() -> int:
     report["review_status"] = review_status(
         report, complete=all(result.complete for _, result in pass_results),
     )
+    if captured.mixed:
+        report["scope_coverage"] = mixed_scope_coverage(captured)
     label = "autoreview"
     if len(chunk_reports) > 1:
         label += " chunked"

@@ -16,6 +16,7 @@ The upstream maintenance instructions are not included. Toolkit maintains this a
 - Default-value tests cover these settings.
 - Output arguments use the expanded, resolved paths checked before review. A regression check covers `~` paths for all three reports.
 - Recursive submodule snapshots keep the original checkout as the executable/environment trust anchor. Native `git -C` selects the child directory; a regression check rejects parent-checkout Git execution.
+- Oversized mixed sources use bounded physical-line slices with complete source and transition coverage, exact pass attribution, and aggregate coverage metadata.
 
 Other explicit CLI arguments and environment overrides retain their upstream behavior.
 
