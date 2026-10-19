@@ -58,6 +58,13 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.equal(fs.existsSync(path.join(backup, '.claude-work/settings.json')), false)
   assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
   assert.match(fs.readFileSync(path.join(path.dirname(claudeConfig), 'CLAUDE.md'), 'utf8'), /normal model requests/)
+  for (const prompt of [path.join(path.dirname(config), 'AGENTS.md'), path.join(path.dirname(claudeConfig), 'CLAUDE.md')]) {
+    const content = fs.readFileSync(prompt, 'utf8')
+    assert.match(content, /Claude agents use `--engine claude`/)
+    assert.match(content, /Codex agents use `--engine codex`/)
+    assert.match(content, /A Claude agent needs explicit user authorization before switching its review to Codex/)
+    assert.doesNotMatch(content, /regardless of the implementation provider/)
+  }
   install(f.plan(options), noDownload)
   assert.equal(fs.readFileSync(config, 'utf8'), once)
   assert.equal(fs.readFileSync(claudeConfig, 'utf8'), claudeOnce)

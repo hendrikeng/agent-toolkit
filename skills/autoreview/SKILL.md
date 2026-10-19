@@ -45,11 +45,14 @@ Local execution does not mean offline inference.
 
 When review execution is already authorized, do not add a separate consent question before the normal invocation.
 Honor any restriction on model requests or external transmission. Do not infer permission to change providers or expand the selected source scope.
-When network access needs native approval, identify the local helper, selected Git scope, Codex engine, and normal model communication.
+When network access needs native approval, identify the local helper, selected Git scope, reviewer engine, and normal model communication.
 Cite the user's existing review authorization in the approval justification. Do not describe this as a Codex Cloud upload.
 If approval review rejects the request, obey the rejection and report its exact reason. Existing review authorization cannot override that rejection.
 
 ```sh
+# From a Claude agent:
+"<skill-directory>/scripts/autoreview" --engine claude --mode local
+# From a Codex agent:
 "<skill-directory>/scripts/autoreview" --engine codex --mode local
 ```
 
@@ -145,20 +148,25 @@ parent-relative patch; otherwise leave the attribution unknown.
 
 ## Engines
 
-Use Codex for every task by default, including Claude tasks. Do not inherit the implementation provider as the reviewer.
-Pass `--engine codex` to keep this default independent of `AUTOREVIEW_ENGINE`.
-Honor an explicit user selection of another reviewer.
+Match the engine to the provider family of the agent requesting AutoReview.
+Claude agents use `--engine claude`. Codex agents use `--engine codex`.
+The requesting agent selects the reviewer, not the worker that wrote the code.
+An explicit user choice takes precedence. Other provider families retain Codex as the default reviewer.
+Always pass the selected engine explicitly, independent of `AUTOREVIEW_ENGINE`.
+The standalone helper retains Codex as its default when no engine is selected.
+Do not infer the requesting agent's provider from installed CLIs, credentials, or model names.
 
-If Codex is unavailable or cannot complete a review, invoke the same helper with `--engine claude`.
+If the selected Codex engine is unavailable or cannot complete a review, invoke the same helper with `--engine claude`.
 Keep the same Git target.
 Codex unavailability includes a missing CLI, account-access errors, exhausted quota, or a failed reviewer process.
 This policy authorizes the reviewer provider selection. Preserve each engine's intended native account context and the selected source scope.
+If the selected Claude engine is unavailable, report that limitation. Use Codex only with explicit user authorization.
 Do not switch because a review is slow or returns findings.
 Never use Claude fallback to bypass a permission denial, approval-review rejection, isolation failure, or explicit task prohibition.
 The helper does not switch engines automatically. Inspect the diagnostic before invoking the fallback.
 An exit code of `1` alone does not establish reviewer failure.
 
-Codex is the default: `gpt-6.1-sol`, high reasoning, with a `gpt-5.6-sol` retry
+The Codex engine defaults to `gpt-6.1-sol`, high reasoning, with a `gpt-5.6-sol` retry
 only for an account-access failure when no model override is selected.
 Explicit CLI and environment model choices disable that retry. Honor explicit engine and model choices. Do not
 switch because a review is slow. Use Claude fallback only under the policy above.

@@ -713,6 +713,8 @@ Ponytail Review retains its complexity-review gate.
 An Adviser is not a way to bypass the active review policy with an unrequested second-model review.
 
 For an explicit or qualifying review, read the applicable skill first.
+Match AutoReview to the agent requesting the review: Claude uses Claude, and Codex uses Codex.
+The worker's provider does not select the reviewer. Explicit user choices take precedence.
 Use the helper in the intended native account context:
 
 | Engine | Explicit helper settings |
@@ -723,7 +725,7 @@ Use the helper in the intended native account context:
 These settings do not select a Paseo account alias.
 Reviewer effort is independent of worker effort.
 Medium is an optional adjustment for a deliberately lightweight explicit review.
-The explicit Claude model matters because the pinned helper's default differs from this recipe.
+The explicit Claude model pins Opus 5.5 independently of future default changes.
 
 Codex **Auto-review** evaluates approval requests.
 Toolkit **AutoReview** evaluates a change bundle.
