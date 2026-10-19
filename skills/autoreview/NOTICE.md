@@ -7,9 +7,22 @@ Pinned revision: `711711b86294673feced9d1cb636b539daf3c218`.
 The helper, test harness, regression tests, and fixtures come from this revision.
 The upstream maintenance instructions are not included. Toolkit maintains this adapted copy.
 
+## Selected upstream updates
+
+The base revision remains pinned above. Toolkit selectively adapts these features:
+
+- Committed source context from `d77e063f330ec968ea02ddce177a03d4d65c180c` and
+  intact per-pass context from `a1a136f7dbfc90c9f2e30b3d80bc5f27895240ef`.
+- Review-plan diagnostics and the optional pass budget from
+  `7345a6b5db81585e080dd7fc4b335b89a11b1eaf`.
+
+This update does not import upstream model defaults, token accounting, or other engine changes.
+Toolkit retains P2, its Codex model choices, and its isolation rules.
+
 ## Local differences
 
 - Codex defaults to `gpt-6.1-sol` with high reasoning. Account-access failures can retry once with `gpt-5.6-sol` only without a model override.
+- Claude defaults to `claude-opus-5-5`, as requested by the maintainer. Explicit model settings still take precedence.
 - Explicit CLI and environment model choices disable that retry, including an explicit selection of the default model. The existing override regression covers these choices.
 - The default threshold is P2, not P0. P3 findings remain in the audit output.
 - The skill retains Toolkit's risk gates and scope limits.

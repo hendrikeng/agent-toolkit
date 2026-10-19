@@ -115,6 +115,24 @@ sandbox; supply relevant source or dependency evidence when the diff is insuffic
 `--prompt-file` also accepts an absolute path inside the repository; the same
 sensitive-path, symlink, and mutation checks apply. `--dataset` stays repo-relative.
 
+For a branch or commit review, use repeatable `--source-context <repo-relative-path>`
+to include unchanged source from the exact reviewed commit. Each source block identifies
+its path, commit, blob, and mode. Dirty checkout bytes never replace the committed source.
+Large source blocks can span evidence batches. Use `--source-context-file <repo-relative-path>`
+when the complete file must appear in every pass. An intact file must fit with the
+review instructions and change context, or preparation fails.
+
+Both options reject local mode, symlinks, credential paths, and non-regular files.
+Source context does not expand finding scope. Its checkout path and bytes must stay
+unchanged during the review. These checks establish source identity, not secret-content scanning.
+Repeated paths within the same context role share one capture after each argument passes validation.
+
+```bash
+"$AUTOREVIEW" --engine claude --mode branch --base origin/main \
+  --source-context src/caller.py --source-context-file src/contracts.py \
+  --max-review-passes 4
+```
+
 The Toolkit default threshold is **P2**: accept P0, P1, and P2 findings.
 P3 findings remain in the audit output. Use `--max-priority` or
 `AUTOREVIEW_MAX_PRIORITY` to select a different threshold. Do not add unrelated redesign goals or prescribe file counts, reading
@@ -144,6 +162,9 @@ Codex is the default: `gpt-6.1-sol`, high reasoning, with a `gpt-5.6-sol` retry
 only for an account-access failure when no model override is selected.
 Explicit CLI and environment model choices disable that retry. Honor explicit engine and model choices. Do not
 switch because a review is slow. Use Claude fallback only under the policy above.
+
+The Claude engine defaults to Opus 5.5 (`claude-opus-5-5`). Explicit model settings
+still take precedence. This default does not change which engine the review policy selects.
 
 Use `--model` and `--thinking` for one review. Use `AUTOREVIEW_CODEX_MODEL` and
 `AUTOREVIEW_CODEX_THINKING` to change defaults for a launcher or terminal:
@@ -241,6 +262,10 @@ Do not edit inputs during a review: the helper verifies captured sources before
 sending and publishing results. Long reviews are normal; advancing heartbeats
 mean progress. Use `--stream-engine-output` for visibility, not extra reviewer
 runs. `--dry-run` checks preparation and startup without contacting a reviewer.
+Real runs and dry runs show the planned pass count and total prompt bytes.
+Use `--max-review-passes N` or `AUTOREVIEW_MAX_REVIEW_PASSES` to reject plans
+above an explicit budget before model calls. The value must be a positive integer.
+There is no default pass limit. A pass budget does not cap tokens, reasoning, or tool use.
 
 ## Results
 

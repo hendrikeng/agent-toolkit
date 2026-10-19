@@ -1282,6 +1282,155 @@ class AutoreviewHardeningTests(unittest.TestCase):
                     contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 yield repo, sends, stdout, stderr
 
+    @contextlib.contextmanager
+    def committed_context_fixture(self, *options, content=b"def count_tokens(): return 7\r\n"):
+        with self.preparation_fixture(*options) as fixture:
+            repo = fixture[0]
+            source = repo / "src/token_count.py"
+            source.parent.mkdir()
+            source.write_bytes(content)
+            source.chmod(0o755)
+            git(repo, "add", "src/token_count.py")
+            git(repo, "commit", "-qm", "context")
+            git(repo, "add", "source.md")
+            git(repo, "commit", "-qm", "selected change")
+            yield fixture
+
+    def test_committed_context_uses_frozen_blob_and_deduplicates_aliases(self):
+        for mode in ("branch", "commit"):
+            for role in ("--source-context", "--source-context-file"):
+                with self.subTest(mode=mode, role=role), self.committed_context_fixture(
+                    "--mode", mode, "--base", "HEAD^", role, "src/token_count.py",
+                    role, "./src/token_count.py",
+                ) as (repo, sends, *_):
+                    commit = git(repo, "rev-parse", "HEAD").strip()
+                    oid = git(repo, "rev-parse", "HEAD:src/token_count.py").strip()
+                    source = repo / "src/token_count.py"
+                    if mode == "commit":
+                        source.write_text("later committed context\n")
+                        git(repo, "commit", "-qam", "outside target")
+                    source.write_text("dirty checkout context\n")
+                    with mock.patch.object(sys, "argv", [*sys.argv, "--commit", commit]):
+                        self.assertEqual(self.helper["main_impl"](), 0)
+                    self.assertEqual(len(sends), 1)
+                    self.assertEqual(sends[0].count("def count_tokens(): return 7\r\n"), 1)
+                    self.assertIn(f"commit={commit} blob={oid} mode=100755; context only", sends[0])
+                    self.assertNotIn("dirty checkout context", sends[0])
+                    self.assertNotIn("later committed context", sends[0])
+                    self.assertNotIn("src/token_count.py", sends[0].split("# Change Bundle\n", 1)[1])
+
+    def test_source_context_rejects_local_and_unsafe_inputs_before_model_calls(self):
+        for role in ("--source-context", "--source-context-file"):
+            for path in ("source.md", "../outside.py", ".env", "credentials/module.py", "missing.py", "alias.py", "src"):
+                local = path == "source.md"
+                with self.subTest(role=role, path=path), self.committed_context_fixture(
+                    "--mode", "local" if local else "branch", "--base", "HEAD^", role, path,
+                ) as (repo, sends, *_):
+                    if path == "alias.py":
+                        (repo / path).symlink_to("src/token_count.py")
+                    with self.assertRaises(SystemExit) as caught:
+                        self.helper["main_impl"]()
+                    self.assertFalse(sends)
+                    self.assertRegex(str(caught.exception), "local mode|repo-relative|sensitive|unreadable|symlink|regular checkout")
+
+    def test_source_context_mutation_during_review_prevents_publication(self):
+        with self.committed_context_fixture(
+            "--mode", "branch", "--base", "HEAD^", "--source-context", "src/token_count.py",
+        ) as (repo, sends, *_):
+            output = repo.parent / "review.json"
+            original = self.helper["main_impl"].__globals__["run_engine"]
+
+            def engine(*args):
+                result = original(*args)
+                (repo / "src/token_count.py").write_text("changed during review\n")
+                return result
+
+            with mock.patch.dict(self.helper["main_impl"].__globals__, {"run_engine": engine}), \
+                    mock.patch.object(sys, "argv", [*sys.argv, "--json-output", str(output)]):
+                with self.assertRaisesRegex(SystemExit, "evidence changed"):
+                    self.helper["main_impl"]()
+            self.assertEqual(len(sends), 1)
+            self.assertFalse(output.exists())
+
+    def test_intact_source_context_survives_every_change_partition(self):
+        context = b"# required contract\n" * 80
+        with self.committed_context_fixture(
+            "--mode", "branch", "--base", "HEAD^", "--source-context-file", "src/token_count.py",
+            content=context,
+        ) as (repo, sends, *_):
+            (repo / "source.md").write_text("changed line\n" * 5000)
+            git(repo, "commit", "-qam", "large selected change")
+            with mock.patch.dict(self.helper["main_impl"].__globals__, {
+                "max_prompt_bytes_for_reviewers": lambda *_: 25_000,
+            }), mock.patch.object(sys, "argv", [*sys.argv, "--base", "HEAD~2"]):
+                self.assertEqual(self.helper["main_impl"](), 0)
+            self.assertGreater(len(sends), 1)
+            for prompt in sends:
+                self.assertIn(context.decode(), prompt)
+                self.assertLessEqual(len(prompt.encode()), 25_000)
+
+        with self.committed_context_fixture(
+            "--mode", "branch", "--base", "HEAD^", "--source-context-file", "src/token_count.py",
+            content=b"# required contract\n" * 2000,
+        ) as (_repo, sends, *_):
+            with mock.patch.dict(self.helper["main_impl"].__globals__, {
+                "max_prompt_bytes_for_reviewers": lambda *_: 25_000,
+            }):
+                with self.assertRaisesRegex(SystemExit, "too little room"):
+                    self.helper["main_impl"]()
+            self.assertFalse(sends)
+
+    def test_partitioned_source_context_retains_provenance_and_complete_bytes(self):
+        context = "# caller contract 界\r\n" * 3000
+        with self.committed_context_fixture(
+            "--mode", "branch", "--base", "HEAD^", "--source-context", "src/token_count.py",
+            content=context.encode(),
+        ) as (repo, sends, *_):
+            commit = git(repo, "rev-parse", "HEAD").strip()
+            oid = git(repo, "rev-parse", "HEAD:src/token_count.py").strip()
+            with mock.patch.dict(self.helper["main_impl"].__globals__, {
+                "max_prompt_bytes_for_reviewers": lambda *_: 25_000,
+            }):
+                self.assertEqual(self.helper["main_impl"](), 0)
+            self.assertGreater(len(sends), 1)
+            fragments = {}
+            for prompt in sends:
+                self.assertIn(f"commit={commit} blob={oid} mode=100755; context only", prompt)
+                evidence = prompt.split("# Source context: ", 1)[1].split("\n\n# Change Bundle\n", 1)[0]
+                match = re.search(r"\[Dataset byte offset: (\d+)\]\n(.*)", evidence, re.S)
+                self.assertIsNotNone(match)
+                fragments[int(match[1])] = match[2]
+                self.assertLessEqual(len(prompt.encode()), 25_000)
+            self.assertEqual("".join(fragments[offset] for offset in sorted(fragments)), context)
+
+    def test_pass_budget_rejects_real_and_dry_run_plans_without_model_calls(self):
+        for dry_run in (False, True):
+            for limit in ("1", "2"):
+                options = ("--dry-run",) if dry_run else ()
+                with self.subTest(dry_run=dry_run, limit=limit), self.preparation_fixture(
+                    "--max-review-passes", limit, *options,
+                ) as (_repo, sends, out, _err):
+                    original = self.helper["prepare_review_prompts"]
+                    with mock.patch.dict(self.helper["main_impl"].__globals__, {
+                        "prepare_review_prompts": lambda *args: original(*args) * 2,
+                    }):
+                        if limit == "1" and not dry_run:
+                            with self.assertRaisesRegex(SystemExit, "planned review has 2 passes"):
+                                self.helper["main_impl"]()
+                        else:
+                            self.assertEqual(self.helper["main_impl"](), int(limit == "1"))
+                    self.assertEqual(len(sends), 2 if limit == "2" and not dry_run else 0)
+                    self.assertIn("review plan: 2 passes;", out.getvalue())
+
+    def test_pass_budget_validates_environment_and_allows_cli_override(self):
+        for value in ("0", "-1", "1.5", "invalid"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"AUTOREVIEW_MAX_REVIEW_PASSES": value}), \
+                    mock.patch.object(sys, "argv", [str(SCRIPT)]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.helper["parse_args"]()
+                with mock.patch.object(sys, "argv", [str(SCRIPT), "--max-review-passes", "3"]):
+                    self.assertEqual(self.helper["parse_args"]().max_review_passes, 3)
+
     def test_preparation_reuses_untracked_capture_and_keeps_three_full_snapshots(self):
         for explicit in (False, True):
             options = ("--dataset", "note.md") if explicit else ()
@@ -1572,7 +1721,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
             path.write_text("TOKEN=changed-placeholder\n", encoding="utf-8")
             git(repo, "add", path.name)
 
-            bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+            bundle = self.helper["local_bundle"](repo).text
 
             self.assertIn(self.helper["REVIEW_SECURITY_OMISSION"], bundle)
 
@@ -1590,7 +1739,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
                 path.write_text("placeholder=true\n", encoding="utf-8")
                 (repo / "review.py").write_text("print('review me')\n", encoding="utf-8")
 
-                bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+                bundle = self.helper["local_bundle"](repo).text
 
                 self.assertIn("# Review Input Omissions", bundle)
                 self.assertIn(self.helper["REVIEW_SECURITY_OMISSION"], bundle)
@@ -1637,7 +1786,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
                 self.helper["local_bundle"].__globals__,
                 {"read_file_bytes": read_once},
             ):
-                bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+                bundle = self.helper["local_bundle"](repo).text
 
             expected_record = json.dumps("review me" + os.linesep)
             self.assertIn(
@@ -1929,7 +2078,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
             snapshot = self.helper["source_tree_snapshot"](repo)
             git(repo, "update-ref", "refs/heads/review-base", "HEAD")
             self.assertEqual(self.helper["source_tree_snapshot"](repo), snapshot)
-            bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo, pinned)
+            bundle = self.helper["local_bundle"](repo, pinned).text
             self.assertIn("+committed task change", bundle)
             self.assertEqual(
                 self.helper["build_bundle"](repo, target, pinned, "HEAD").paths,
@@ -1951,7 +2100,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
                 if staged:
                     git(repo, "add", safe)
                 with self.subTest(staged=staged):
-                    bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+                    bundle = self.helper["local_bundle"](repo).text
                     self.assertIn("struct CredentialFile", bundle)
                     self.assertIn(safe, self.helper["local_bundle"](repo).paths)
                     for label in ("--dataset", "--prompt-file"):
@@ -3409,17 +3558,18 @@ class AutoreviewHardeningTests(unittest.TestCase):
             (repo / ".env").write_text("placeholder=true\n", encoding="utf-8")
             (repo / "base.txt").write_text("base\nreview me\n", encoding="utf-8")
             git(repo, "add", ".env", "base.txt")
-            local, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+            local = self.helper["local_bundle"](repo).text
             self.assertIn(self.helper["REVIEW_SECURITY_OMISSION"], local)
             self.assertNotIn(".env", local)
             self.assertNotIn("placeholder=true", local)
             self.assertIn("+review me", local)
 
             git(repo, "commit", "-q", "-m", "sensitive path")
-            for bundle, paths, _mixed, _spans in (
+            for captured in (
                 self.helper["branch_bundle"](repo, base),
                 self.helper["commit_bundle"](repo, "HEAD"),
             ):
+                bundle = captured.text
                 self.assertIn(self.helper["REVIEW_SECURITY_OMISSION"], bundle)
                 self.assertNotIn(".env", bundle)
                 self.assertNotIn("placeholder=true", bundle)
@@ -3436,16 +3586,16 @@ class AutoreviewHardeningTests(unittest.TestCase):
             workflow = repo / ".github" / "workflows" / "secret-scan.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text("name: Secret scan\n", encoding="utf-8")
-            untracked_bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+            untracked_bundle = self.helper["local_bundle"](repo).text
             self.assertIn("secret-scan.yml", untracked_bundle)
 
             git(repo, "add", str(workflow.relative_to(repo)))
-            tracked_bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+            tracked_bundle = self.helper["local_bundle"](repo).text
             self.assertIn("secret-scan.yml", tracked_bundle)
 
             git(repo, "commit", "-q", "-m", "add secret scanner")
-            branch_bundle, _paths, _mixed, _spans = self.helper["branch_bundle"](repo, base)
-            commit_bundle, _paths, _mixed, _spans = self.helper["commit_bundle"](repo, "HEAD")
+            branch_bundle = self.helper["branch_bundle"](repo, base).text
+            commit_bundle = self.helper["commit_bundle"](repo, "HEAD").text
             self.assertIn("secret-scan.yml", branch_bundle)
             self.assertIn("secret-scan.yml", commit_bundle)
 
@@ -3513,7 +3663,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
             path.parent.mkdir()
             path.write_text(source, encoding="utf-8")
 
-            bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+            bundle = self.helper["local_bundle"](repo).text
 
             self.assertIn("ordinary-hardcoded-value-12345", bundle)
 
@@ -3785,7 +3935,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
             git(repo, "add", "-u")
             git(repo, "commit", "-q", "-m", "delete template")
 
-            bundle, _paths, _mixed, _spans = self.helper["branch_bundle"](repo, base)
+            bundle = self.helper["branch_bundle"](repo, base).text
 
             self.assertIn("deleted file mode 100644", bundle)
             self.assertIn("------BEGIN [A-Z ]+-----", bundle)
@@ -3945,7 +4095,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
 
             path.write_text('const request = { token: String() };\n', encoding="utf-8")
 
-            bundle, _paths, _mixed, _spans = self.helper["local_bundle"](repo)
+            bundle = self.helper["local_bundle"](repo).text
 
             self.assertIn('-const request = { token: "test-token" };', bundle)
 
