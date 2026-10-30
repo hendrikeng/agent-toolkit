@@ -31,6 +31,12 @@ Do not create storage only for evidence. Product assets and required test fixtur
 For disposable PostgreSQL 18 tests, use `pg-test` with the least-privileged role profile.
 Use only its returned fixture URL, keep credentials out of committed files, and run `pg-test stop <id>` when finished.
 
+CI runners bill by the minute on every provider. Treat each CI run as a cost.
+If the repository skips CI for draft pull requests, keep a pull request as a draft while you iterate. Mark it ready once, when the work is complete.
+Run focused local checks before each push, and batch fixes into one push. Add full-CI labels only when the change needs that coverage.
+Rerun a failed job only after you find the cause. Fix flaky tests instead of rerunning them.
+Repository CI rules take precedence. Never weaken required gates to save cost.
+
 ## Permission boundaries
 
 Distinguish execution denials, native approval requests, approval-review rejections, and explicit task prohibitions.
