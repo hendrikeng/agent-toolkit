@@ -35,6 +35,7 @@ CI runners bill by the minute on every provider. Treat each CI run as a cost.
 If the repository skips CI for draft pull requests, keep a pull request as a draft while you iterate. Mark it ready once, when the work is complete.
 Run focused local checks before each push, and batch fixes into one push. Add full-CI labels only when the change needs that coverage.
 Rerun a failed job only after you find the cause. Fix flaky tests instead of rerunning them.
+Group related small changes into one pull request. Each pull request and each push to it pays for a full CI run.
 Repository CI rules take precedence. Never weaken required gates to save cost.
 
 ## Permission boundaries
