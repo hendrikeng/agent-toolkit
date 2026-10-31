@@ -2467,7 +2467,7 @@ class AutoreviewHardeningTests(unittest.TestCase):
                                 result_path, status_path, text_path = (
                                     root / name for name in ("result.json", "status.json", "result.txt")
                                 )
-                                argv = [str(SCRIPT), "--mode", "local", "--max-priority", "P2",
+                                argv = [str(SCRIPT), "--engine", "codex", "--mode", "local", "--max-priority", "P2",
                                         "--json-output", str(result_path), "--status-output", str(status_path)]
                                 if expect:
                                     argv.append("--expect-findings")

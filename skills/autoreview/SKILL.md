@@ -153,7 +153,8 @@ Claude agents use `--engine claude`. Codex agents use `--engine codex`.
 The requesting agent selects the reviewer, not the worker that wrote the code.
 An explicit user choice takes precedence. Other provider families retain Codex as the default reviewer.
 Always pass the selected engine explicitly, independent of `AUTOREVIEW_ENGINE`.
-The standalone helper retains Codex as its default when no engine is selected.
+When no engine is selected, the helper uses `AUTOREVIEW_ENGINE`. If that is not set, it uses Claude inside Claude Code
+(`CLAUDECODE=1`) and Codex in other environments. A Codex agent that runs inside Claude Code must pass `--engine codex`.
 Do not infer the requesting agent's provider from installed CLIs, credentials, or model names.
 
 If the selected Codex engine is unavailable or cannot complete a review, invoke the same helper with `--engine claude`.

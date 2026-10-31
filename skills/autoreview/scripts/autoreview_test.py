@@ -261,6 +261,18 @@ class AutoreviewPriorityTests(unittest.TestCase):
             claude = AUTOREVIEW.reviewer_args(AUTOREVIEW.parse_args())[0]
         self.assertEqual((claude.model, claude.fallback_model), ("claude-opus-5-5", None))
 
+    def test_engine_default_follows_requesting_agent(self) -> None:
+        cases = (
+            ({}, [], "codex"),
+            ({"CLAUDECODE": "1"}, [], "claude"),
+            ({"CLAUDECODE": "1", "AUTOREVIEW_ENGINE": "codex"}, [], "codex"),
+            ({"CLAUDECODE": "1"}, ["--engine", "codex"], "codex"),
+        )
+        for env, options, engine in cases:
+            with self.subTest(env=env, options=options), mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(sys, "argv", ["autoreview", *options]):
+                self.assertEqual(AUTOREVIEW.parse_args().engine, engine)
+
     def test_explicit_review_settings_override_toolkit_defaults(self) -> None:
         cases = (
             ({}, ["--model", "custom-model"], "custom-model"),

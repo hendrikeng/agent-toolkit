@@ -6668,7 +6668,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["auto", "local", "uncommitted", "branch", "commit"], default="auto")
     parser.add_argument("--base", help="Branch base, or explicit commit to compare with the index in local mode.")
     parser.add_argument("--commit", default="HEAD")
-    parser.add_argument("--engine", choices=ENGINES, default=os.environ.get("AUTOREVIEW_ENGINE", "codex"))
+    # Claude Code sets CLAUDECODE=1 for its tool processes, so a Claude session gets a Claude review by default.
+    # ponytail: env check only; a Codex agent started inside Claude Code inherits it and must pass --engine codex.
+    default_engine = os.environ.get("AUTOREVIEW_ENGINE") or ("claude" if os.environ.get("CLAUDECODE") == "1" else "codex")
+    parser.add_argument("--engine", choices=ENGINES, default=default_engine)
     parser.add_argument(
         "--model",
         action="append",
