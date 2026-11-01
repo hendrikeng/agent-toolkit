@@ -77,7 +77,7 @@
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
     "modeId": "auto-review",
-    "featureValues": { "plan_mode": false, "fast_mode": false },
+    "featureValues": { "plan_mode": false },
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   },
   {

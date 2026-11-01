@@ -157,8 +157,8 @@ It is still not an OS sandbox.
 Approving a Claude plan can also select an execution permission mode.
 Verify that mode before implementation.
 
-The conservative recipe below uses `default` for nonplanning Claude profiles.
-An existing, deliberately selected `acceptEdits` or `auto` choice can remain instead.
+The recipe below uses `auto` for nonplanning Claude profiles.
+An existing, deliberately selected `default` or `acceptEdits` choice can remain instead.
 Bypass is not the recommended solution to approval fatigue.
 Claude Auto mode and Codex Auto-review have different implementations and policies.
 Their similar names do not establish equivalent protection.
@@ -263,7 +263,7 @@ Keep Planner planning controls as specified.
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
     "modeId": "auto-review",
-    "featureValues": { "plan_mode": false, "fast_mode": false },
+    "featureValues": { "plan_mode": false },
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   },
   {
@@ -425,9 +425,9 @@ Creating profiles automatically does not make their selection notes into worker 
 
 ### Feature details
 
-The `v0.10.3` adapter exposes Fast for Astra and Opus 5.5.
-Its Codex Fast allowlist does not include `gpt-6.1-sol`, so the Sol records omit that feature.
-If your daemon exposes Fast for Sol, save `fast_mode: false` there too.
+Paseo `0.13.2` exposes Fast for Opus 5.5 as the Claude `fast_mode` feature.
+It exposes Codex speed for Sol and Astra as the `service_tier` feature. The value `default` is Normal, and `priority` is Fast.
+The Sol records omit `service_tier`, so they use Normal. Discovery does not list `fast_mode` for these Codex models.
 Only use feature IDs returned by discovery for the exact provider and model.
 
 Claude has no `plan_mode` feature in this recipe.
