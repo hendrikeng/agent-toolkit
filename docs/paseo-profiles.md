@@ -204,7 +204,7 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "HIGH Codex Orchestrator",
+    "name": "Toolkit Codex HIGH Orchestrator",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
@@ -213,7 +213,7 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "HIGH Claude Orchestrator",
+    "name": "Toolkit Claude HIGH Orchestrator",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "high",
@@ -650,8 +650,8 @@ For a straightforward plan, select Medium before launch.
 
 High also fits difficult debugging, migrations, concurrency, security-sensitive work, and difficult cross-repository integration.
 It is not reserved for the Planner, and it does not require a failed Medium attempt first.
-Select effort for the task. `HIGH Claude Orchestrator` and `HIGH Codex Orchestrator` are the only effort variants, because a human selects the primary profile by hand.
-The capital prefix makes them easy to find in the profile list. The Orchestrator role stays the final word of the name.
+Select effort for the task. `Toolkit Claude HIGH Orchestrator` and `Toolkit Codex HIGH Orchestrator` are the only effort variants, because a human selects the primary profile by hand.
+The capital word `HIGH` makes them easy to find in the profile list. They use the same name pattern as the other Toolkit profiles, and the role stays the final word.
 A High Orchestrator does not raise worker effort. To use High workers, ask for them in the task. The Orchestrator sets worker effort at launch.
 
 Higher effort does not inherently cause overengineering.
