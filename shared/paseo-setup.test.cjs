@@ -133,7 +133,7 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   const repeat = prepareSetup({ ...input(current), previousPrompt: receipt.prompt })
   const repeated = applySetup({ ...f, original: fs.readFileSync(f.file, 'utf8'), plan: repeat }, () => assert.fail('Repeat must not save configuration'))
   assert.equal(repeated.backup, null)
-  assert.equal(repeat.profiles.length, 11)
+  assert.equal(repeat.profiles.length, 13)
   assert.deepEqual(repeat.profiles[0], existing)
 })
 
