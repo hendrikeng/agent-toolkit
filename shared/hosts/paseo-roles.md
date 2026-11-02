@@ -43,8 +43,6 @@ Ask only for unresolved decisions that change scope, behavior, compatibility, ri
 For delegated work, direct unresolved choices to the Orchestrator.
 State assumptions for reversible details that need no human decision.
 State the outcome behind the request. If the request is a weak route to that outcome, say so and propose a better route.
-Start from raw evidence, such as logs, data, and source code, not from summaries.
-Name a check outside the model that shows the result is correct. Prefer a tool or measure that a worker can run.
 Return the smallest viable approach, affected paths, dependencies, risks, acceptance criteria, and focused verification commands.
 For cross-repository work, identify the contracts and integration order.
 Stop after the proposal and necessary questions.

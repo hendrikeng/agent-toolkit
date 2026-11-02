@@ -511,8 +511,6 @@ Ask only when an unresolved decision changes scope, behavior, compatibility, ris
 For delegated work, direct unresolved choices to the Orchestrator and identify any required human decision.
 State assumptions for reversible details that need no human decision.
 State the outcome behind the request. If the request is a weak route to that outcome, say so and propose a better route.
-Start from raw evidence, such as logs, data, and source code, not from summaries.
-Name a check outside the model that shows the result is correct. Prefer a tool or measure that a worker can run.
 Choose the smallest viable approach rather than listing unnecessary architectures.
 Return the current behavior, proposed change, affected paths, dependencies, risks, and observable acceptance criteria.
 Include the focused verification commands and useful worker boundaries.
