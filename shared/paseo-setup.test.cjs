@@ -102,7 +102,7 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   const original = '// Human configuration comment\n' + JSON.stringify(config, null, 2).replace(/\n}$/, ',\n}')
   fs.writeFileSync(f.file, original)
   const plan = prepareSetup(input(config)), writes = []
-  assert.equal(plan.added.length, 9)
+  assert.equal(plan.added.length, 11)
   assert.deepEqual(plan.profiles[0], existing)
   assert.deepEqual(plan.profiles[1], unrelated)
   const worker = plan.profiles.find(p => p.name === 'Toolkit Codex Worker')
@@ -112,6 +112,10 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   const adviser = plan.profiles.find(p => p.name === 'Toolkit Codex Adviser')
   assert.equal(adviser.model, 'gpt-6.1-sol')
   assert.equal(adviser.thinkingOptionId, 'medium')
+  const high = plan.profiles.find(p => p.name === 'HIGH Claude Orchestrator')
+  assert.equal(high.id, 'high-claude-orchestrator')
+  assert.equal(high.thinkingOptionId, 'high')
+  assert.equal(high.modeId, 'acceptEdits')
   const planner = plan.profiles.find(p => p.name === 'Toolkit Claude Planner')
   assert.equal(planner.modeId, 'plan')
   assert.equal(planner.thinkingOptionId, 'high')
@@ -151,7 +155,7 @@ test('unsupported choices and ambiguous ownership refuse before mutation; an omi
   const oneFamily = structuredClone(base)
   delete oneFamily.selections.claude
   const plan = prepareSetup(oneFamily)
-  assert.equal(plan.profiles.length, 5)
+  assert.equal(plan.profiles.length, 6)
   assert.ok(plan.profiles.every(p => p.provider === 'codex-work'))
 })
 
@@ -243,7 +247,7 @@ test('concurrent edits stop writes; a failed native save stops the next phase an
   assert.throws(() => applySetup({ ...f, plan }, args => { save(args); throw Error('Native reload failed after persistence') }), /partially saved.*private backup/)
   assert.deepEqual(writes, ['agentProfiles'])
   const current = JSON.parse(fs.readFileSync(f.file, 'utf8'))
-  assert.equal(current.daemon.agentProfiles.length, 10)
+  assert.equal(current.daemon.agentProfiles.length, 12)
   assert.equal(current.daemon.appendSystemPrompt, 'Human instructions.')
   assert.equal(fs.readdirSync(path.join(f.dataRoot, 'backups')).length, 1)
   fs.writeFileSync(f.file, f.original)

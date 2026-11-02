@@ -1,7 +1,7 @@
 # Native Paseo profiles
 
-This guide defines ten optional profiles: four roles and a dedicated UI Worker specialization, each with Codex and Claude variants.
-The profiles save launch settings. They do not create ten running agents or install ten separate instruction systems.
+This guide defines twelve optional profiles: four roles, a dedicated UI Worker specialization, and a High effort Orchestrator, each with Codex and Claude variants.
+The profiles save launch settings. They do not create twelve running agents or install twelve separate instruction systems.
 Create only the profiles that you use.
 
 Toolkit creates these profiles through an optional trusted-terminal setup command.
@@ -204,6 +204,24 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
+    "name": "HIGH Codex Orchestrator",
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "thinkingOptionId": "high",
+    "modeId": "auto-review",
+    "featureValues": { "plan_mode": false },
+    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+  },
+  {
+    "name": "HIGH Claude Orchestrator",
+    "provider": "claude",
+    "model": "claude-opus-5-5",
+    "thinkingOptionId": "high",
+    "modeId": "auto",
+    "featureValues": { "fast_mode": false },
+    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+  },
+  {
     "name": "Toolkit Codex Planner",
     "provider": "codex",
     "model": "gpt-6.1-sol",
@@ -312,7 +330,7 @@ The setup choice defaults to off and leaves the System Prompt unchanged.
 Setup also asks whether to trust Paseo MCP calls through the native plugin. The default accepts this option.
 This option enables trusted, unsandboxed plugins on the selected daemon. Enter `n` to retain existing plugin settings.
 Setup then shows the selected changes and asks for one save confirmation.
-This avoids ten separate forms without guessing accounts or silently choosing broader permissions.
+This avoids twelve separate forms without guessing accounts or silently choosing broader permissions.
 The inspected native model command lowercases provider IDs.
 Setup refuses mixed-case aliases rather than querying an unintended account.
 For those aliases, use the native editor with the exact existing ID.
@@ -632,7 +650,9 @@ For a straightforward plan, select Medium before launch.
 
 High also fits difficult debugging, migrations, concurrency, security-sensitive work, and difficult cross-repository integration.
 It is not reserved for the Planner, and it does not require a failed Medium attempt first.
-Select effort for the task. Keep the same profiles rather than creating an effort variant for every role.
+Select effort for the task. `HIGH Claude Orchestrator` and `HIGH Codex Orchestrator` are the only effort variants, because a human selects the primary profile by hand.
+The capital prefix makes them easy to find in the profile list. The Orchestrator role stays the final word of the name.
+A High Orchestrator does not raise worker effort. To use High workers, ask for them in the task. The Orchestrator sets worker effort at launch.
 
 Higher effort does not inherently cause overengineering.
 Scope and Ponytail govern implementation size. Verification governs whether the result works.
@@ -665,7 +685,7 @@ The following procedure remains a manual alternative:
 9. Save the profile.
 10. Repeat for the profiles you need.
 
-The records are a complete catalog, not a requirement to create all ten.
+The records are a complete catalog, not a requirement to create all twelve.
 Saved changes affect future selections, not running agents.
 Keep unrelated profiles and provider settings.
 

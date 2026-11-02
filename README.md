@@ -227,8 +227,8 @@ See the guide for environment-loader ordering, small application integration, an
 
 ### Recommended native Paseo profiles
 
-Use four roles and a dedicated UI Worker specialization, each with a Codex and Claude choice: ten optional native profiles.
-Create only the profiles that you use. These are presets, not ten running agents.
+Use four roles, a dedicated UI Worker specialization, and a High effort Orchestrator, each with a Codex and Claude choice: twelve optional native profiles.
+Create only the profiles that you use. These are presets, not twelve running agents.
 The [complete profile guide](docs/paseo-profiles.md) supplies exact fields, selection notes, instruction text, permission explanations, and acceptance steps.
 After installation, create the profiles automatically from a trusted human terminal:
 
@@ -292,7 +292,7 @@ High also fits ambiguous architecture, difficult integration, security-sensitive
 A small change can still need High. Select it before a difficult assignment rather than waiting for a failed attempt.
 Low is an optional adjustment for mechanical work with reliable checks and close supervision. It is not the saved Worker default.
 Adjust effort for the assignment through native controls. Honor an explicit human effort choice and explain any proposed adjustment.
-Keep the same profiles. No extra effort variants are required.
+Keep the same profiles. For hard primary work, select `HIGH Claude Orchestrator` or `HIGH Codex Orchestrator`. No other effort variants are required.
 
 These defaults are provisional, not measured optima. Higher effort can increase latency and usage without a useful improvement on routine tasks.
 Higher effort does not inherently cause overengineering. Scope, Ponytail guidance, and verification remain separate controls.
