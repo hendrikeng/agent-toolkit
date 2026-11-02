@@ -1,6 +1,6 @@
 [
   {
-    "name": "Toolkit Codex Orchestrator",
+    "name": "Toolkit Med - Codex Orchestrator",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -9,7 +9,7 @@
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Claude Orchestrator",
+    "name": "Toolkit Med - Claude Orchestrator",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -18,7 +18,7 @@
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Codex HIGH Orchestrator",
+    "name": "Toolkit High - Codex Orchestrator",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
@@ -27,7 +27,7 @@
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Claude HIGH Orchestrator",
+    "name": "Toolkit High - Claude Orchestrator",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "high",
@@ -36,7 +36,7 @@
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Codex Planner",
+    "name": "Toolkit High - Codex Planner",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
@@ -45,7 +45,7 @@
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving Implement for a planning-only assignment."
   },
   {
-    "name": "Toolkit Claude Planner",
+    "name": "Toolkit High - Claude Planner",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "high",
@@ -54,7 +54,7 @@
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving implementation for a planning-only assignment."
   },
   {
-    "name": "Toolkit Codex Worker",
+    "name": "Toolkit Med - Codex Worker",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -63,7 +63,7 @@
     "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
   },
   {
-    "name": "Toolkit Claude Worker",
+    "name": "Toolkit Med - Claude Worker",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -72,7 +72,7 @@
     "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
   },
   {
-    "name": "Toolkit Codex UI Worker",
+    "name": "Toolkit Med - Codex UI Worker",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -81,7 +81,7 @@
     "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
   },
   {
-    "name": "Toolkit Claude UI Worker",
+    "name": "Toolkit Med - Claude UI Worker",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -90,7 +90,7 @@
     "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
   },
   {
-    "name": "Toolkit Codex Adviser",
+    "name": "Toolkit Med - Codex Adviser",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -99,7 +99,7 @@
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   },
   {
-    "name": "Toolkit Claude Adviser",
+    "name": "Toolkit Med - Claude Adviser",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",

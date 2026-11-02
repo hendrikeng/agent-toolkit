@@ -105,21 +105,21 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   assert.equal(plan.added.length, 11)
   assert.deepEqual(plan.profiles[0], existing)
   assert.deepEqual(plan.profiles[1], unrelated)
-  const worker = plan.profiles.find(p => p.name === 'Toolkit Codex Worker')
+  const worker = plan.profiles.find(p => p.name === 'Toolkit Med - Codex Worker')
   assert.equal(worker.provider, 'codex-work')
   assert.equal(worker.modeId, 'auto-review')
   assert.equal(worker.featureValues.plan_mode, false)
-  const adviser = plan.profiles.find(p => p.name === 'Toolkit Codex Adviser')
+  const adviser = plan.profiles.find(p => p.name === 'Toolkit Med - Codex Adviser')
   assert.equal(adviser.model, 'gpt-6.1-sol')
   assert.equal(adviser.thinkingOptionId, 'medium')
-  const high = plan.profiles.find(p => p.name === 'Toolkit Claude HIGH Orchestrator')
-  assert.equal(high.id, 'toolkit-claude-high-orchestrator')
+  const high = plan.profiles.find(p => p.name === 'Toolkit High - Claude Orchestrator')
+  assert.equal(high.id, 'toolkit-high-claude-orchestrator')
   assert.equal(high.thinkingOptionId, 'high')
   assert.equal(high.modeId, 'acceptEdits')
-  const planner = plan.profiles.find(p => p.name === 'Toolkit Claude Planner')
+  const planner = plan.profiles.find(p => p.name === 'Toolkit High - Claude Planner')
   assert.equal(planner.modeId, 'plan')
   assert.equal(planner.thinkingOptionId, 'high')
-  assert.equal(plan.profiles.find(p => p.name === 'Toolkit Claude UI Worker').featureValues.fast_mode, false)
+  assert.equal(plan.profiles.find(p => p.name === 'Toolkit Med - Claude UI Worker').featureValues.fast_mode, false)
   const result = applySetup({ ...f, original, plan }, writer(f.file, writes))
   assert.deepEqual(writes, ['agentProfiles', 'appendSystemPrompt'])
   assert.equal(fs.readFileSync(path.join(result.backup, 'config.json'), 'utf8'), original)
@@ -145,7 +145,7 @@ test('unsupported choices and ambiguous ownership refuse before mutation; an omi
     v => { v.config.agents.providers['codex-work'].extends = 'claude' },
     v => { v.selections.codex.modeId = 'full-access' },
     v => { v.config.daemon.agentProfiles = [{ id: 'a', name: 'Toolkit Codex Worker' }, { id: 'b', name: 'Toolkit Codex Worker' }] },
-    v => { v.config.daemon.agentProfiles = [{ id: 'toolkit-codex-worker', name: 'Unrelated preset' }] },
+    v => { v.config.daemon.agentProfiles = [{ id: 'toolkit-med-codex-worker', name: 'Unrelated preset' }] },
     v => { v.config.daemon.appendSystemPrompt = '<!-- agent-toolkit-paseo-context -->\nUser edit\n<!-- /agent-toolkit-paseo-context -->' },
   ]) {
     const value = structuredClone(base)
@@ -159,6 +159,47 @@ test('unsupported choices and ambiguous ownership refuse before mutation; an omi
   assert.ok(plan.profiles.every(p => p.provider === 'codex-work'))
 })
 
+test('setup renames released profiles once and keeps changed choices under their former names', t => {
+  const f = fixture(t), config = configuration()
+  const released = name => ({ id: name.toLowerCase().replaceAll(' ', '-'), name, model: 'claude-opus-5-5', thinkingOptionId: 'medium', provider: 'claude-work', modeId: 'default', notes: 'Human notes' })
+  const orchestrator = released('Toolkit Claude Orchestrator')
+  const worker = released('Toolkit Claude Worker')
+  const customEffort = { ...released('Toolkit Claude Adviser'), thinkingOptionId: 'high' }
+  const otherAccount = { ...released('Toolkit Claude UI Worker'), provider: 'claude-other' }
+  const high = { ...released('Toolkit Claude HIGH Orchestrator'), thinkingOptionId: 'high' }
+  config.daemon.agentProfiles = [orchestrator, worker, customEffort, otherAccount, high]
+  const plan = prepareSetup({ ...input(config), installContext: false })
+  assert.deepEqual(plan.profiles.slice(0, 5), [
+    { ...orchestrator, name: 'Toolkit Med - Claude Orchestrator' },
+    { ...worker, name: 'Toolkit Med - Claude Worker' },
+    customEffort,
+    otherAccount,
+    { ...high, name: 'Toolkit High - Claude Orchestrator' },
+  ])
+  assert.deepEqual(plan.renamed, [
+    'Toolkit Claude Orchestrator -> Toolkit Med - Claude Orchestrator',
+    'Toolkit Claude HIGH Orchestrator -> Toolkit High - Claude Orchestrator',
+    'Toolkit Claude Worker -> Toolkit Med - Claude Worker',
+  ])
+  const names = plan.profiles.map(p => p.name)
+  assert.equal(new Set(names).size, names.length)
+  assert.ok(!names.includes('Toolkit Med - Claude Adviser'))
+  assert.ok(!names.includes('Toolkit Med - Claude UI Worker'))
+  const repeat = prepareSetup({ ...input({ ...config, daemon: { ...config.daemon, agentProfiles: plan.profiles } }), installContext: false })
+  assert.deepEqual(repeat.renamed, [])
+  assert.deepEqual(repeat.added, [])
+  assert.deepEqual(repeat.profiles, plan.profiles)
+
+  // A plan with renames but no additions must still reach the saved configuration.
+  const renameOnly = { ...plan, profiles: plan.profiles.slice(0, 5), added: [] }
+  const original = JSON.stringify(config)
+  fs.writeFileSync(f.file, original)
+  const writes = []
+  applySetup({ ...f, original, plan: renameOnly }, writer(f.file, writes))
+  assert.deepEqual(writes, ['agentProfiles'])
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file, 'utf8')).daemon.agentProfiles, renameOnly.profiles)
+})
+
 test('setup migrates only reviewed legacy Adviser candidates, preserves bytes in backup, and repeats without writes', t => {
   const f = fixture(t)
   for (const modeId of ['auto', 'auto-review']) {
@@ -170,18 +211,20 @@ test('setup migrates only reviewed legacy Adviser candidates, preserves bytes in
         notes: 'Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish.',
       }
       config.daemon.agentProfiles = [legacy]
-      const value = { ...input(config), presets: [presets.find(p => p.name === legacy.name)], installContext: false }
+      const value = { ...input(config), presets: [presets.find(p => p.name === 'Toolkit Med - Codex Adviser')], installContext: false }
       const original = '// Keep original bytes\n' + JSON.stringify(config)
       fs.writeFileSync(f.file, original)
       const plan = prepareSetup(value), writes = []
-      assert.deepEqual(plan.profiles, [{ ...legacy, thinkingOptionId: 'medium' }])
+      const migrated = { ...legacy, name: 'Toolkit Med - Codex Adviser', thinkingOptionId: 'medium' }
+      assert.deepEqual(plan.profiles, [migrated])
       assert.deepEqual(plan.updated, [legacy.name])
+      assert.deepEqual(plan.renamed, ['Toolkit Codex Adviser -> Toolkit Med - Codex Adviser'])
       const result = applySetup({ ...f, original, plan }, writer(f.file, writes))
       assert.deepEqual(writes, ['agentProfiles'])
       assert.deepEqual(result.updated, [legacy.name])
       assert.equal(fs.readFileSync(path.join(result.backup, 'config.json'), 'utf8'), original)
       const current = JSON.parse(fs.readFileSync(f.file, 'utf8'))
-      assert.deepEqual(current, { ...config, daemon: { ...config.daemon, agentProfiles: [{ ...legacy, thinkingOptionId: 'medium' }] } })
+      assert.deepEqual(current, { ...config, daemon: { ...config.daemon, agentProfiles: [migrated] } })
       const repeat = prepareSetup({ ...value, config: current })
       assert.deepEqual(repeat.updated, [])
       assert.equal(applySetup({ ...f, original: fs.readFileSync(f.file, 'utf8'), plan: repeat }, () => assert.fail('Repeat must not write')).backup, null)
@@ -199,7 +242,8 @@ test('setup migrates only reviewed legacy Adviser candidates, preserves bytes in
         mutate(custom)
         const kept = prepareSetup({ ...value, config: { ...config, daemon: { ...config.daemon, agentProfiles: [custom] } } })
         assert.deepEqual(kept.updated, [])
-        assert.deepEqual(kept.profiles, [custom])
+        // A human Medium choice is no legacy candidate, but it matches the current preset.
+        assert.deepEqual(kept.profiles, [custom.thinkingOptionId === 'medium' && custom.provider === legacy.provider && custom.model === legacy.model ? { ...custom, name: migrated.name } : custom])
       }
       const skipped = prepareSetup({ ...value, selections: {} })
       assert.deepEqual(skipped.profiles, [legacy])

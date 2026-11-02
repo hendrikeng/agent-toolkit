@@ -186,7 +186,7 @@ Keep Planner planning controls as specified.
 ```json
 [
   {
-    "name": "Toolkit Codex Orchestrator",
+    "name": "Toolkit Med - Codex Orchestrator",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -195,7 +195,7 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Claude Orchestrator",
+    "name": "Toolkit Med - Claude Orchestrator",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -204,7 +204,7 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Codex HIGH Orchestrator",
+    "name": "Toolkit High - Codex Orchestrator",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
@@ -213,7 +213,7 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Claude HIGH Orchestrator",
+    "name": "Toolkit High - Claude Orchestrator",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "high",
@@ -222,7 +222,7 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit Codex Planner",
+    "name": "Toolkit High - Codex Planner",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "high",
@@ -231,7 +231,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving Implement for a planning-only assignment."
   },
   {
-    "name": "Toolkit Claude Planner",
+    "name": "Toolkit High - Claude Planner",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "high",
@@ -240,7 +240,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving implementation for a planning-only assignment."
   },
   {
-    "name": "Toolkit Codex Worker",
+    "name": "Toolkit Med - Codex Worker",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -249,7 +249,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
   },
   {
-    "name": "Toolkit Claude Worker",
+    "name": "Toolkit Med - Claude Worker",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -258,7 +258,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
   },
   {
-    "name": "Toolkit Codex UI Worker",
+    "name": "Toolkit Med - Codex UI Worker",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -267,7 +267,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
   },
   {
-    "name": "Toolkit Claude UI Worker",
+    "name": "Toolkit Med - Claude UI Worker",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -276,7 +276,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
   },
   {
-    "name": "Toolkit Codex Adviser",
+    "name": "Toolkit Med - Codex Adviser",
     "provider": "codex",
     "model": "gpt-6.1-sol",
     "thinkingOptionId": "medium",
@@ -285,7 +285,7 @@ Keep Planner planning controls as specified.
     "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
   },
   {
-    "name": "Toolkit Claude Adviser",
+    "name": "Toolkit Med - Claude Adviser",
     "provider": "claude",
     "model": "claude-opus-5-5",
     "thinkingOptionId": "medium",
@@ -392,11 +392,15 @@ Review the Adviser candidate, then confirm the save only if High was the Toolkit
 If High is your deliberate choice, cancel or rerun setup with Codex skipped.
 Keep the profile editor idle during setup.
 
+Setup renames a profile with a former name, such as `Toolkit Claude Worker`, to its current name, such as `Toolkit Med - Claude Worker`.
+The profile must use the selected account, and its model and effort must match the preset. Setup shows each rename before the save confirmation.
+The rename keeps the ID, mode, features, notes, and other settings. A changed account, model, or effort keeps the former name.
+
 Setup offers High → Medium only for an exact legacy Toolkit Codex Adviser match on the selected account.
 The recognized ID is `toolkit-codex-adviser`, with model `gpt-6.1-sol`, original notes, and mode `auto` or `auto-review`.
 Features must be exactly `{plan_mode:false}` or `{plan_mode:false,fast_mode:false}`.
-Missing `fast_mode` stays missing. Explicit false stays false. Only Thinking changes.
-The account, ID, model, mode, features, notes, and unrelated settings remain intact.
+Missing `fast_mode` stays missing. Explicit false stays false. Only Thinking and the name change.
+The account, ID, model, mode, features, notes, and unrelated settings remain intact. Setup also applies the current name.
 Extra fields or changed values prevent migration. An omitted family or different selected account also prevents migration.
 Setup validates Medium support on the exact account before offering the change.
 
@@ -650,8 +654,8 @@ For a straightforward plan, select Medium before launch.
 
 High also fits difficult debugging, migrations, concurrency, security-sensitive work, and difficult cross-repository integration.
 It is not reserved for the Planner, and it does not require a failed Medium attempt first.
-Select effort for the task. `Toolkit Claude HIGH Orchestrator` and `Toolkit Codex HIGH Orchestrator` are the only effort variants, because a human selects the primary profile by hand.
-The capital word `HIGH` makes them easy to find in the profile list. They use the same name pattern as the other Toolkit profiles, and the role stays the final word.
+Select effort for the task. `Toolkit High - Claude Orchestrator` and `Toolkit High - Codex Orchestrator` are the only effort variants, because a human selects the primary profile by hand.
+Each profile name starts with its saved effort: `Toolkit Med - <provider> <role>` or `Toolkit High - <provider> <role>`. The role stays the final word.
 A High Orchestrator does not raise worker effort. To use High workers, ask for them in the task. The Orchestrator sets worker effort at launch.
 
 Higher effort does not inherently cause overengineering.

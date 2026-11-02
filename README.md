@@ -269,16 +269,18 @@ These task-based defaults use your existing subscriptions:
 
 | Profile | Model | Thinking | Planning control | When to use |
 |---|---|---|---|---|
-| Toolkit Codex Orchestrator | `gpt-6.1-sol` | Medium | `plan_mode: false` | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
-| Toolkit Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
-| Toolkit Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
-| Toolkit Claude Planner | `claude-opus-5-5` | High | Native `plan` mode | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
-| Toolkit Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation, debugging, and verification after authorization |
-| Toolkit Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
-| Toolkit Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
-| Toolkit Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend components, responsive layouts, accessibility, styling, and visual verification |
-| Toolkit Codex Adviser | `gpt-6.1-sol` | Medium | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
-| Toolkit Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | A completed recommendation or second opinion on a bounded question |
+| Toolkit Med - Codex Orchestrator | `gpt-6.1-sol` | Medium | `plan_mode: false` | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
+| Toolkit High - Codex Orchestrator | `gpt-6.1-sol` | High | `plan_mode: false` | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
+| Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
+| Toolkit High - Claude Orchestrator | `claude-opus-5-5` | High | Existing non-`plan` mode | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
+| Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
+| Toolkit High - Claude Planner | `claude-opus-5-5` | High | Native `plan` mode | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
+| Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation, debugging, and verification after authorization |
+| Toolkit Med - Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
+| Toolkit Med - Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
+| Toolkit Med - Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend components, responsive layouts, accessibility, styling, and visual verification |
+| Toolkit Med - Codex Adviser | `gpt-6.1-sol` | Medium | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
+| Toolkit Med - Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | A completed recommendation or second opinion on a bounded question |
 
 These profiles are launch presets. Select them for the tasks that need their roles.
 The Orchestrator can complete ordinary changes directly. Delegation needs useful scopes, explicit ownership, and sufficient task context.
@@ -292,7 +294,7 @@ High also fits ambiguous architecture, difficult integration, security-sensitive
 A small change can still need High. Select it before a difficult assignment rather than waiting for a failed attempt.
 Low is an optional adjustment for mechanical work with reliable checks and close supervision. It is not the saved Worker default.
 Adjust effort for the assignment through native controls. Honor an explicit human effort choice and explain any proposed adjustment.
-Keep the same profiles. For hard primary work, select `Toolkit Claude HIGH Orchestrator` or `Toolkit Codex HIGH Orchestrator`. No other effort variants are required.
+Keep the same profiles. For hard primary work, select `Toolkit High - Claude Orchestrator` or `Toolkit High - Codex Orchestrator`. No other effort variants are required.
 
 These defaults are provisional, not measured optima. Higher effort can increase latency and usage without a useful improvement on routine tasks.
 Higher effort does not inherently cause overengineering. Scope, Ponytail guidance, and verification remain separate controls.
