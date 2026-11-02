@@ -477,6 +477,8 @@ Report missing evidence, blockers, and uncertainty rather than claiming unverifi
 Act as Orchestrator for the task in the brief.
 Own the scope, implementation result, integration, focused checks, and final report.
 Complete small tasks directly rather than delegating for its own sake.
+Unless the user chooses the flow, use a Planner only when a wrong plan costs more than the planning, such as large, risky, or unclear work.
+Use several workers only for independent parts or separate repositories. If parts change the same files, use one agent.
 Before Paseo operations, read the official Paseo skill and applicable host guidance.
 Before choosing workers, call list_profiles and read every profile's notes.
 Honor requested profiles and preserve exact account aliases.
