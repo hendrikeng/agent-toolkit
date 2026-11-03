@@ -151,7 +151,8 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 | Plain `ssh` | FAIL: host name not resolved | Not supported |
 | Toolkit `./verify.sh` | FAIL: 4 AutoReview helper tests refuse `/tmp` | FAIL. Run Toolkit checks from a human terminal. Real AutoReview runs are excluded commands. |
 | 22 HTTPS hosts (GitHub, registries, Infisical, Railway, Neon, Neo4j Aura, Redis Cloud, Stripe, Ubicloud, Anthropic, OpenAI, Cloudflare, TRACN) | PASS | PASS |
-| Node `fetch`, Python HTTPS, TCP to a Neon host on port 5432 | PASS | PASS in `bypassPermissions` mode |
+| Node `fetch`, Python HTTPS | PASS | PASS |
+| Database connection to Neon (Postgres protocol) | PASS with the sandbox network open | FAIL: `getaddrinfo ENOTFOUND` |
 
 The `allowWrite` entries and the excluded commands were not tested in a session with these settings.
 Run the probe and the separate excluded-command calls in a fresh session after you apply them.
@@ -160,7 +161,7 @@ Run the probe and the separate excluded-command calls in a fresh session after y
 
 - **Plain `ssh`** to other servers, for example `*.orb.local` hosts, does not work in the sandbox. The docs say that `ssh` ignores the proxy. Add the server to `SANDBOX_SSH_SERVERS`, or run it from a human terminal.
 - **Deploy scripts** such as `scripts/deploy-rsync.sh` call `rsync` and `ssh` inside the script, so the exclusions do not apply. Run the deployment from a human terminal, or let the agent run the `rsync` and `ssh` steps as separate calls. Do not exclude the script itself, because an agent can change it.
-- **Database drivers in other permission modes.** In `bypassPermissions` mode, TCP to remote databases worked. In other modes, the docs say most database drivers cannot connect, even to an allowed host.
+- **Remote database connections do not work in the sandbox.** Only HTTPS passes the sandbox proxy. Database drivers for Neon, Neo4j Aura, and Redis cannot resolve the host, in every permission mode. For a small task, run the command from a human terminal. For a longer database task, run `scripts/apply-claude-sandbox.sh --undo`, and then `scripts/apply-claude-sandbox.sh --no-update` when the task is complete.
 - **Playwright** needs `--single-process` in the Chromium launch arguments when a sandboxed Claude session runs it. Change `tracn-web/playwright.config.ts`, in the `use` block: `launchOptions: { args: process.env.CLAUDECODE ? ['--single-process'] : [] }`. The Paseo browser tools run outside the sandbox and need no change.
 - **The server exclusions can run local code.** Options such as `ssh -o ProxyCommand`, `scp -S`, and `rsync -e` run a local program outside the sandbox. This is accepted, because these agents already control the servers. The sandbox here protects against accidental deletes, not against an agent that tries to escape.
 - **Excluded commands run with full access.** The Docker daemon can mount any host path. Do not add patterns for interpreters, package scripts, or files in the working directory, because an agent can change them.
