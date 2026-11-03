@@ -3,6 +3,7 @@
 One shared skill collection for Codex and Claude Code, in native Paseo or a terminal. Start with normal provider commands.
 
 The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
+The one exception is the deny-only [delete guard](#delete-guard) hook for shell commands.
 
 Replies addressed directly to the human user use the adapted, pinned [Caveman skill](skills/caveman/SKILL.md) across Codex and Claude Code.
 It removes filler and keeps technical meaning. Use `normal mode` or request more detail when needed.
@@ -45,6 +46,8 @@ The selected provider instructions record authorization for normal review and sc
 Repeat installs retain this authorization. No persistent provider-config backups are created. Failed deployment restores original configs from memory.
 Other installed Toolkit resources retain the installer's normal backups.
 The former `--review-network` option remains accepted, with the same behavior as normal installation.
+Both installation modes add the [delete guard](#delete-guard) hooks to each selected Claude and Codex home.
+In Codex, open `/hooks` in a fresh session and trust the two delete guard hooks.
 
 Add `~/.local/bin` to `PATH` for PostgreSQL helpers. Restart old sessions, then use:
 
@@ -401,6 +404,62 @@ Retiring the old wrappers removes Toolkit's extra workspace scope, denied creden
 Host terminal brokers, MCP servers, Docker, and frontend services have their own privileges.
 Workspace selection alone cannot protect other projects or secrets. Keep appropriate native sandbox settings and backups.
 
+### Delete guard
+
+`shared/delete-guard.cjs` is a `PreToolUse` and `PostToolUse` hook for shell commands in Claude Code and Codex.
+Claude runs `PreToolUse` hooks in every permission mode, including `bypassPermissions`. A refusal blocks the command.
+Normal installation and `--preserve-permissions` both add the hook. The hook only refuses commands, so it grants no access.
+The installer adds it to `$CLAUDE_CONFIG_DIR/settings.json` and `hooks.json` in each Codex home. It keeps existing hooks.
+If one of these files is a symbolic link, `--preserve-permissions` skips the guard for that file and shows a warning.
+
+The guard examines every `rm` and `unlink` command, `find` with `-delete` or `-exec rm`, and `pg-test gc`.
+It also examines `bash -c`, `sh -c`, `eval`, `trap` actions, heredocs for a shell, and command substitutions.
+It allows a delete only when each target is in one of these locations:
+
+- A path strictly inside the current repository. The repository is the Git top level of the session's working directory. The repository root and `.git` are not allowed.
+- A directory that this session created with `mktemp`, or a path inside it.
+
+It refuses all other targets. These include `/`, a top-level system path, the home directory, its parents, and paths outside the allowed locations.
+It resolves `..` and symbolic links before it compares paths. For a glob, it compares the fixed directory in front of the glob.
+A glob must be in the last path component. `find` with `-L`, `-H`, or `-follow` cannot delete.
+
+The guard fails closed. It refuses a target that it cannot resolve:
+
+- A command substitution, such as `"$(dirname "$L")"`.
+- A variable that the same command does not set. `$HOME`, `$TMPDIR`, and `~` are the exceptions.
+- A variable without `:?`. A skipped assignment leaves the variable empty. Write `"${out:?}"`.
+- A `mktemp` variable that does not start the path.
+- A variable that the command sets more than once, sets over an environment variable, or uses in a loop.
+- An unquoted variable whose value contains a space or a glob character.
+- A brace expansion with quoted parts, and `..` inside or after a glob.
+- Targets from `xargs`, `find -exec sh`, computed `eval` text, and a script piped into a shell.
+- A relative target in a command that has `cd` and also a loop or a function.
+- A heredoc for a shell with an unquoted delimiter, if the body contains `$`, a backtick, or `\`.
+- A `~` inside a brace expansion, and a parenthesis inside a command, such as zsh alternation or extglob.
+- A backslash inside backticks or inside `$'...'`, a zsh expansion such as `$=name`, and a glob or brace alternative that starts with a dot.
+
+The guard records ownership in two ways:
+
+- In one command, `d=$(mktemp -d)` makes `"${d:?}"` an owned path.
+- Across commands, `PreToolUse` records the start time of each command that contains `mktemp`. `PostToolUse` reads the command output. It records each printed directory that is new, mode `0700`, owned by the user, and directly in a temporary root.
+- The guard records nothing if the output names an older entry of a temporary root, as a listing does.
+- The guard records nothing if that root has more new directories than the command has `mktemp -d` calls. Another session can create a directory at the same time.
+- If the guard records nothing, delete the directory in the same command with `"${d:?}"`, or leave it for the system to clean.
+
+The records are in `$TMPDIR/agent-toolkit-delete-guard/<session>.jsonl`. Records are per session, so the guard refuses deletes of these directories in other sessions.
+A refusal names the target and the reason, and gives the safe pattern: `d=$(mktemp -d) || exit 1; ...; rm -rf -- "${d:?}"`.
+The guard has no flag to delete a worktree root. Use `git worktree remove <path>` or the Paseo archive operation.
+
+These limits apply:
+
+- The hook sees only the command text. It cannot see deletes in Python, Node, or other scripts, or in a script file that a shell runs.
+- It does not examine `git clean`, `rsync --delete`, `mv`, file truncation, or a command name in a variable.
+- If `node` is not on the `PATH` of the provider, the hook cannot start. Claude and Codex then run the command.
+- Codex runs a hook only after you trust it with `/hooks`. Codex documents hooks as a guardrail, not a complete enforcement boundary.
+- The working directory of a Claude session can change. The repository allowance follows the current working directory.
+- Recording uses the command output. A command that removes its own directory and prints only a new directory of another session can still record that directory.
+- The guard resolves relative targets from the `cwd` value of the hook. A Codex `workdir` value that differs from `cwd` is not examined.
+
 ## Disposable PostgreSQL
 
 ```sh
@@ -589,4 +648,5 @@ Automatic skill use by a real model, fresh Codex/Claude skill loading, and a liv
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
 | `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
+| `shared/delete-guard.cjs` | Deny-only shell hook for unsafe deletes in Claude Code and Codex |
 | `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |

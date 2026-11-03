@@ -120,7 +120,6 @@ test('permission-preserving install and repeat install preserve configuration, i
   const f = fixture(t)
   const untouched = {
     '.codex/config.toml': 'model="selected"\napproval_policy="untrusted"\nsandbox_mode="read-only"\n',
-    '.claude/settings.json': '{"model":"selected","permissions":{"deny":["Read(private)"]},"sandbox":{"enabled":true}}',
     '.paseo/config.json': '{"agents":{"providers":{"work":{"extends":"codex","env":{"CODEX_HOME":"/chosen"}}}},"daemon":{"appendSystemPrompt":"user"}}',
     '.agents/skills/paseo/SKILL.md': 'Official Paseo skill',
     '.claude/skills/paseo/SKILL.md': 'Official Claude Paseo skill',
@@ -130,7 +129,26 @@ test('permission-preserving install and repeat install preserve configuration, i
   for (const [file, content] of Object.entries(untouched)) f.put(file, content)
   f.put('.codex/AGENTS.md', 'Human Codex instructions\n')
   f.put('.claude/CLAUDE.md', 'Human Claude instructions\n')
+  const claudeSettings = { model: 'selected', permissions: { deny: ['Read(private)'] }, sandbox: { enabled: true } }
+  const userHook = { matcher: 'Bash', hooks: [{ type: 'command', command: 'user-hook' }] }
+  f.put('.claude/settings.json', JSON.stringify(claudeSettings))
+  f.put('.codex/hooks.json', JSON.stringify({ hooks: { PreToolUse: [userHook] } }))
   const backup = install(f.plan({ reviewNetwork: false }), noDownload)
+  // The deny-only delete guard is added to every selected home, beside existing hooks.
+  const guardFiles = ['.claude/settings.json', '.codex/hooks.json', '.codex-accounts/work/hooks.json']
+  const guarded = Object.fromEntries(guardFiles.map(file => [file, fs.readFileSync(path.join(f.home, file), 'utf8')]))
+  const settings = require('jsonc-parser').parse(guarded['.claude/settings.json'])
+  const guardCommand = settings.hooks.PreToolUse[0].hooks[0].command
+  assert.deepEqual({ ...settings, hooks: undefined }, { ...claudeSettings, hooks: undefined })
+  assert.equal(guardCommand, JSON.stringify(path.join(f.home, '.local/share/agent-toolkit/resources/shared/delete-guard.cjs')))
+  for (const file of guardFiles) {
+    const { hooks } = JSON.parse(guarded[file])
+    for (const event of ['PreToolUse', 'PostToolUse']) assert.deepEqual(hooks[event].at(-1), { matcher: 'Bash', hooks: [{ type: 'command', command: guardCommand }] }, file)
+  }
+  assert.deepEqual(JSON.parse(guarded['.codex/hooks.json']).hooks.PreToolUse[0], userHook)
+  const blocked = spawnSync('/bin/sh', ['-c', guardCommand], { encoding: 'utf8', input: JSON.stringify({ hook_event_name: 'PreToolUse', cwd: f.home, tool_input: { command: 'rm -rf /' } }) })
+  assert.equal(blocked.status, 2)
+  assert.match(blocked.stderr, /Delete guard refused/)
   const resources = path.join(f.home, '.local/share/agent-toolkit/resources')
   const installedSkill = path.join(resources, 'skills/ponytail/SKILL.md')
   assert.ok(fs.statSync(installedSkill).isFile())
@@ -145,7 +163,7 @@ test('permission-preserving install and repeat install preserve configuration, i
   }
   assert.equal(fs.readFileSync(path.join(backup, '.codex/AGENTS.md'), 'utf8'), 'Human Codex instructions\n')
   install(f.plan({ reviewNetwork: false }), noDownload)
-  for (const [file, content] of Object.entries(untouched)) assert.equal(fs.readFileSync(path.join(f.home, file), 'utf8'), content, file)
+  for (const [file, content] of Object.entries({ ...untouched, ...guarded })) assert.equal(fs.readFileSync(path.join(f.home, file), 'utf8'), content, file)
   for (const command of ['pg-test', 'pg18-fresh', 'paseo-service']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
   assert.equal(fs.readFileSync(path.join(f.home, '.local/bin/pg-test'), 'utf8'), fs.readFileSync(path.join(repo, 'shared/postgres/pg-test.cjs'), 'utf8'))
   const pairing = spawnSync(process.execPath, [path.join(f.home, '.local/bin/paseo-service')], { encoding: 'utf8', env: { PATH: process.env.PATH } })
@@ -282,12 +300,28 @@ test('every Codex account being updated is checked before deployment', t => {
   assert.ok(fs.existsSync(path.join(f.home, '.codex-accounts/work/AGENTS.md')))
 })
 
-test('commented Claude and Paseo settings are checked without changing their bytes', t => {
+test('a symlinked settings file skips only the delete guard in permission-preserving installs and still stops default setup', t => {
+  const f = fixture(t)
+  const target = f.put('dotfiles/settings.json', '{"model":"selected"}')
+  fs.mkdirSync(path.join(f.home, '.claude'))
+  fs.symlinkSync(target, path.join(f.home, '.claude/settings.json'))
+  const plan = f.plan({ reviewNetwork: false })
+  assert.match(plan.warnings.join('\n'), /Delete guard not added to symlinked .*settings\.json/)
+  install(plan, noDownload)
+  assert.equal(fs.readFileSync(target, 'utf8'), '{"model":"selected"}')
+  assert.ok(fs.lstatSync(path.join(f.home, '.claude/settings.json')).isSymbolicLink())
+  assert.throws(() => f.plan({}), /Manual reconciliation/)
+})
+
+test('commented Claude and Paseo settings are checked; Paseo bytes stay unchanged and Claude comments survive the guard hook', t => {
   const f = fixture(t)
   const content = '{\n// user comment\n"url":"https://example.test/*keep*/",\n"quoted":"escaped \\" // keep",\n"items":[1, /* keep */],\n"enabledPlugins":{"ponytail@ponytail":false,},\n}\n'
   const configs = ['.claude/settings.json', '.paseo/config.json'].map(file => f.put(file, content))
   install(f.plan({ reviewNetwork: false }), noDownload)
-  for (const config of configs) assert.equal(fs.readFileSync(config, 'utf8'), content)
+  assert.equal(fs.readFileSync(configs[1], 'utf8'), content)
+  const claude = fs.readFileSync(configs[0], 'utf8')
+  for (const comment of ['// user comment', '/* keep */', '"escaped \\" // keep"']) assert.ok(claude.includes(comment), comment)
+  assert.match(require('jsonc-parser').parse(claude).hooks.PreToolUse[0].hooks[0].command, /delete-guard\.cjs/)
   fs.writeFileSync(configs[0], content.replace(':false,', ':true,'))
   assert.throws(f.plan, /Manual reconciliation/)
   for (const invalid of ['{,}', '{"items":[,]}', '{"key":,}', '{"key":1,,}', '{} /* unfinished']) {

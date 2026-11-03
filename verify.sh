@@ -7,9 +7,9 @@ cd "$repo_dir"
 for script in install.sh setup-paseo.sh update.sh skills/deepsec/scripts/deepsec; do
   bash -n "$script"
 done
-for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do
+for script in shared/install.cjs shared/delete-guard.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do
   node --check "$script"
 done
-node --test shared/install.test.cjs shared/paseo-setup.test.cjs shared/paseo-service.test.cjs shared/postgres/*.test.cjs
+node --test shared/install.test.cjs shared/delete-guard.test.cjs shared/paseo-setup.test.cjs shared/paseo-service.test.cjs shared/postgres/*.test.cjs
 python3 skills/autoreview/scripts/autoreview_test.py
 printf 'Toolkit checks passed. Fresh CLI/model behavior and live reviewer invocation still require human acceptance.\n'

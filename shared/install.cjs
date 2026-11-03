@@ -71,6 +71,18 @@ function claudeReviewNetworkConfig(text) {
   return text
 }
 
+// Claude settings.json and Codex hooks.json share this hook shape.
+function guardHooks(text, command) {
+  const jsonc = require('jsonc-parser'), hooks = parseJsonc(text).hooks ?? {}
+  for (const event of ['PreToolUse', 'PostToolUse']) {
+    const entries = hooks[event] ?? []
+    if (!Array.isArray(entries)) throw Error(`Cannot safely add the delete guard to hooks.${event}; reconcile it in your trusted terminal.`)
+    if (entries.some(entry => Array.isArray(entry?.hooks) && entry.hooks.some(hook => hook?.command === command))) continue
+    text = jsonc.applyEdits(text, jsonc.modify(text, ['hooks', event, entries.length], { matcher: 'Bash', hooks: [{ type: 'command', command }] }, { isArrayInsertion: true, formattingOptions: { insertSpaces: true, tabSize: 2 } }))
+  }
+  return text
+}
+
 function treeHash(root) {
   if (fs.lstatSync(root).isSymbolicLink() || !fs.lstatSync(root).isDirectory()) refuse(root)
   const entries = []
@@ -157,16 +169,20 @@ function planInstall(options) {
       : parseJsonc(text).enabledPlugins?.['ponytail@ponytail'] === true
     if (activePonytail || /agent-toolkit:paseo|# Agent Toolkit defaults|permissions\.agent_toolkit|agent-toolkit-development|agent-safety\.rules/.test(text)) refuse(file)
   }
-  const networkConfigPaths = new Set()
-  if (options.reviewNetwork) {
-    for (const [file, configure, empty] of [
-      [path.join(codexHome, 'config.toml'), codexNetworkConfig, ''],
-      [path.join(claudeDir, 'settings.json'), claudeReviewNetworkConfig, '{}\n'],
-    ]) {
-      if (exists(file)?.isSymbolicLink()) refuse(file)
-      files.set(file, configure(exists(file) ? read(file) : empty))
-      networkConfigPaths.add(file)
+  // The delete guard only denies commands, so --preserve-permissions installs it too.
+  const configPaths = new Set(), warnings = [], guard = text => guardHooks(text, JSON.stringify(path.join(resources, 'shared/delete-guard.cjs')))
+  for (const [file, empty, steps] of [
+    ...(options.reviewNetwork ? [[path.join(codexHome, 'config.toml'), '', [codexNetworkConfig]]] : []),
+    [path.join(claudeDir, 'settings.json'), '{}\n', [options.reviewNetwork && claudeReviewNetworkConfig, guard]],
+    ...Array.from(codexHomes, directory => [path.join(directory, 'hooks.json'), '{}\n', [guard]]),
+  ]) {
+    if (exists(file)?.isSymbolicLink()) {
+      // A dotfile manager can own this link. The guard alone does not stop installation.
+      if (steps.filter(Boolean).length === 1 && steps.includes(guard)) { warnings.push(`Delete guard not added to symlinked ${file}. Add its hooks to the link target in your trusted terminal.`); continue }
+      refuse(file)
     }
+    files.set(file, steps.filter(Boolean).reduce((text, step) => step(text), exists(file) ? read(file) : empty))
+    configPaths.add(file)
   }
 
   for (const directory of codexHomes) {
@@ -214,7 +230,7 @@ function planInstall(options) {
       if (exists(parent)?.isSymbolicLink()) refuse(parent)
     }
   }
-  return { options, repo, home, dataRoot, resources, receiptPath, receipt, retire, links, files, networkConfigPaths }
+  return { options, repo, home, dataRoot, resources, receiptPath, receipt, retire, links, files, configPaths, warnings }
 }
 
 function install(plan, run = execFileSync) {
@@ -248,7 +264,7 @@ function install(plan, run = execFileSync) {
       copy(path.join(repo, directory), path.join(stage, directory))
     }
     fs.copyFileSync(path.join(repo, 'shared/AGENTS.md'), path.join(stage, 'shared/AGENTS.md'))
-    fs.copyFileSync(path.join(repo, 'shared/paseo-service.cjs'), path.join(stage, 'shared/paseo-service.cjs'))
+    for (const file of ['shared/paseo-service.cjs', 'shared/delete-guard.cjs']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     fs.mkdirSync(path.join(stage, 'docs'), { recursive: true })
     fs.copyFileSync(path.join(repo, 'docs/paseo-worktrees.md'), path.join(stage, 'docs/paseo-worktrees.md'))
     run('npm', ['ci', '--prefix', path.join(stage, 'skills/react-doctor'), '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
@@ -258,7 +274,7 @@ function install(plan, run = execFileSync) {
     const { receipt, files, links, retire } = plan
     function move(file) {
       if (!exists(file)) return
-      if (plan.networkConfigPaths.has(file)) {
+      if (plan.configPaths.has(file)) {
         const original = { file, content: fs.readFileSync(file), mode: fs.statSync(file).mode & 0o777 }
         fs.unlinkSync(file)
         configRollback.push(original)
@@ -317,6 +333,7 @@ if (require.main === module) {
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
     const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME })
     const backup = install(plan)
+    for (const warning of plan.warnings) console.warn(warning)
     console.log(`Installed copied resources. Backups: ${backup}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. No persistent config backups created.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
   } catch (error) { console.error(error.message); process.exitCode = 1 }
 }

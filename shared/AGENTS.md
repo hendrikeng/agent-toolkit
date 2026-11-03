@@ -22,6 +22,11 @@ Before service or database tests, inspect the target, credentials, ownership, an
 Register cleanup immediately after each temporary test directory is created, before fixture setup.
 Remove each temporary directory when its owning test or helper finishes, including failed setup and assertions.
 Use the session's temporary directory by default. Do not use `~/Code/.agent-toolkit-scratch` as a new persistent default.
+Create temporary directories only with `mktemp -d`. Never create or reuse a fixed name in a shared temporary directory.
+Delete only your own exact path, written as `"${d:?}"`: `d=$(mktemp -d) || exit 1; ...; rm -rf -- "${d:?}"`.
+Never run `rm -rf` on an existing shared name or a computed path, such as `$(dirname "$L")`.
+Never run `pg-test gc`. Stop only your own fixtures with `pg-test stop <id>`.
+The Toolkit delete guard refuses other deletes. Do not work around a refusal. Ask the human to do the deletion.
 Keep requested evidence in an explicit output directory, separate from disposable fixtures.
 Keep repository evidence as text: exact commands, observed outcomes, commit references, and unresolved risks.
 Do not commit screenshots, images, videos, or binary evidence, including embedded or base64-encoded media.
