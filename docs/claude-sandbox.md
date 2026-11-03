@@ -15,6 +15,16 @@ cd ~/Code/wewereyoung/agent-toolkit && git pull --ff-only && scripts/apply-claud
 The script backs up `settings.json` with a timestamp and runs `./update.sh`.
 It merges the settings below with `jq` and keeps all other settings. It also removes the `capture.mjs` exclusion and sets the Git rule.
 Then it shows the difference. Use `--dry-run` to see the difference without a change, and `--undo` to restore the latest backup.
+
+Before you apply, you can test the settings in one new sandboxed Claude run. This changes no file.
+Run it from a terminal or a session without the sandbox. The working directory is an orchestrator checkout:
+
+```sh
+cd ~/Code/tracn/tracn-product && claude -p --permission-mode bypassPermissions --setting-sources project,local --settings "$(~/Code/wewereyoung/agent-toolkit/scripts/apply-claude-sandbox.sh --emit)" 'Run this as one Bash call and print its output: bash ~/Code/wewereyoung/agent-toolkit/shared/sandbox-probe.sh'
+```
+
+`--setting-sources project,local` skips the live user settings file. The emitted settings replace it, so removed values stay removed.
+The `git-ssh` item passes only after the script sets the Git rule.
 Start fresh sessions after the change.
 
 ## Settings
@@ -28,9 +38,7 @@ If the capture script must run outside the sandbox, install a copy outside writa
 {
   "env": {
     // Go tools such as gh and infisical cannot reach the macOS trust service in the sandbox.
-    "SSL_CERT_FILE": "/etc/ssl/cert.pem",
-    // A temporary root outside /tmp. The AutoReview helper and its tests refuse /tmp for Codex.
-    "CLAUDE_CODE_TMPDIR": "/Users/hendrik/.agent-tmp"
+    "SSL_CERT_FILE": "/etc/ssl/cert.pem"
   },
   "sandbox": {
     "enabled": true,
@@ -48,7 +56,11 @@ If the capture script must run outside the sandbox, install a copy outside writa
       ]
     },
     "filesystem": {
-      "allowWrite": ["/Users/hendrik/.npm", "/Users/hendrik/.cache/uv", "/Users/hendrik/Library/pnpm/store"]
+      "allowWrite": [
+        "/Users/hendrik/.npm", "/Users/hendrik/.cache/uv", "/Users/hendrik/Library/pnpm/store",
+        "/Users/hendrik/Code/paseo-worktrees", "/Users/hendrik/Code/tracn", "/Users/hendrik/Code/wewereyoung",
+        "/var/folders/ng/983309q54vq0fpqdhbblh4c40000gn/T"
+      ]
     },
     "excludedCommands": [
       "pg-test *",
@@ -77,9 +89,11 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | Setting | Reason |
 |---|---|
 | `SSL_CERT_FILE` | `gh` failed with `x509: OSStatus -26276`. Go tools verify certificates through `trustd`, which the sandbox blocks. With the system certificate file, `gh` and `infisical` work inside the sandbox. This is narrower than `enableWeakerNetworkIsolation` or an excluded command. |
-| `CLAUDE_CODE_TMPDIR` | The sandbox sets `TMPDIR=/tmp/claude-501`. The AutoReview helper refuses a Codex temporary directory under `/tmp`, and 4 helper tests fail. A root outside `/tmp` removes this failure. |
+| No `CLAUDE_CODE_TMPDIR` | In the `env` settings, this value changes `TMPDIR` but not the sandbox write rule. The sandbox still allows only `/tmp/claude-501`, so every temporary file failed, including shell heredocs. The script removes the value that an earlier version set. |
 | Git `insteadOf` | On macOS, Git over SSH cannot pass the sandbox proxy. Git over HTTPS worked for fetch and push, including private repositories. |
 | `allowWrite` | npm and uv failed to write their caches in `~/.npm` and `~/.cache/uv`. pnpm moved its store into `$TMPDIR`, which loses the shared store. Only the store is writable, not the global `pnpm` commands. |
+| `allowWrite` for `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung` | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. |
+| `allowWrite` for the macOS temporary directory | macOS `mktemp -d` without a template ignores `TMPDIR` and uses `getconf DARWIN_USER_TEMP_DIR`. Repository scripts use it. The script reads the path on your Mac. |
 | `pg-test *`, `pg18-fresh` | PostgreSQL cannot create shared memory inside the sandbox. Both are trusted helpers outside the workspace, and the sandbox cannot change them. |
 | `docker *` | The Docker socket is outside the sandbox. Docker access gives full host access in any configuration. The Neo4j lane in `pcvc` uses Docker Compose. |
 | `paseo *` | The Paseo CLI fails because Node `os.uptime()` returns `EPERM` in the sandbox. Agents normally use the Paseo MCP tools, which run outside the sandbox. |
@@ -109,7 +123,9 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 | Item | Result with old settings | Result with the new settings |
 |---|---|---|
 | `$TMPDIR` write with a `mktemp` template | PASS | PASS |
-| `mktemp -d` without a template | FAIL: macOS uses `/var/folders/.../T` | FAIL. Use a template. |
+| `mktemp -d` without a template | FAIL: macOS uses `/var/folders/.../T` | `allowWrite` for that directory |
+| Writes in `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung` from another working directory | FAIL | `allowWrite` |
+| Ref write in another checkout (`tracn-api`) | FAIL: cannot lock ref | `allowWrite` |
 | Local Git, commit, worktree add and remove | PASS | PASS |
 | Ref write in the shared Git directory of a worktree | PASS | PASS |
 | Git over HTTPS, fetch and push (dry run) | PASS | PASS |
@@ -130,11 +146,11 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 | Paseo CLI | FAIL: `os.uptime()` `EPERM` | Excluded command |
 | `infisical --version`, `railway whoami` | PASS | PASS |
 | Plain `ssh` | FAIL: host name not resolved | Not supported |
-| Toolkit `./verify.sh` | FAIL: 4 AutoReview helper tests refuse `/tmp` | Expected to pass with `CLAUDE_CODE_TMPDIR` |
+| Toolkit `./verify.sh` | FAIL: 4 AutoReview helper tests refuse `/tmp` | FAIL. Run Toolkit checks from a human terminal. Real AutoReview runs are excluded commands. |
 | 22 HTTPS hosts (GitHub, registries, Infisical, Railway, Neon, Neo4j Aura, Redis Cloud, Stripe, Ubicloud, Anthropic, OpenAI, Cloudflare, TRACN) | PASS | PASS |
 | Node `fetch`, Python HTTPS, TCP to a Neon host on port 5432 | PASS | PASS in `bypassPermissions` mode |
 
-The `allowWrite` entries, the excluded commands, and `CLAUDE_CODE_TMPDIR` were not tested in a session with these settings.
+The `allowWrite` entries and the excluded commands were not tested in a session with these settings.
 Run the probe and the separate excluded-command calls in a fresh session after you apply them.
 
 ## Limits
@@ -145,10 +161,13 @@ Run the probe and the separate excluded-command calls in a fresh session after y
 - **Excluded commands run with full access.** The Docker daemon can mount any host path. Do not add patterns for interpreters, package scripts, or files in the working directory, because an agent can change them.
 - **The Write and Edit tools** are outside the sandbox. They cannot delete directories.
 - **The working directory, including the repository root and `.git`, stays writable.**
+- **All projects in `~/Code/paseo-worktrees`, `~/Code/tracn`, and `~/Code/wewereyoung` are writable from every session.** The sandbox does not keep one project's agent out of another project there. It still protects the home directory, system paths, configuration, and other folders.
+- **The macOS temporary directory and `/tmp/claude-501` are shared by all sessions.** Use `mktemp` names and delete only your own exact path.
 
 ## Separate temporary directory for each agent
 
-With the settings above, all Claude sessions share `/Users/hendrik/.agent-tmp/claude-501`. One session can still delete the temporary files of another session.
+With the settings above, all Claude sessions share `/tmp/claude-501`. One session can still delete the temporary files of another session.
+A `CLAUDE_CODE_TMPDIR` value in the `env` settings does not move the sandbox write rule. Before you build the plugin, verify that the value in the process environment of a new agent moves both `TMPDIR` and the write rule.
 The fix gives each agent its own temporary root. The sandbox then allows writes only to the agent's own root, so the operating system blocks deletes in another agent's root.
 
 Design:

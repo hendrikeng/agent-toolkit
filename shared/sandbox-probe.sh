@@ -49,6 +49,20 @@ item_git_cwd() {
   # Creates and deletes a ref named after this probe's own directory, as a commit in a linked worktree writes the shared Git directory.
   probe git-cwd 20 bash -c 'ref=refs/sandbox-probe/$1 && head=$(git rev-parse HEAD) && git update-ref "$ref" "$head" "" && git update-ref -d "$ref" "$head" && git rev-parse --git-common-dir' _ "${work##*.}"
 }
+# Orchestrators write in the worktrees of their workers. Each check creates and removes its own file.
+item_shared_writes() {
+  local dir
+  for dir in ${PROBE_WRITE_DIRS:-$HOME/Code/paseo-worktrees $HOME/Code/tracn $HOME/Code/wewereyoung}; do
+    [[ -d $dir ]] || { skip "write:${dir##*/}" "missing $dir"; continue; }
+    probe "write:${dir##*/}" 10 bash -c 'f=$(mktemp "$1/.sandbox-probe.XXXXXX") && rm -f -- "${f:?}" && echo ok' _ "$dir"
+  done
+}
+# A commit in another checkout writes that checkout's Git directory.
+item_other_git() {
+  local repo=${PROBE_OTHER_REPO:-$HOME/Code/tracn/tracn-api}
+  git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || { skip other-git "no Git repository at $repo"; return; }
+  probe other-git 20 bash -c 'ref=refs/sandbox-probe/$2 && head=$(git -C "$1" rev-parse HEAD) && git -C "$1" update-ref "$ref" "$head" "" && git -C "$1" update-ref -d "$ref" "$head" && echo ok' _ "$repo" "${work##*.}"
+}
 item_git_https() { probe git-https 30 git ls-remote https://github.com/octocat/Hello-World.git HEAD; }
 item_git_ssh() { probe git-ssh 30 git ls-remote git@github.com:octocat/Hello-World.git HEAD; }
 item_gh() { has gh && probe gh 30 gh api rate_limit --jq .resources.core.limit || skip gh 'not installed'; }
@@ -99,7 +113,8 @@ item_autoreview() {
 item_paseo() { has paseo && probe paseo 30 paseo ls --json || skip paseo 'not installed'; }
 item_infisical() { has infisical && probe infisical 30 infisical --version || skip infisical 'not installed'; }
 item_railway() { has railway && probe railway 30 railway whoami || skip railway 'not installed'; }
-item_ssh() { probe ssh 20 ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com; }
+# GitHub exits with status 1 after a successful SSH login, so check the greeting.
+item_ssh() { probe ssh 20 bash -c 'ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com 2>&1 | grep "successfully authenticated"'; }
 item_repo_check() {
   [[ ${PROBE_REPO_CHECK:-} ]] || { skip repo-check 'set PROBE_REPO_CHECK to the repository check, for example "pnpm run verify:fast"'; return; }
   probe repo-check 1800 bash -c "$PROBE_REPO_CHECK"
@@ -116,7 +131,7 @@ item_hosts() {
 }
 
 items=("$@")
-[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd git_https git_ssh gh npm pnpm uv pip localhost lsof pg_test docker playwright codex claude autoreview paseo infisical railway ssh repo_check hosts)
+[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm uv pip localhost lsof pg_test docker playwright codex claude autoreview paseo infisical railway ssh repo_check hosts)
 for item in "${items[@]}"; do "item_${item//-/_}"; done
 printf '%s failure(s)\n' "$failures"
 (( failures == 0 ))

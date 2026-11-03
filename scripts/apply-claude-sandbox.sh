@@ -10,12 +10,13 @@ for arg in "$@"; do
   case $arg in
     --dry-run) mode=dry-run ;;
     --undo) mode=undo ;;
+    --emit) mode=emit ;;
     --no-update) update=0 ;;
-    *) printf 'Usage: scripts/apply-claude-sandbox.sh [--dry-run | --undo] [--no-update]\n' >&2; exit 2 ;;
+    *) printf 'Usage: scripts/apply-claude-sandbox.sh [--dry-run | --emit | --undo] [--no-update]\n' >&2; exit 2 ;;
   esac
 done
 command -v jq >/dev/null || { echo 'jq is required: brew install jq' >&2; exit 1; }
-if [[ $mode != dry-run && ! ( -t 0 && -t 1 ) ]]; then
+if [[ $mode != dry-run && $mode != emit && ! ( -t 0 && -t 1 ) ]]; then
   echo 'Run this script from a trusted human terminal. Agents must not change live permission settings.' >&2; exit 1
 fi
 
@@ -42,11 +43,15 @@ if [[ $mode == undo ]]; then
 fi
 
 home=$HOME
+# macOS mktemp without a template uses this per-user directory, not TMPDIR.
+darwin_tmp=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)
 merge() {
-  jq --arg home "$home" '
+  jq --arg home "$home" --arg darwin_tmp "${darwin_tmp%/}" '
     # Append missing items and keep the existing order.
     def append($items): reduce $items[] as $item (. // []; if index([$item]) then . else . + [$item] end);
-    .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem", CLAUDE_CODE_TMPDIR: ($home + "/.agent-tmp")})
+    .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
+    # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not allow writes there, so remove that value.
+    | if .env.CLAUDE_CODE_TMPDIR == ($home + "/.agent-tmp") then del(.env.CLAUDE_CODE_TMPDIR) else . end
     | .sandbox = (.sandbox // {})
     | .sandbox.enabled = true
     | .sandbox.failIfUnavailable = true
@@ -59,7 +64,10 @@ merge() {
         "app.infisical.com", "backboard.railway.com", "*.neon.tech", "console.neo4j.io", "*.databases.neo4j.io",
         "*.redislabs.com", "*.redis-cloud.com", "api.stripe.com", "*.ubicloud.com", "api.cloudflare.com",
         "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com"])
-    | .sandbox.filesystem.allowWrite |= append([$home + "/.npm", $home + "/.cache/uv", $home + "/Library/pnpm/store"])
+    # Orchestrators commit in worker worktrees, whose Git data is in the main checkouts.
+    | .sandbox.filesystem.allowWrite |= append([$home + "/.npm", $home + "/.cache/uv", $home + "/Library/pnpm/store",
+        $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung"]
+        + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
     | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select(contains("capture.mjs") | not)))
     | .sandbox.excludedCommands |= append([
@@ -71,6 +79,9 @@ merge() {
 }
 
 [[ -e $settings ]] || { echo "Missing $settings" >&2; exit 1; }
+# --emit prints the merged settings for a one-off test that skips the live user file:
+#   claude -p --setting-sources project,local --settings "$(scripts/apply-claude-sandbox.sh --emit)"
+if [[ $mode == emit ]]; then merge "$settings"; exit; fi
 work=$(mktemp -d "${TMPDIR:?}/tmp.XXXXXX")
 trap 'rm -rf -- "${work:?}"' EXIT
 

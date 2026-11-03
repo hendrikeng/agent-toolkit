@@ -14,7 +14,7 @@ function fixture(t) {
   fs.mkdirSync(path.dirname(real), { recursive: true })
   fs.mkdirSync(paseo, { recursive: true })
   const original = JSON.stringify({
-    model: 'fable', permissions: { deny: ['Bash(git push -f*)'] }, skipDangerousModePermissionPrompt: true,
+    model: 'fable', env: { CLAUDE_CODE_TMPDIR: `${home}/.agent-tmp` }, permissions: { deny: ['Bash(git push -f*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
       excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'make release'] },
   }, null, 2) + '\n'
@@ -44,12 +44,14 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.equal(settings.model, 'fable')
   assert.deepEqual(settings.permissions, { deny: ['Bash(git push -f*)'] })
   assert.equal(settings.skipDangerousModePermissionPrompt, true)
-  assert.deepEqual(settings.env, { SSL_CERT_FILE: '/etc/ssl/cert.pem', CLAUDE_CODE_TMPDIR: `${f.home}/.agent-tmp` })
+  assert.deepEqual(settings.env, { SSL_CERT_FILE: '/etc/ssl/cert.pem' }, 'the earlier CLAUDE_CODE_TMPDIR value is removed')
   assert.equal(settings.sandbox.enabled, true)
   assert.equal(settings.sandbox.allowUnsandboxedCommands, false)
   assert.deepEqual(settings.sandbox.network.allowedDomains.slice(0, 3), ['example.org', 'api.openai.com', 'github.com'])
   assert.equal(settings.sandbox.network.allowedDomains.filter(domain => domain === 'api.openai.com').length, 1)
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Library/pnpm/store`))
+  assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Code/paseo-worktrees`), 'orchestrators write in worker worktrees')
+  assert.ok(settings.sandbox.filesystem.allowWrite.some(dir => dir.startsWith('/var/folders/')), 'plain mktemp -d uses the macOS temporary directory')
   assert.ok(!settings.sandbox.excludedCommands.some(command => command.includes('capture.mjs')))
   assert.ok(settings.sandbox.excludedCommands.includes('make release'))
   assert.ok(settings.sandbox.excludedCommands.includes('pg-test *'))
@@ -80,6 +82,10 @@ test('the sandbox script refuses changes without a terminal and refuses invalid 
   const agent = spawnSync('bash', [script, '--no-update'], { env: f.env, encoding: 'utf8', input: '' })
   assert.equal(agent.status, 1)
   assert.match(agent.stderr, /trusted human terminal/)
+  // --emit only prints the merged settings for a one-off claude --settings test.
+  const emitted = spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' })
+  assert.equal(JSON.parse(emitted.stdout).sandbox.enabled, true)
+  assert.equal(fs.readFileSync(f.real, 'utf8'), f.original)
   fs.writeFileSync(f.real, '{"model": ')
   const invalid = f.run()
   assert.equal(invalid.status, 1)
