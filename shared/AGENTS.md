@@ -22,8 +22,9 @@ Before service or database tests, inspect the target, credentials, ownership, an
 Register cleanup immediately after each temporary test directory is created, before fixture setup.
 Remove each temporary directory when its owning test or helper finishes, including failed setup and assertions.
 Use the session's temporary directory by default. Do not use `~/Code/.agent-toolkit-scratch` as a new persistent default.
-Create temporary directories only with `mktemp -d`. Never create or reuse a fixed name in a shared temporary directory.
-Delete only your own exact path, written as `"${d:?}"`: `d=$(mktemp -d) || exit 1; ...; rm -rf -- "${d:?}"`.
+Create temporary directories only with `mktemp -d` and a template in `$TMPDIR`. macOS ignores `TMPDIR` without a template.
+Never create or reuse a fixed name in a shared temporary directory.
+Delete only your own exact path, written as `"${d:?}"`: `d=$(mktemp -d "${TMPDIR:?}/tmp.XXXXXX") || exit 1; ...; rm -rf -- "${d:?}"`.
 Never run `rm -rf` on an existing shared name or a computed path, such as `$(dirname "$L")`.
 Never run `pg-test gc`. Stop only your own fixtures with `pg-test stop <id>`.
 Keep requested evidence in an explicit output directory, separate from disposable fixtures.
@@ -54,8 +55,8 @@ After an approval-review rejection, stop the rejected action and report the stat
 Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
 Record the command, target, agent, effective permission mode, and denial type. Attribute each denial to its originating agent.
 Never change live permission settings or grant access that managed policy forbids.
-With the Claude sandbox on, run `git fetch`, `git pull`, `git push`, and `gh` as separate shell calls.
-Do not chain them with other commands. Sandbox exclusions match only a whole call.
+With the Claude sandbox on, run `pg-test`, `docker`, `paseo`, and the AutoReview helper as separate shell calls.
+Write the helper path without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
 
 ## Reviews
 

@@ -163,7 +163,7 @@ for (const provider of [
 ]) test(`switching ${provider.option} preserves other installed homes and scopes obsolete-link cleanup`, t => {
   const f = fixture(t)
   const checkout = path.join(f.home, 'checkout')
-  for (const directory of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md']) {
+  for (const directory of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md', 'docs/claude-sandbox.md']) {
     fs.cpSync(path.join(repo, directory), path.join(checkout, directory), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
   }
   const obsoleteSource = f.put(`checkout/${provider.source}/retired-fixture/${provider.entry}`, provider.entry === 'SKILL.md' ? '---\nname: retired-fixture\ndescription: Fixture skill\n---\nFixture body\n' : 'export default function () {}\n')
@@ -299,7 +299,7 @@ test('commented Claude and Paseo settings are checked without changing their byt
 test('a deployed executable is a copy; changes made during staging are preserved; failed replacement restores original files', t => {
   const f = fixture(t)
   const checkout = path.join(f.home, 'checkout')
-  for (const directory of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md']) {
+  for (const directory of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md', 'docs/claude-sandbox.md']) {
     fs.cpSync(path.join(repo, directory), path.join(checkout, directory), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
   }
   const options = { repo: checkout, home: f.home }

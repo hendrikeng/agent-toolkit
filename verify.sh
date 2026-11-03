@@ -4,7 +4,7 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cd "$repo_dir"
 
 [[ $# -eq 0 ]] || { printf 'Usage: ./verify.sh\n' >&2; exit 2; }
-for script in install.sh setup-paseo.sh update.sh skills/deepsec/scripts/deepsec; do
+for script in install.sh setup-paseo.sh update.sh shared/sandbox-probe.sh skills/deepsec/scripts/deepsec; do
   bash -n "$script"
 done
 for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do

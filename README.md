@@ -398,6 +398,7 @@ Toolkit preserves existing provider and host permissions. Approval policy contro
 
 Retiring the old wrappers removes Toolkit's extra workspace scope, denied credential and `.env` paths, network allowlist, isolated Git settings, publication rules, and legacy Git/process guards. Normal commands use only the protections configured in the provider and host. Existing native Codex/Claude sandboxes remain as configured; Toolkit neither enables nor disables them.
 
+The [Claude sandbox guide](docs/claude-sandbox.md) gives tested settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
 Host terminal brokers, MCP servers, Docker, and frontend services have their own privileges.
 Workspace selection alone cannot protect other projects or secrets. Keep appropriate native sandbox settings and backups.
 
@@ -589,4 +590,5 @@ Automatic skill use by a real model, fresh Codex/Claude skill loading, and a liv
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
 | `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
+| `docs/claude-sandbox.md`, `shared/sandbox-probe.sh` | Tested Claude sandbox settings and a probe for agent work |
 | `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |
