@@ -347,4 +347,6 @@ async function main(args) {
  }
 }
 module.exports = { main }
-if (require.main === module) main(process.argv.slice(2)).then(result => console.log(JSON.stringify(result, null, 2)), error => { console.error(error.message); process.exitCode = 1 })
+// Garbage collection affects fixtures of every session, so only a human terminal can request it.
+const humanOnly = args => args[0] === 'gc' && !(process.stdin.isTTY && process.stdout.isTTY) ? Promise.reject(Error('pg-test gc runs only from a human terminal. Stop your own fixture with pg-test stop <id>.')) : main(args)
+if (require.main === module) humanOnly(process.argv.slice(2)).then(result => console.log(JSON.stringify(result, null, 2)), error => { console.error(error.message); process.exitCode = 1 })

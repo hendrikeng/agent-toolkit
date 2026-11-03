@@ -480,3 +480,12 @@ test('overlapping garbage collection preserves a fresh ownerless startup and rel
  assert.deepEqual(fs.readdirSync(root), ['pg-test.json'])
  assert.equal(fs.existsSync(socket), false)
 })
+
+test('agents cannot request garbage collection from a noninteractive terminal', t => {
+ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-test-gc-'))
+ t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+ const result = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, 'pg-test.cjs'), 'gc'], { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: home, TMPDIR: home } })
+ assert.equal(result.status, 1)
+ assert.match(result.stderr, /only from a human terminal.*pg-test stop <id>/)
+ assert.deepEqual(fs.readdirSync(home), [])
+})
