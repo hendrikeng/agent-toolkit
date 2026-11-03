@@ -4,9 +4,22 @@ This guide gives a tested Claude Code sandbox configuration for Toolkit and TRAC
 The sandbox is enforced by the operating system. It applies in `bypassPermissions` mode and to all child processes, including Python and Node scripts.
 With the sandbox on, shell commands can write only to the working directory, added directories, and `$TMPDIR`.
 
+## Apply
+
+Run this command once from a trusted human terminal:
+
+```sh
+cd ~/Code/wewereyoung/agent-toolkit && git pull --ff-only && scripts/apply-claude-sandbox.sh
+```
+
+The script backs up `settings.json` with a timestamp and runs `./update.sh`.
+It merges the settings below with `jq` and keeps all other settings. It also removes the `capture.mjs` exclusion and sets the Git rule.
+Then it shows the difference. Use `--dry-run` to see the difference without a change, and `--undo` to restore the latest backup.
+Start fresh sessions after the change.
+
 ## Settings
 
-Apply these changes in a trusted human terminal. All Paseo Claude homes link their `settings.json` to `~/.claude/settings.json`.
+All Paseo Claude homes link their `settings.json` to `~/.claude/settings.json`. The script changes the real file.
 Merge the keys into the existing file.
 Remove the existing `capture.mjs` entry from `excludedCommands`. An agent can change that file in its working directory and then run it outside the sandbox.
 If the capture script must run outside the sandbox, install a copy outside writable workspaces and exclude only that path.
