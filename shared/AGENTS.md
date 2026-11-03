@@ -55,7 +55,7 @@ After an approval-review rejection, stop the rejected action and report the stat
 Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
 Record the command, target, agent, effective permission mode, and denial type. Attribute each denial to its originating agent.
 Never change live permission settings or grant access that managed policy forbids.
-With the Claude sandbox on, run `pg-test`, `docker`, `paseo`, and the AutoReview helper as separate shell calls.
+With the Claude sandbox on, run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and the AutoReview helper as separate shell calls.
 Write the helper path without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
 
 ## Reviews

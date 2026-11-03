@@ -16,7 +16,7 @@ function fixture(t) {
   const original = JSON.stringify({
     model: 'fable', env: { CLAUDE_CODE_TMPDIR: `${home}/.agent-tmp` }, permissions: { deny: ['Bash(git push -f*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
-      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'make release'] },
+      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'docker *', 'make release'] },
   }, null, 2) + '\n'
   fs.writeFileSync(real, original, { mode: 0o600 })
   fs.symlinkSync(real, path.join(paseo, 'settings.json'))
@@ -55,6 +55,17 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.ok(!settings.sandbox.excludedCommands.some(command => command.includes('capture.mjs')))
   assert.ok(settings.sandbox.excludedCommands.includes('make release'))
   assert.ok(settings.sandbox.excludedCommands.includes('pg-test *'))
+  // Docker uses the socket in the sandbox; the earlier exclusion is removed.
+  assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
+  assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.orbstack/run/docker.sock`])
+  for (const entry of ['ssh agawulum@sl90.web.hostpoint.ch *', 'scp * agawulum@sl90.web.hostpoint.ch:*', 'rsync * bonzanib@sl662.web.hostpoint.ch:*', 'ssh wfw-prod@wfw.ch *']) {
+    assert.ok(settings.sandbox.excludedCommands.includes(entry), entry)
+  }
+  // A shorter server list replaces the generated entries; an empty list removes them.
+  const servers = list => JSON.parse(spawnSync('bash', [script, '--emit'], { env: { ...f.env, SANDBOX_SSH_SERVERS: list }, encoding: 'utf8' }).stdout)
+    .sandbox.excludedCommands.filter(command => /^(ssh|scp|rsync) /.test(command))
+  assert.deepEqual(servers('wfw-prod@wfw.ch'), ['ssh wfw-prod@wfw.ch *', 'scp * wfw-prod@wfw.ch:*', 'rsync * wfw-prod@wfw.ch:*'])
+  assert.deepEqual(servers(''), [])
   assert.equal(fs.statSync(f.real).mode & 0o777, 0o600)
   assert.equal(f.gitRule(), 'git@github.com:')
   const backups = fs.readdirSync(path.dirname(f.real)).filter(name => /^settings\.json\.before-sandbox-\d{8}-\d{6}$/.test(name))

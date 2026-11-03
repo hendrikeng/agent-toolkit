@@ -47,6 +47,7 @@ If the capture script must run outside the sandbox, install a copy outside writa
     "allowUnsandboxedCommands": false,
     "network": {
       "allowLocalBinding": true,
+      "allowUnixSockets": ["/Users/hendrik/.orbstack/run/docker.sock"],
       "allowedDomains": [
         "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
@@ -65,11 +66,12 @@ If the capture script must run outside the sandbox, install a copy outside writa
     "excludedCommands": [
       "pg-test *",
       "pg18-fresh",
-      "docker *",
       "paseo *",
       "/Users/hendrik/.claude/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
-      "/Users/hendrik/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *"
+      "/Users/hendrik/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
+      "ssh agawulum@sl90.web.hostpoint.ch *", "scp * agawulum@sl90.web.hostpoint.ch:*", "rsync * agawulum@sl90.web.hostpoint.ch:*"
+      // The same three entries for bonzanib@sl662.web.hostpoint.ch, wfw-prod@wfw.ch, and wfw-staging@wfw.ch.
     ]
   }
 }
@@ -95,13 +97,14 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | `allowWrite` for `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung` | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. |
 | `allowWrite` for the macOS temporary directory | macOS `mktemp -d` without a template ignores `TMPDIR` and uses `getconf DARWIN_USER_TEMP_DIR`. Repository scripts use it. The script reads the path on your Mac. |
 | `pg-test *`, `pg18-fresh` | PostgreSQL cannot create shared memory inside the sandbox. Both are trusted helpers outside the workspace, and the sandbox cannot change them. |
-| `docker *` | The Docker socket is outside the sandbox. Docker access gives full host access in any configuration. The Neo4j lane in `pcvc` uses Docker Compose. |
+| `allowUnixSockets` for the OrbStack socket | Docker works in the sandbox, also when a script such as the `tracn-api` database scripts calls it, and in chained commands. Tested with `docker info`, `docker compose version`, and Docker from Node. The Docker daemon has full host access. The Neo4j lane in `pcvc` uses Docker Compose. |
+| `ssh`, `scp`, and `rsync` for four servers | Plain `ssh` cannot pass the sandbox proxy. The script excludes these commands only for the Porta Mundi, Bonzani, and WFW deployment servers. Set `SANDBOX_SSH_SERVERS` to change the list. |
 | `paseo *` | The Paseo CLI fails because Node `os.uptime()` returns `EPERM` in the sandbox. Agents normally use the Paseo MCP tools, which run outside the sandbox. |
 | AutoReview paths | Codex runs its tool commands in its own Seatbelt sandbox. A nested sandbox fails with `sandbox_apply: Operation not permitted`. The helper owns its reviewer isolation. |
 | `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. The list applies in the other permission modes. |
 
 An excluded command runs outside the sandbox only if the whole shell call matches.
-Run `pg-test`, `docker`, `paseo`, and the AutoReview helper as separate calls. Write the helper path without quotes.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and the AutoReview helper as separate calls. Write the helper path without quotes.
 
 ## Probe results
 
@@ -138,7 +141,7 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 | Local server on `127.0.0.1` | PASS | PASS |
 | `lsof` | PASS | PASS |
 | `pg-test start` | FAIL: shared memory denied | Excluded command |
-| Docker | FAIL: socket permission denied | Excluded command |
+| Docker | FAIL: socket permission denied | PASS with `allowUnixSockets` |
 | Playwright Chromium (`@playwright/test` in `tracn-web`) | FAIL: browser closed at launch | PASS with `--single-process` (repository change, see below) |
 | `codex login status`, `claude --version` | PASS | PASS |
 | AutoReview, Claude engine | PASS | PASS |
@@ -155,9 +158,11 @@ Run the probe and the separate excluded-command calls in a fresh session after y
 
 ## Limits
 
-- **Plain `ssh`** to servers, for example `*.orb.local` hosts, does not work in the sandbox. The docs say that `ssh` ignores the proxy. Run it from a human terminal, or add a narrow excluded command for one host.
+- **Plain `ssh`** to other servers, for example `*.orb.local` hosts, does not work in the sandbox. The docs say that `ssh` ignores the proxy. Add the server to `SANDBOX_SSH_SERVERS`, or run it from a human terminal.
+- **Deploy scripts** such as `scripts/deploy-rsync.sh` call `rsync` and `ssh` inside the script, so the exclusions do not apply. Run the deployment from a human terminal, or let the agent run the `rsync` and `ssh` steps as separate calls. Do not exclude the script itself, because an agent can change it.
 - **Database drivers in other permission modes.** In `bypassPermissions` mode, TCP to remote databases worked. In other modes, the docs say most database drivers cannot connect, even to an allowed host.
-- **Playwright** needs `--single-process` in the Chromium launch arguments when a sandboxed Claude session runs it. Change the Playwright configuration in `tracn-web` and `pcvc`, for example `launchOptions: { args: process.env.CLAUDECODE ? ['--single-process'] : [] }`. The Paseo browser tools run outside the sandbox and need no change.
+- **Playwright** needs `--single-process` in the Chromium launch arguments when a sandboxed Claude session runs it. Change `tracn-web/playwright.config.ts`, in the `use` block: `launchOptions: { args: process.env.CLAUDECODE ? ['--single-process'] : [] }`. The Paseo browser tools run outside the sandbox and need no change.
+- **The server exclusions can run local code.** Options such as `ssh -o ProxyCommand`, `scp -S`, and `rsync -e` run a local program outside the sandbox. This is accepted, because these agents already control the servers. The sandbox here protects against accidental deletes, not against an agent that tries to escape.
 - **Excluded commands run with full access.** The Docker daemon can mount any host path. Do not add patterns for interpreters, package scripts, or files in the working directory, because an agent can change them.
 - **The Write and Edit tools** are outside the sandbox. They cannot delete directories.
 - **The working directory, including the repository root and `.git`, stays writable.**

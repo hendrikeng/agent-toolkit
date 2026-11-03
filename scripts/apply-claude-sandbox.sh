@@ -45,8 +45,10 @@ fi
 home=$HOME
 # macOS mktemp without a template uses this per-user directory, not TMPDIR.
 darwin_tmp=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)
+# Deployment servers that agents reach with ssh, scp, and rsync: Porta Mundi, Bonzani, and WFW.
+servers=${SANDBOX_SSH_SERVERS-agawulum@sl90.web.hostpoint.ch bonzanib@sl662.web.hostpoint.ch wfw-prod@wfw.ch wfw-staging@wfw.ch}
 merge() {
-  jq --arg home "$home" --arg darwin_tmp "${darwin_tmp%/}" '
+  jq --arg home "$home" --arg darwin_tmp "${darwin_tmp%/}" --arg servers "$servers" '
     # Append missing items and keep the existing order.
     def append($items): reduce $items[] as $item (. // []; if index([$item]) then . else . + [$item] end);
     .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
@@ -58,6 +60,8 @@ merge() {
     | .sandbox.autoAllowBashIfSandboxed = true
     | .sandbox.allowUnsandboxedCommands = false
     | .sandbox.network.allowLocalBinding = true
+    # Docker works in the sandbox, also from scripts. The Docker daemon has full host access.
+    | .sandbox.network.allowUnixSockets |= append([$home + "/.orbstack/run/docker.sock"])
     | .sandbox.network.allowedDomains |= append([
         "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
@@ -69,12 +73,19 @@ merge() {
         $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung"]
         + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
-    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select(contains("capture.mjs") | not)))
+    # The Docker socket replaces the earlier docker exclusion.
+    # Server entries in the generated form are replaced, so a shorter or empty list removes old servers.
+    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or . == "docker *"
+        or test("^ssh [^ ]+@[^ ]+ \\*$") or test("^(scp|rsync) \\* [^ ]+@[^ ]+:\\*$")) | not)))
     | .sandbox.excludedCommands |= append([
-        "pg-test *", "pg18-fresh", "docker *", "paseo *",
+        "pg-test *", "pg18-fresh", "paseo *",
         $home + "/.claude/skills/autoreview/scripts/autoreview *",
         $home + "/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
-        $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *"])
+        $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *"]
+        # Plain ssh cannot pass the sandbox proxy. Only these servers are excluded.
+        # ponytail: options such as ssh -o ProxyCommand, scp -S, and rsync -e can run local code outside the sandbox.
+        # Accepted because these agents already control the servers; a validating wrapper closes it if needed.
+        + ($servers | split(" ") | map(select(. != "")) | map("ssh \(.) *", "scp * \(.):*", "rsync * \(.):*")))
   ' "$1"
 }
 
