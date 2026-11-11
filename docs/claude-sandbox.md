@@ -129,10 +129,14 @@ It exits with 0 if each target stopped or was already gone, 1 if it refused a ta
 The exclusion is safe for these reasons:
 
 - The path is fixed. `~/.local/bin` and the installed Toolkit resources are not writable in the sandbox, so an agent cannot change the helper.
+- Perl runs in taint mode (`-T`). Perl then ignores `PERL5LIB`, `PERLLIB`, and `PERL5OPT`, so the caller cannot load a module into the helper.
 - The helper accepts only process IDs, port numbers, `--signal`, and `--wait`. It refuses `0`, negative IDs (process groups), and names. It never runs an argument as code or through a shell.
-- The process must belong to the current user. Its working directory must be below an allowed root: `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest`, the macOS temporary directory, or `/private/tmp/claude-<uid>`.
+- The process must belong to the current user. Its working directory must be below an allowed root: `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, the macOS temporary directory, or `/private/tmp/claude-<uid>`.
+  These roots are the same as the `allowWrite` roots above, without the package caches.
+- A root must be a directory of the current user, and no part of its path can be a symlink. The helper ignores a root that fails this test. A symlink therefore cannot move a root to another directory.
 - The helper always refuses process 1, itself, and its parent chain. It also refuses each macOS app and each process with the name Paseo, Claude, Codex, Chrome, Chromium, Firefox, Safari, or tmux.
-- If the helper cannot read the owner, the command, or the working directory, it refuses.
+- The helper reads the real executable from the `txt` file descriptor, because a process can set the `argv[0]` that `ps` shows. The app and name rules apply to both.
+- If the helper cannot read the owner, the executable, the command, or the working directory, it refuses.
 - On macOS, the helper reads the home directory from the user database and the temporary directory from `getconf`. `HOME` and `TMPDIR` do not change the roots.
 
 The helper does the checks again immediately before it sends the signal. The last check compares the owner and the start time of the process.

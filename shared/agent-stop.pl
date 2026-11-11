@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -T
 # agent-stop: stops a background process that an agent started, also from the Claude sandbox.
 # Usage: agent-stop [--signal TERM|INT|KILL] [--wait <seconds>] <pid>...
 #        agent-stop [--signal TERM|INT|KILL] [--wait <seconds>] --port <port>...
@@ -6,7 +6,8 @@
 # The sandbox excludes this file by its installed path, so it runs unsandboxed with arguments that an agent chooses.
 # It therefore signals a process only if the process belongs to this user, its working directory is below an
 # allowed root, and it is not a protected process. Refusal is the default for every unclear case.
-# No argument is ever run as code or passed to a shell. External programs run with a list exec.
+# Taint mode (-T) makes Perl ignore PERL5LIB, PERLLIB, and PERL5OPT, so the caller cannot load code into it.
+# No argument is ever run as code or passed to a shell. External programs run from fixed paths with a list exec.
 # Remaining race: the checks run again immediately before kill(2), and the last one compares owner and start time.
 # The kernel can still reuse the pid in the few milliseconds between that check and the signal.
 use strict;
@@ -15,19 +16,21 @@ no warnings 'exec'; # output() reports a failed exec as no output.
 use Cwd qw(abs_path);
 use POSIX ();
 
+$ENV{PATH} = '/usr/bin:/bin:/usr/sbin:/sbin';
+delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
+
 sub usage { print STDERR "Usage: agent-stop [--signal TERM|INT|KILL] [--wait <seconds>] <pid>...\n       agent-stop [--signal TERM|INT|KILL] [--wait <seconds>] --port <port>...\n"; exit 2 }
 my ($signal, $wait, $ports, @operands) = ('TERM', 0, 0);
 while (@ARGV) {
  my $arg = shift @ARGV;
- if ($arg eq '--signal') { $signal = shift(@ARGV) // usage(); usage() unless $signal =~ /^(TERM|INT|KILL)$/ }
- elsif ($arg eq '--wait') { $wait = shift(@ARGV) // usage(); usage() unless $wait =~ /^\d{1,3}$/ }
+ if ($arg eq '--signal') { (shift(@ARGV) // '') =~ /^(TERM|INT|KILL)$/ or usage(); $signal = $1 }
+ elsif ($arg eq '--wait') { (shift(@ARGV) // '') =~ /^(\d{1,3})$/ or usage(); $wait = $1 }
  elsif ($arg eq '--port') { $ports = 1 }
  elsif ($arg =~ /^-\d+$/ || $arg !~ /^-/) { push @operands, $arg } # A negative pid is a refused target, not an option.
  else { usage() }
 }
 usage() unless @operands;
 
-# Fixed paths, not PATH, because the caller controls PATH.
 my ($lsof) = grep { -x } '/usr/sbin/lsof', '/usr/bin/lsof';
 $lsof //= '/usr/sbin/lsof';
 # Run a fixed program without a shell. stderr goes to /dev/null. Returns the output lines.
@@ -40,13 +43,14 @@ sub output {
  return @lines;
 }
 
-# The allowed roots match the sandbox allowWrite roots in docs/claude-sandbox.md, plus ~/Code/envest.
-# They come from the password database and getconf, not from HOME or TMPDIR, which the caller controls.
+# The only root list. It matches the sandbox allowWrite roots in docs/claude-sandbox.md.
+# The home directory comes from the password database, and on macOS the temporary directory from getconf.
 my $home = (getpwuid($<))[7];
-my @roots = map { "$home/Code/$_" } qw(paseo-worktrees tracn wewereyoung envest);
-if ($^O eq 'darwin') { push @roots, output('/usr/bin/getconf', 'DARWIN_USER_TEMP_DIR'), "/private/tmp/claude-$<" }
-else { push @roots, $ENV{TMPDIR} || '/tmp' } # ponytail: the Claude sandbox exclusion is macOS only.
-@roots = grep { defined && $_ ne '/' } map { abs_path($_) } grep { defined && $_ ne '' } @roots;
+my @roots = ((map { "$home/Code/$_" } qw(paseo-worktrees tracn wewereyoung)), $^O eq 'darwin' ? (output('/usr/bin/getconf', 'DARWIN_USER_TEMP_DIR'), "/private/tmp/claude-$<") : ($ENV{TMPDIR} || '/tmp'));
+# Roots are fixed paths. Only the macOS aliases /var and /tmp are resolved. A root must be a directory of this user,
+# and no part of its path can be a symlink. A symlink can therefore never move a root to another directory.
+@roots = grep { my @stat = lstat; @stat && -d _ && $stat[4] == $< && (abs_path($_) // '') eq $_ }
+ map { my $root = s{/+$}{}r; $^O eq 'darwin' ? $root =~ s{^/(var|tmp)/}{/private/$1/}r : $root } grep { defined && $_ ne '' } @roots;
 
 # The caller and its parent chain: stopping one of them would stop the agent itself.
 my %callers = (1 => 1, $$ => 1);
@@ -63,11 +67,12 @@ sub identity {
  my ($uid, $start) = map { /^\s*(\d+)\s+(.+?)\s*$/ ? ($1, $2) : () } output('/bin/ps', '-o', 'uid=,lstart=', '-p', $pid);
  return defined $uid ? "$uid $start" : undef;
 }
-sub cwd_of {
- my ($pid) = @_;
- my $cwd = $^O eq 'linux' ? readlink("/proc/$pid/cwd")
-  : (map { /^n(.+)$/ ? $1 : () } output($lsof, '-a', '-p', $pid, '-d', 'cwd', '-Fn'))[0];
- return defined $cwd && $cwd =~ m{^/} ? abs_path($cwd) : undef;
+# The first lsof name of a file descriptor type: cwd is the working directory, txt is the executable first.
+sub path_of {
+ my ($pid, $type) = @_;
+ my $path = $^O eq 'linux' ? readlink("/proc/$pid/" . ($type eq 'txt' ? 'exe' : 'cwd'))
+  : (map { /^n(.+)$/ ? $1 : () } output($lsof, '-a', '-p', $pid, '-d', $type, '-Fn'))[0];
+ return defined $path && $path =~ m{^/} ? abs_path($path) : undef;
 }
 # Returns undef if the process may get the signal, or the reason for the refusal.
 sub refusal {
@@ -75,16 +80,18 @@ sub refusal {
  return 'protected: init or the caller of agent-stop' if $callers{$pid};
  my $identity = identity($pid) // return 'gone';
  return 'owned by another user' unless $identity =~ /^(\d+) / && $1 == $<;
+ # ps shows argv, which a process can choose. The txt descriptor gives the real executable.
+ my $executable = path_of($pid, 'txt');
  my ($command) = output('/bin/ps', '-o', 'comm=', '-p', $pid);
  my ($args) = output('/bin/ps', '-o', 'args=', '-p', $pid);
- return 'cannot read the command' unless defined $command && defined $args;
- return 'protected: macOS app' if $command =~ m{\.app/};
- my @names = map { m{([^/]*)$} } grep { defined } $command, (split ' ', $args)[0, 1];
+ return 'cannot read the executable or the command' unless defined $executable && defined $command && defined $args;
+ return 'protected: macOS app' if grep { m{\.app/} } $executable, $command;
+ my @names = map { m{([^/]*)$} } grep { defined } $executable, $command, (split ' ', $args)[0, 1];
  return 'protected: agent host, browser, or terminal' if grep { defined && /$protected/ } @names;
- my $cwd = cwd_of($pid) // return 'cannot read the working directory';
+ my $cwd = path_of($pid, 'cwd') // return 'cannot read the working directory';
  return "working directory $cwd is outside the allowed roots" unless grep { index($cwd, "$_/") == 0 } @roots;
- # Same owner, start time, and working directory again, immediately before the signal.
- return 'changed during the checks' unless (cwd_of($pid) // '') eq $cwd && (identity($pid) // '') eq $identity;
+ # Same working directory, owner, and start time again, immediately before the signal.
+ return 'changed during the checks' unless (path_of($pid, 'cwd') // '') eq $cwd && (identity($pid) // '') eq $identity;
  return undef;
 }
 
@@ -92,12 +99,12 @@ my ($failed, @signaled) = (0);
 for my $operand (@operands) {
  my @pids;
  if ($ports) {
-  if ($operand !~ /^[1-9]\d{0,4}$/ || $operand > 65535) { print "port $operand: refused: not a port number\n"; $failed = 1; next }
-  @pids = grep { /^[1-9]\d*$/ } output($lsof, '-nP', "-iTCP:$operand", '-sTCP:LISTEN', '-t');
-  if (!@pids) { print "port $operand: not found\n"; next }
- } elsif ($operand !~ /^[1-9]\d{0,9}$/) {
-  print "pid $operand: refused: not a single process id (no groups, 0, or names)\n"; $failed = 1; next;
- } else { @pids = ($operand) }
+  if ($operand !~ /^([1-9]\d{0,4})$/ || $1 > 65535) { print "port $operand: refused: not a port number\n"; $failed = 1; next }
+  my $port = $1;
+  @pids = map { /^([1-9]\d*)$/ ? $1 : () } output($lsof, '-nP', "-iTCP:$port", '-sTCP:LISTEN', '-t');
+  if (!@pids) { print "port $port: not found\n"; next }
+ } elsif ($operand =~ /^([1-9]\d{0,9})$/) { @pids = ($1) }
+ else { print "pid $operand: refused: not a single process id (no groups, 0, or names)\n"; $failed = 1; next }
  for my $pid (@pids) {
   my $label = $ports ? "port $operand pid $pid" : "pid $pid";
   my $reason = refusal($pid);

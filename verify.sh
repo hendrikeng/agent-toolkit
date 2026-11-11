@@ -10,7 +10,8 @@ done
 for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do
   node --check "$script"
 done
-for script in shared/agent-heavy.pl shared/agent-stop.pl; do perl -c "$script"; done
+perl -c shared/agent-heavy.pl
+perl -T -c shared/agent-stop.pl
 node --test scripts/apply-claude-sandbox.test.cjs shared/install.test.cjs shared/paseo-setup.test.cjs shared/paseo-service.test.cjs shared/agent-heavy.test.cjs shared/agent-stop.test.cjs shared/postgres/*.test.cjs
 python3 skills/autoreview/scripts/autoreview_test.py
 printf 'Toolkit checks passed. Fresh CLI/model behavior and live reviewer invocation still require human acceptance.\n'
