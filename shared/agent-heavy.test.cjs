@@ -123,7 +123,7 @@ test('one SIGINT to the process group reaches the command exactly once', { timeo
  const ready = f.file('ready.pid')
  // A terminal sends SIGINT to the foreground process group. Here the detached wrapper leads its own group.
  const wrapper = f.start(node(`let count = 0
-process.on('SIGINT', () => { if (count++ === 0) setTimeout(() => { console.log(count); process.exit(0) }, 500) })
+process.on('SIGINT', () => { if (count++ === 0) setTimeout(() => { process.stdout.write(String(count)); process.exit(0) }, 500) })
 require('node:fs').writeFileSync(${JSON.stringify(ready)}, String(process.pid)); setInterval(() => {}, 1000)`), {}, { detached: true })
  await f.waitForPid('ready.pid')
  process.kill(-wrapper.pid, 'SIGINT')
