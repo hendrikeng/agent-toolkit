@@ -42,6 +42,12 @@ Run focused local checks before each push, and batch fixes into one push. Add fu
 Rerun a failed job only after you find the cause. Fix flaky tests instead of rerunning them.
 Group related small changes into one pull request. Each pull request and each push to it pays for a full CI run.
 Repository CI rules take precedence. Never weaken required gates to save cost.
+A repository with working CI keeps its pull request flow: draft, one CI run, green checks, then merge with `--match-head-commit`.
+If hosted CI cannot run, for example when billing blocks GitHub Actions, do not use `gh pr merge` without checks.
+Instead, the orchestrator runs the repository's full local gate on the exact head commit. Then it pushes that commit to the integration branch as a fast-forward.
+Do not force push, and do not rebase over the work of others. If the branch moved, cherry-pick or merge locally, run the full gate again, and then push.
+Record the gate commands, the result, and the head SHA in the plan evidence or the commit message.
+Production deploys, destructive actions, and other publication still need explicit authorization.
 
 Workers run focused tests and the repository's fast gate while they iterate.
 Only the orchestrator runs the repository's full aggregate gate, once for each merged batch.
@@ -52,7 +58,7 @@ Wrap ad hoc heavy commands with `agent-heavy --`, for example a full typecheck, 
 ## Permission boundaries
 
 Distinguish execution denials, native approval requests, approval-review rejections, and explicit task prohibitions.
-If the active sandbox protects an authorized operation, request supported native escalation before execution.
+If the Codex sandbox protects an authorized operation, request supported native escalation before execution.
 For example, protected Git metadata writes need this approval in Codex workspace-write mode.
 A filesystem or sandbox denial is not itself an approval request.
 If the active policy and task permit it, request native approval after an execution denial.
@@ -61,10 +67,19 @@ After an approval-review rejection, stop the rejected action and report the stat
 Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
 Record the command, target, agent, effective permission mode, and denial type. Attribute each denial to its originating agent.
 Never change live permission settings or grant access that managed policy forbids.
-With the Claude sandbox on, run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and the AutoReview helper as separate shell calls.
+With the Claude sandbox on, no escalation exists. Use the helpers and patterns below.
+If none fits, record the exact denial, continue other work, and report the gap at the end.
+Never ask the user to run a command or to turn off the sandbox.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, and the AutoReview helper as separate shell calls.
 Write the helper path without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
-To stop a background process that you started, run `agent-stop <pid>` or `agent-stop --port <port>` as a separate call.
-Write its full path without `~`, for example `/Users/<name>/.local/bin/agent-stop`. Never ask the user to turn off the sandbox for this.
+Run `pg-test start` as its own call, and pass its URL to scripts. The exclusion does not apply inside a script.
+In scripts, use `lsof -t` instead of `ps`. The sandbox blocks the setuid `/bin/ps`.
+Start a long-lived server with the `run_in_background` option of the Bash tool, and stop it with TaskStop.
+Or start the servers and the tests in one call with `trap 'kill $pids' EXIT`.
+Never start a server with `&` or `nohup` and expect to stop it in a later call.
+If a server from an earlier call still runs, run `agent-stop <pid>` or `agent-stop --port <port>` as a separate call.
+Also stop its parent pid, for example of pnpm or turbo. For Docker Compose services, use `docker compose down`.
+Write the `agent-stop` path in full without `~`, for example `/Users/<name>/.local/bin/agent-stop`.
 
 ## Reviews
 
