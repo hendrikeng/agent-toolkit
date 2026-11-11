@@ -9,18 +9,20 @@
 use strict;
 use warnings;
 no warnings 'exec'; # A failed exec reports its error below.
-use Fcntl qw(:flock O_RDWR O_CREAT);
-use POSIX qw(floor);
+use Fcntl qw(:flock O_RDWR O_CREAT F_SETFD FD_CLOEXEC);
+use POSIX qw(floor SIGINT SIGQUIT SIGTERM SIGHUP SIG_BLOCK SIG_SETMASK);
 use Cwd qw(getcwd);
 use File::Spec;
 
 if (@ARGV < 2 || $ARGV[0] ne '--') { print STDERR "Usage: agent-heavy -- <program> [args...]\n"; exit 2 }
 shift @ARGV;
 
+my @locks;
 sub direct {
+ close($_) for @locks; # Never let the command inherit a lock, also on the fail-open path.
  exec { $ARGV[0] } @ARGV;
  print STDERR "agent-heavy: could not start $ARGV[0]: $!\n";
- exit 127;
+ POSIX::_exit(127);
 }
 # Fail open: the throttle must never fail the command.
 sub fail_open { print STDERR "agent-heavy: throttle unavailable, running without a slot ($_[0])\n"; direct() }
@@ -64,10 +66,11 @@ my @stat = lstat($dir);
 fail_open("$dir is not a directory that this user owns") unless @stat && -d _ && !-l _ && $stat[4] == $<;
 chmod(0700, $dir) or fail_open("cannot set the mode of $dir: $!");
 
-my @locks;
 for my $index (0 .. $slots - 1) {
- # Perl opens descriptors above $^F (2) with close-on-exec, so the command does not inherit them.
+ # If the wrapper starts with a closed standard descriptor, a slot file can get fd 0, 1, or 2. Perl does not set
+ # close-on-exec on those, so set it here. A closed standard stream then stays closed for the command.
  sysopen(my $fh, "$dir/slot-$index", O_RDWR | O_CREAT, 0600) or fail_open("cannot open $dir/slot-$index: $!");
+ fcntl($fh, F_SETFD, FD_CLOEXEC) or fail_open("cannot set close-on-exec on $dir/slot-$index: $!");
  push @locks, $fh;
 }
 sub busy {
@@ -98,18 +101,19 @@ if (open(my $fh, '>', "$owner.$$")) {
 }
 unlink("$owner.$$");
 
+# Block the signals until the parent has its handlers, so none can stop the wrapper without the command.
+# The child restores the original mask and keeps the inherited signal dispositions, which it never changes.
+my $original = POSIX::SigSet->new;
+POSIX::sigprocmask(SIG_BLOCK, POSIX::SigSet->new(SIGINT, SIGQUIT, SIGTERM, SIGHUP), $original) or fail_open("cannot block signals: $!");
 my $child = fork();
-fail_open("cannot fork: $!") unless defined $child;
-if ($child == 0) {
- exec { $ARGV[0] } @ARGV;
- print STDERR "agent-heavy: could not start $ARGV[0]: $!\n";
- POSIX::_exit(127);
-}
+if (!defined $child) { my $error = $!; POSIX::sigprocmask(SIG_SETMASK, $original); fail_open("cannot fork: $error") }
+if ($child == 0) { POSIX::sigprocmask(SIG_SETMASK, $original); direct() }
 # The terminal sends SIGINT and SIGQUIT to the whole process group, so the command already gets them.
 # Agents and tools send SIGTERM and SIGHUP to the wrapper pid, so forward those. A signal to the whole group
 # can then reach the command twice.
 $SIG{INT} = $SIG{QUIT} = 'IGNORE';
 $SIG{TERM} = $SIG{HUP} = sub { kill($_[0], $child) };
+POSIX::sigprocmask(SIG_SETMASK, $original);
 while (waitpid($child, 0) == -1) { last unless $!{EINTR} }
 my $status = $?;
 unlink($owner);

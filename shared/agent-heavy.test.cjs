@@ -19,15 +19,15 @@ function fixture(t) {
   fs.rmSync(root, { recursive: true, force: true })
  })
  const dir = path.join(root, 'locks')
- const start = (command, env = {}, options = {}) => {
-  const child = spawn(helper, ['--', ...command], { env: { ...baseEnv, AGENT_HEAVY_DIR: dir, AGENT_HEAVY_SLOTS: '1', ...env }, ...options })
+ const start = (command, env = {}, options = {}, raw = false) => {
+  const child = spawn(raw ? command[0] : helper, raw ? command.slice(1) : ['--', ...command], { env: { ...baseEnv, AGENT_HEAVY_DIR: dir, AGENT_HEAVY_SLOTS: '1', ...env }, ...options })
   pids.push(child.pid)
   let stdout = '', stderr = ''
   child.stdout.on('data', chunk => { stdout += chunk }); child.stderr.on('data', chunk => { stderr += chunk })
   child.result = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr })))
   return child
  }
- const run = (command, env) => start(command, env).result
+ const run = (command, env, raw) => start(command, env, {}, raw).result
  const file = name => path.join(root, name)
  // Commands write their pid to a file. The test tracks the pid, so cleanup stops the process.
  const waitForPid = async name => {
@@ -62,6 +62,9 @@ test('passes exit codes and signals through, forwards SIGTERM, and sets the chil
  assert.equal((await holder.result).code, 128 + os.constants.signals.SIGTERM)
  assert.equal(alive(pid), false)
  assert.equal(fs.statSync(f.dir).mode & 0o777, 0o700)
+ // The wrapper blocks signals around fork. The command must start with the original, empty mask.
+ const mask = await f.run(['/usr/bin/perl', '-MPOSIX', '-e', 'my $m = POSIX::SigSet->new; sigprocmask(SIG_BLOCK, POSIX::SigSet->new, $m); print join(",", map { $m->ismember($_) } SIGINT, SIGQUIT, SIGTERM, SIGHUP)'])
+ assert.equal(mask.stdout, '0,0,0,0', mask.stderr)
 })
 
 test('never runs more children than slots under concurrent acquires', { timeout: 60000 }, async t => {
@@ -97,6 +100,20 @@ test('a background process that a command leaves behind does not hold the slot',
  assert.equal(first.code, 0, first.stderr)
  const pid = await f.waitForPid('daemon.pid')
  assert.equal(alive(pid), true)
+ const next = await f.run(node('process.exit(4)')) // A leaked lock makes this wait past the test timeout.
+ assert.equal(next.code, 4, next.stderr)
+})
+
+test('with stdin closed, a background process that inherits stdin does not hold the slot', { timeout: 30000 }, async t => {
+ const f = fixture(t)
+ // With fd 0 closed, a slot file can get fd 0. Apple /usr/bin/perl fills a closed fd 0 with its own
+ // /Library/Perl/5.34/AppendToPath file, so this regression shows only with other Perl builds, for example on Linux.
+ const daemon = node(`const { spawn } = require('node:child_process')
+const child = spawn('sleep', ['120'], { stdio: ['inherit', 'ignore', 'ignore'], detached: true }); child.unref()
+require('node:fs').writeFileSync(${JSON.stringify(f.file('daemon.pid'))}, String(child.pid))`)
+ const first = await f.run(['/bin/sh', '-c', 'exec "$0" "$@" <&-', helper, '--', ...daemon], {}, true)
+ assert.equal(first.code, 0, first.stderr)
+ assert.equal(alive(await f.waitForPid('daemon.pid')), true)
  const next = await f.run(node('process.exit(4)')) // A leaked lock makes this wait past the test timeout.
  assert.equal(next.code, 4, next.stderr)
 })
