@@ -436,6 +436,37 @@ See [PostgreSQL shared-memory configuration](https://www.postgresql.org/docs/18/
 
 `pg18-fresh` retains a distinct requirement: run an existing reviewed PostgreSQL 18 fresh-install inventory suite with Docker isolation. It accepts no arguments, requires the exact scripts, exact dependency versions, and `pnpm@11.22.0`, and runs from the target repository in either host or a terminal. Home and filesystem-root invocation are refused. It downloads dependencies from manifests in a separate networked container, then runs copied source without network access. The host checkout is mounted read-only; only the bounded JSON inventory is copied back. Invocation-owned containers and tmpfs volumes are cleaned up. It builds a local image from `postgres:18-bookworm` and `node:24-bookworm-slim`; these tags track patches rather than fixed digests. Docker is an explicit host capability, with no Toolkit approval bypass.
 
+## Heavy local checks
+
+Parallel agents that each run a typecheck, a linter, a test suite, or a build can overload one machine.
+`agent-heavy` is a machine-wide semaphore that limits how many of these commands run at the same time.
+
+```sh
+agent-heavy -- pnpm run typecheck
+```
+
+The helper waits for a free slot, then runs the command with the same standard input, output, and error.
+It returns the exit code of the command. If a signal stops the command, it returns 128 plus the signal number.
+It forwards SIGINT, SIGTERM, and SIGHUP to the command. It waits without a time limit.
+While it waits, it writes one line to stderr every 30 seconds. The line names the commands that hold the slots.
+The throttle is local resource policy. It does not change the result of a check, and CI does not use it.
+
+| Variable | Effect |
+|---|---|
+| `AGENT_HEAVY=0` | Run the command directly, without a slot. |
+| `AGENT_HEAVY_SLOTS` | The number of slots, a positive integer. The default is the smaller of total memory divided by 20 GiB and CPU count divided by 6, with a minimum of 1. |
+| `AGENT_HEAVY_DIR` | The lock directory. The default is `$(getconf DARWIN_USER_TEMP_DIR)agent-heavy` on macOS and `${XDG_RUNTIME_DIR:-/tmp}/agent-heavy-<uid>` on Linux. All worktrees share it. |
+| `AGENT_HEAVY_HELD` | The helper sets `1` for the command. A nested `agent-heavy` call then runs directly. |
+| `AGENT_HEAVY_WORKERS` | The helper sets CPU count divided by slots, with a minimum of 1. Repositories can use it to limit vitest, Playwright, and `node --test` workers. |
+
+Each slot is a `slot-<n>` directory with an `owner.json` record. The record has the process IDs, the working directory, the command, and the start time.
+A slot becomes free when the command stops. If SIGKILL stops the helper, the slot becomes free after the helper and the command have both stopped.
+If the helper cannot create or write the lock directory, it writes one warning and runs the command without a slot.
+
+Do not add `agent-heavy` to the sandbox `excludedCommands` list. It runs any command, so an exclusion lets every command leave the sandbox.
+
+Spotlight indexes each new worktree, and this adds load. To stop it, add `~/Code` to System Settings > Spotlight > Privacy one time. Do this manually.
+
 ## Migration, backups, and update
 
 Stop active providers before installation. Inspect current settings and historical backups in a trusted human terminal. Old installations can contain both native sandbox settings and Toolkit approval extensions. A generic setting such as `sandbox.enabled` or `approval_policy` is not proof of Toolkit ownership.
@@ -590,5 +621,6 @@ Automatic skill use by a real model, fresh Codex/Claude skill loading, and a liv
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
 | `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
+| `shared/agent-heavy.cjs` | Machine-wide limit for heavy local checks |
 | `docs/claude-sandbox.md`, `shared/sandbox-probe.sh` | Tested Claude sandbox settings and a probe for agent work |
 | `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |

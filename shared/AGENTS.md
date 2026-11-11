@@ -43,6 +43,12 @@ Rerun a failed job only after you find the cause. Fix flaky tests instead of rer
 Group related small changes into one pull request. Each pull request and each push to it pays for a full CI run.
 Repository CI rules take precedence. Never weaken required gates to save cost.
 
+Workers run focused tests and the repository's fast gate while they iterate.
+Only the orchestrator runs the repository's full aggregate gate, once for each merged batch.
+Never run the fast gate and then the full gate. The full gate already includes the fast gate.
+Run long verification commands in the background. Time that waits for an `agent-heavy` slot counts against tool timeouts.
+Wrap ad hoc heavy commands with `agent-heavy --`, for example a full typecheck, a full test suite, or a production build.
+
 ## Permission boundaries
 
 Distinguish execution denials, native approval requests, approval-review rejections, and explicit task prohibitions.
