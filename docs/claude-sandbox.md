@@ -47,19 +47,23 @@ If the capture script must run outside the sandbox, install a copy outside writa
     "allowUnsandboxedCommands": false,
     "network": {
       "allowLocalBinding": true,
-      "allowUnixSockets": ["/Users/hendrik/.orbstack/run/docker.sock"],
+      "allowUnixSockets": ["/Users/hendrik/.orbstack/run/docker.sock", "/Users/hendrik/.fly/fly-agent.sock"],
       "allowedDomains": [
         "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
         "app.infisical.com", "backboard.railway.com", "*.neon.tech", "console.neo4j.io", "*.databases.neo4j.io",
         "*.redislabs.com", "*.redis-cloud.com", "api.stripe.com", "*.ubicloud.com", "api.cloudflare.com",
-        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com"
+        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com",
+        "release-assets.githubusercontent.com", "*.supabase.co", "api.supabase.com",
+        "app.envest.vc", "*.fly.dev", "api.fly.io", "api.machines.dev", "registry.fly.io", "api.vercel.com", "vercel.com",
+        "fonts.googleapis.com", "fonts.gstatic.com", "cdn.playwright.dev", "playwright.download.prss.microsoft.com", "nodejs.org"
       ]
     },
     "filesystem": {
       "allowWrite": [
         "/Users/hendrik/.npm", "/Users/hendrik/.cache/uv", "/Users/hendrik/Library/pnpm/store",
-        "/Users/hendrik/Code/paseo-worktrees", "/Users/hendrik/Code/tracn", "/Users/hendrik/Code/wewereyoung",
+        "/Users/hendrik/Library/Caches/pnpm", "/Users/hendrik/.fly",
+        "/Users/hendrik/Code/paseo-worktrees", "/Users/hendrik/Code/tracn", "/Users/hendrik/Code/wewereyoung", "/Users/hendrik/Code/envest",
         "/var/folders/ng/983309q54vq0fpqdhbblh4c40000gn/T"
       ]
     },
@@ -71,6 +75,7 @@ If the capture script must run outside the sandbox, install a copy outside writa
       "/Users/hendrik/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.local/bin/agent-stop *",
+      "/bin/ps *",
       "ssh agawulum@sl90.web.hostpoint.ch *", "scp * agawulum@sl90.web.hostpoint.ch:*", "rsync * agawulum@sl90.web.hostpoint.ch:*"
       // The same three entries for bonzanib@sl662.web.hostpoint.ch, wfw-prod@wfw.ch, and wfw-staging@wfw.ch.
     ]
@@ -92,21 +97,23 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | Setting | Reason |
 |---|---|
 | `SSL_CERT_FILE` | `gh` failed with `x509: OSStatus -26276`. Go tools verify certificates through `trustd`, which the sandbox blocks. With the system certificate file, `gh` and `infisical` work inside the sandbox. This is narrower than `enableWeakerNetworkIsolation` or an excluded command. |
-| No `CLAUDE_CODE_TMPDIR` | In the `env` settings, this value changes `TMPDIR` but not the sandbox write rule. The sandbox still allows only `/tmp/claude-501`, so every temporary file failed, including shell heredocs. The script removes the value that an earlier version set. |
+| No `CLAUDE_CODE_TMPDIR` | In the `env` settings, this value changes `TMPDIR` but not the sandbox write rule. The sandbox still allows only `/tmp/claude-501`, so every temporary file failed, including shell heredocs. Claude also failed to write its `cwd-…` file after each call, so commands reported false exit codes. The script removes any value. |
 | Git `insteadOf` | On macOS, Git over SSH cannot pass the sandbox proxy. Git over HTTPS worked for fetch and push, including private repositories. |
 | `allowWrite` | npm and uv failed to write their caches in `~/.npm` and `~/.cache/uv`. pnpm moved its store into `$TMPDIR`, which loses the shared store. Only the store is writable, not the global `pnpm` commands. |
-| `allowWrite` for `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung` | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. |
+| `allowWrite` for `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest` | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. The envest worktrees use `~/Code/envest/envest-app/.git`, and the envest backups are also in `~/Code/envest`. `agent-stop` uses the same project roots. A test fails if the two lists are different. |
+| `allowWrite` for `~/.fly` and `~/Library/Caches/pnpm`, `allowUnixSockets` for `~/.fly/fly-agent.sock` | `fly` writes its configuration and talks to its local agent through this socket. `pnpm dlx` writes its cache in `~/Library/Caches/pnpm`. These entries need probe verification. `fly deploy` can also need WireGuard, which the sandbox can block. |
 | `allowWrite` for the macOS temporary directory | macOS `mktemp -d` without a template ignores `TMPDIR` and uses `getconf DARWIN_USER_TEMP_DIR`. Repository scripts use it. The script reads the path on your Mac. |
 | `pg-test *`, `pg18-fresh` | PostgreSQL cannot create shared memory inside the sandbox. Both are trusted helpers outside the workspace, and the sandbox cannot change them. |
 | `allowUnixSockets` for the OrbStack socket | Docker works in the sandbox, also when a script such as the `tracn-api` database scripts calls it, and in chained commands. Tested with `docker info`, `docker compose version`, and Docker from Node. The Docker daemon has full host access. The Neo4j lane in `pcvc` uses Docker Compose. |
 | `ssh`, `scp`, and `rsync` for four servers | Plain `ssh` cannot pass the sandbox proxy. The script excludes these commands only for the Porta Mundi, Bonzani, and WFW deployment servers. Set `SANDBOX_SSH_SERVERS` to change the list. |
 | `paseo *` | The Paseo CLI fails because Node `os.uptime()` returns `EPERM` in the sandbox. Agents normally use the Paseo MCP tools, which run outside the sandbox. |
+| `/bin/ps *` | `/bin/ps` is setuid, so the sandbox blocks it. `ps` only reads process data and cannot run code. The exclusion applies only to a whole call, so scripts must use `lsof -t` instead. |
 | `agent-stop` path | The sandbox blocks signals to processes that an earlier call started. Without this entry, agents cannot stop their own background test servers. See [Stop background processes](#stop-background-processes). |
 | AutoReview paths | Codex runs its tool commands in its own Seatbelt sandbox. A nested sandbox fails with `sandbox_apply: Operation not permitted`. The helper owns its reviewer isolation. |
-| `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. The list applies in the other permission modes. |
+| `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. In auto mode, which Paseo uses, the sandbox refuses a host outside this list without a prompt. A missing host fails the command. |
 
 An excluded command runs outside the sandbox only if the whole shell call matches.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `agent-stop`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, `agent-stop`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
 
 ## Stop background processes
 
@@ -131,8 +138,8 @@ The exclusion is safe for these reasons:
 - The path is fixed. `~/.local/bin` and the installed Toolkit resources are not writable in the sandbox, so an agent cannot change the helper.
 - Perl runs in taint mode (`-T`). Perl then ignores `PERL5LIB`, `PERLLIB`, and `PERL5OPT`, so the caller cannot load a module into the helper.
 - The helper accepts only process IDs, port numbers, `--signal`, and `--wait`. It refuses `0`, negative IDs (process groups), and names. It never runs an argument as code or through a shell.
-- The process must belong to the current user. Its working directory must be below an allowed root: `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, the macOS temporary directory, or `/private/tmp/claude-<uid>`.
-  These roots are the same as the `allowWrite` roots above, without the package caches.
+- The process must belong to the current user. Its working directory must be below an allowed root: `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest`, the macOS temporary directory, or `/private/tmp/claude-<uid>`.
+  These roots are the same as the `allowWrite` roots above, without the caches and `~/.fly`.
 - A root must be a directory of the current user, and no part of its path can be a symlink. The helper ignores a root that fails this test. A symlink therefore cannot move a root to another directory.
 - The helper always refuses process 1, itself, and its parent chain. It also refuses each macOS app and each process with the name Paseo, Claude, Codex, Chrome, Chromium, Firefox, Safari, or tmux.
 - The helper reads the real executable from the `txt` file descriptor, because a process can set the `argv[0]` that `ps` shows. The app and name rules apply to both.
@@ -144,7 +151,7 @@ A pid can still be reused in the few milliseconds between that check and the sig
 The allowed roots also contain the projects of other agents. An agent can stop a server of another agent there, as it can already change its files.
 
 `agent-heavy` is different, and it must never be excluded. It runs any command that it gets, so an exclusion lets every command leave the sandbox.
-`agent-stop` runs no command. It only sends a signal after the checks above.
+`agent-stop` runs no command that it gets. It runs only `ps`, `lsof`, and `getconf` from fixed paths, and it sends a signal only after the checks above.
 
 ## Probe results
 
@@ -158,7 +165,11 @@ PROBE_AUTOREVIEW=<installed-autoreview-skill>/scripts/autoreview bash ~/.local/s
 ```
 
 A script cannot test excluded commands, because the exclusion applies only to a whole tool call.
-Test `pg-test start`, `docker info`, `paseo ls`, and an AutoReview run as separate tool calls.
+Test `pg-test start`, `docker info`, `paseo ls`, `/bin/ps -o pid= -p 1`, and an AutoReview run as separate tool calls.
+
+The `kill_across` item needs a process from an earlier call. Run `perl -e 'sleep 600' & echo $!` in one call. Claude Code blocks a call that starts with `sleep`.
+Then run the probe in a second call with `PROBE_KILL_PID=<pid>`. The probe tries to stop it, which shows whether `agent-stop` is necessary.
+For the wildcard hosts `*.supabase.co` and `*.fly.dev`, add a project host to `PROBE_HOSTS`.
 
 On 2026-11-03, the probe ran in a sandboxed Claude session in `bypassPermissions` mode, with the old settings.
 The working directory was this repository. The second run added `SSL_CERT_FILE` and the Git `insteadOf` rule as environment variables.
@@ -207,7 +218,7 @@ Run the probe and the separate excluded-command calls in a fresh session after y
 - **Excluded commands run with full access.** The Docker daemon can mount any host path. Do not add patterns for interpreters, package scripts, or files in the working directory, because an agent can change them.
 - **The Write and Edit tools** are outside the sandbox. They cannot delete directories.
 - **The working directory, including the repository root and `.git`, stays writable.**
-- **All projects in `~/Code/paseo-worktrees`, `~/Code/tracn`, and `~/Code/wewereyoung` are writable from every session.** The sandbox does not keep one project's agent out of another project there. It still protects the home directory, system paths, configuration, and other folders.
+- **All projects in `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, and `~/Code/envest` are writable from every session.** The sandbox does not keep one project's agent out of another project there. It still protects the home directory, system paths, configuration, and other folders.
 - **The macOS temporary directory and `/tmp/claude-501` are shared by all sessions.** Use `mktemp` names and delete only your own exact path.
 
 ## Separate temporary directory for each agent

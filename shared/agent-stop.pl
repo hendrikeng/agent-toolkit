@@ -43,10 +43,10 @@ sub output {
  return @lines;
 }
 
-# The only root list. It matches the sandbox allowWrite roots in docs/claude-sandbox.md.
+# The only root list in this file. scripts/apply-claude-sandbox.test.cjs fails if the sandbox allowWrite roots differ.
 # The home directory comes from the password database, and on macOS the temporary directory from getconf.
 my $home = (getpwuid($<))[7];
-my @roots = ((map { "$home/Code/$_" } qw(paseo-worktrees tracn wewereyoung)), $^O eq 'darwin' ? (output('/usr/bin/getconf', 'DARWIN_USER_TEMP_DIR'), "/private/tmp/claude-$<") : ($ENV{TMPDIR} || '/tmp'));
+my @roots = ((map { "$home/Code/$_" } qw(paseo-worktrees tracn wewereyoung envest)), $^O eq 'darwin' ? (output('/usr/bin/getconf', 'DARWIN_USER_TEMP_DIR'), "/private/tmp/claude-$<") : ($ENV{TMPDIR} || '/tmp'));
 # Roots are fixed paths. Only the macOS aliases /var and /tmp are resolved. A root must be a directory of this user,
 # and no part of its path can be a symlink. A symlink can therefore never move a root to another directory.
 @roots = grep { my @stat = lstat; @stat && -d _ && $stat[4] == $< && (abs_path($_) // '') eq $_ }

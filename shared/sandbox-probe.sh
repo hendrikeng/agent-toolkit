@@ -52,7 +52,7 @@ item_git_cwd() {
 # Orchestrators write in the worktrees of their workers. Each check creates and removes its own file.
 item_shared_writes() {
   local dir
-  for dir in ${PROBE_WRITE_DIRS:-$HOME/Code/paseo-worktrees $HOME/Code/tracn $HOME/Code/wewereyoung}; do
+  for dir in ${PROBE_WRITE_DIRS:-$HOME/Code/paseo-worktrees $HOME/Code/tracn $HOME/Code/wewereyoung $HOME/Code/envest}; do
     [[ -d $dir ]] || { skip "write:${dir##*/}" "missing $dir"; continue; }
     probe "write:${dir##*/}" 10 bash -c 'f=$(mktemp "$1/.sandbox-probe.XXXXXX") && rm -f -- "${f:?}" && echo ok' _ "$dir"
   done
@@ -71,6 +71,8 @@ item_pnpm() {
   has pnpm || { skip pnpm 'not installed'; return; }
   probe pnpm 120 bash -c 'mkdir "$1/pnpm" && cd "$1/pnpm" && echo "{\"name\":\"p\",\"private\":true}" > package.json && pnpm add --silent is-number@7.0.0 && pnpm store path' _ "$work"
 }
+# pnpm dlx writes its cache in ~/Library/Caches/pnpm.
+item_pnpm_dlx() { has pnpm && probe pnpm-dlx 120 pnpm dlx semver@7.6.3 1.2.3 || skip pnpm-dlx 'not installed'; }
 item_uv() {
   has uv || { skip uv 'not installed'; return; }
   probe uv 120 bash -c 'cd "$1" && uv venv -q uv-venv && uv pip install -q --python uv-venv six && echo ok' _ "$work"
@@ -78,6 +80,15 @@ item_uv() {
 item_pip() { probe pip 120 bash -c 'cd "$1" && python3 -m venv pip-venv && pip-venv/bin/pip install -q six && echo ok' _ "$work"; }
 item_localhost() {
   probe localhost 20 node -e 'const s=require("http").createServer((q,r)=>r.end("ok")).listen(0,"127.0.0.1",()=>require("http").get("http://127.0.0.1:"+s.address().port,r=>{r.on("data",d=>{console.log(String(d));s.close()})}))'
+}
+# The sandbox blocks the setuid /bin/ps, so scripts use lsof -t. nice and openpty (script) can also be denied.
+item_ps() { probe ps 10 /bin/ps -o pid= -p $$; }
+item_nice() { probe nice 10 nice -n 5 echo ok; }
+item_openpty() { probe openpty 10 bash -c 'script -q /dev/null true < /dev/null && echo ok'; }
+# The sandbox blocks signals to a process from an earlier call. Start one with "perl -e 'sleep 600' & echo $!" in another call.
+item_kill_across() {
+  [[ ${PROBE_KILL_PID:-} =~ ^[1-9][0-9]*$ ]] || { skip kill-across 'set PROBE_KILL_PID to a sleep that an earlier call started'; return; }
+  probe kill-across 10 bash -c 'kill -TERM "$1" && echo ok' _ "$PROBE_KILL_PID"
 }
 item_lsof() { probe lsof 20 bash -c 'out=$(lsof -nP -iTCP -sTCP:LISTEN) && printf "%s\n" "$out" | head -n 2'; }
 item_pg_test() {
@@ -112,6 +123,7 @@ item_autoreview() {
 }
 item_paseo() { has paseo && probe paseo 30 paseo ls --json || skip paseo 'not installed'; }
 item_infisical() { has infisical && probe infisical 30 infisical --version || skip infisical 'not installed'; }
+item_fly() { has fly && probe fly 30 fly auth whoami || skip fly 'not installed'; }
 item_railway() { has railway && probe railway 30 railway whoami || skip railway 'not installed'; }
 # GitHub exits with status 1 after a successful SSH login, so check the greeting.
 item_ssh() { probe ssh 20 bash -c 'ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com 2>&1 | grep "successfully authenticated"'; }
@@ -125,13 +137,15 @@ item_hosts() {
   for host in ${PROBE_HOSTS:-github.com api.github.com codeload.github.com objects.githubusercontent.com raw.githubusercontent.com \
     registry.npmjs.org pypi.org files.pythonhosted.org app.infisical.com backboard.railway.com console.neon.tech \
     console.neo4j.io api.redislabs.com api.stripe.com api.ubicloud.com api.anthropic.com api.openai.com chatgpt.com \
-    auth.openai.com api.cloudflare.com api.tracn.com staging.tracn.com}; do
+    auth.openai.com api.cloudflare.com api.tracn.com staging.tracn.com release-assets.githubusercontent.com api.supabase.com \
+    app.envest.vc api.fly.io api.machines.dev registry.fly.io api.vercel.com vercel.com fonts.googleapis.com fonts.gstatic.com \
+    cdn.playwright.dev playwright.download.prss.microsoft.com nodejs.org}; do
     probe "host:$host" 20 curl -sS -o /dev/null -w '%{http_code}' "https://$host/"
   done
 }
 
 items=("$@")
-[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm uv pip localhost lsof pg_test docker playwright codex claude autoreview paseo infisical railway ssh repo_check hosts)
+[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm pnpm_dlx uv pip localhost ps nice openpty kill_across lsof pg_test docker playwright codex claude autoreview paseo infisical fly railway ssh repo_check hosts)
 for item in "${items[@]}"; do "item_${item//-/_}"; done
 printf '%s failure(s)\n' "$failures"
 (( failures == 0 ))

@@ -5,6 +5,9 @@ const path = require('node:path')
 const os = require('node:os')
 const { spawnSync } = require('node:child_process')
 const script = path.join(__dirname, 'apply-claude-sandbox.sh')
+// The apply tests use script(1) as a terminal. The Claude sandbox denies openpty, so they cannot run there.
+const pty = process.platform === 'darwin' && spawnSync('script', ['-q', '/dev/null', 'true'], { stdio: ['ignore', 'pipe', 'pipe'] }).status === 0
+const terminal = { skip: process.platform !== 'darwin' ? 'macOS only' : !pty && 'openpty is denied, for example in the Claude sandbox' }
 
 // A copy of the live layout: settings.json is a link to the real file, as in the Paseo homes.
 function fixture(t) {
@@ -29,7 +32,7 @@ function fixture(t) {
   return { home, real, original, env, run, gitRule }
 }
 
-test('the sandbox script previews, merges without dropping settings, repeats cleanly, and undoes', { skip: process.platform !== 'darwin' }, t => {
+test('the sandbox script previews, merges without dropping settings, repeats cleanly, and undoes', terminal, t => {
   const f = fixture(t)
   const preview = f.run('--dry-run')
   assert.equal(preview.status, 0, preview.stdout)
@@ -58,7 +61,7 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/agent-stop *`), 'agents stop their own background processes')
   // Docker uses the socket in the sandbox; the earlier exclusion is removed.
   assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
-  assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.orbstack/run/docker.sock`])
+  assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.orbstack/run/docker.sock`, `${f.home}/.fly/fly-agent.sock`])
   for (const entry of ['ssh agawulum@sl90.web.hostpoint.ch *', 'scp * agawulum@sl90.web.hostpoint.ch:*', 'rsync * bonzanib@sl662.web.hostpoint.ch:*', 'ssh wfw-prod@wfw.ch *']) {
     assert.ok(settings.sandbox.excludedCommands.includes(entry), entry)
   }
@@ -89,7 +92,7 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.equal(f.run('--undo').status, 1, 'no backup remains')
 })
 
-test('the sandbox script refuses changes without a terminal and refuses invalid JSON', { skip: process.platform !== 'darwin' }, t => {
+test('the sandbox script refuses changes without a terminal and refuses invalid JSON', terminal, t => {
   const f = fixture(t)
   const agent = spawnSync('bash', [script, '--no-update'], { env: f.env, encoding: 'utf8', input: '' })
   assert.equal(agent.status, 1)
@@ -104,4 +107,24 @@ test('the sandbox script refuses changes without a terminal and refuses invalid 
   assert.match(invalid.stdout, /Cannot parse/)
   assert.equal(fs.readFileSync(f.real, 'utf8'), '{"model": ')
   assert.equal(fs.readdirSync(path.dirname(f.real)).filter(name => name.includes('before-sandbox')).length, 0)
+})
+
+test('the sandbox write roots for projects are the allowed roots of agent-stop', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  const settings = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
+  const projects = settings.sandbox.filesystem.allowWrite.filter(dir => dir.startsWith(`${f.home}/Code/`)).map(dir => dir.slice(`${f.home}/Code/`.length))
+  const stop = fs.readFileSync(path.join(__dirname, '../shared/agent-stop.pl'), 'utf8').match(/"\$home\/Code\/\$_" \} qw\(([^)]*)\)/)
+  assert.ok(stop, 'agent-stop defines its project roots with qw()')
+  assert.deepEqual(projects.sort(), stop[1].split(/\s+/).sort())
+  assert.ok(projects.includes('envest'))
+})
+
+test('the sandbox script removes any CLAUDE_CODE_TMPDIR value and the docker exclusion from earlier versions', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  // The live file had a value with a trailing slash, which an exact match missed.
+  fs.writeFileSync(f.real, JSON.stringify({ env: { CLAUDE_CODE_TMPDIR: `${f.home}/.agent-tmp/`, KEEP: '1' }, sandbox: { excludedCommands: ['docker *', 'make release'] } }))
+  const settings = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
+  assert.deepEqual(settings.env, { KEEP: '1', SSL_CERT_FILE: '/etc/ssl/cert.pem' })
+  assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
+  assert.ok(settings.sandbox.excludedCommands.includes('make release'))
 })

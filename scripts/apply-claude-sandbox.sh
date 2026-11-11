@@ -52,8 +52,9 @@ merge() {
     # Append missing items and keep the existing order.
     def append($items): reduce $items[] as $item (. // []; if index([$item]) then . else . + [$item] end);
     .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
-    # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not allow writes there, so remove that value.
-    | if .env.CLAUDE_CODE_TMPDIR == ($home + "/.agent-tmp") then del(.env.CLAUDE_CODE_TMPDIR) else . end
+    # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not move its write rule there, so every
+    # temporary file and the cwd file of each call fail. Remove any value.
+    | del(.env.CLAUDE_CODE_TMPDIR)
     | .sandbox = (.sandbox // {})
     | .sandbox.enabled = true
     | .sandbox.failIfUnavailable = true
@@ -61,16 +62,23 @@ merge() {
     | .sandbox.allowUnsandboxedCommands = false
     | .sandbox.network.allowLocalBinding = true
     # Docker works in the sandbox, also from scripts. The Docker daemon has full host access.
-    | .sandbox.network.allowUnixSockets |= append([$home + "/.orbstack/run/docker.sock"])
+    # Fly talks to its local agent through a socket. Needs probe verification.
+    | .sandbox.network.allowUnixSockets |= append([$home + "/.orbstack/run/docker.sock", $home + "/.fly/fly-agent.sock"])
     | .sandbox.network.allowedDomains |= append([
         "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
         "app.infisical.com", "backboard.railway.com", "*.neon.tech", "console.neo4j.io", "*.databases.neo4j.io",
         "*.redislabs.com", "*.redis-cloud.com", "api.stripe.com", "*.ubicloud.com", "api.cloudflare.com",
-        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com"])
+        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com",
+        "release-assets.githubusercontent.com", "*.supabase.co", "api.supabase.com",
+        "app.envest.vc", "*.fly.dev", "api.fly.io", "api.machines.dev", "registry.fly.io", "api.vercel.com", "vercel.com",
+        "fonts.googleapis.com", "fonts.gstatic.com", "cdn.playwright.dev", "playwright.download.prss.microsoft.com", "nodejs.org"])
     # Orchestrators commit in worker worktrees, whose Git data is in the main checkouts.
+    # The project roots must stay the same as the allowed roots in shared/agent-stop.pl. The test compares them.
+    # ~/.fly and the pnpm cache (pnpm dlx) need probe verification.
     | .sandbox.filesystem.allowWrite |= append([$home + "/.npm", $home + "/.cache/uv", $home + "/Library/pnpm/store",
-        $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung"]
+        $home + "/Library/Caches/pnpm", $home + "/.fly",
+        $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung", $home + "/Code/envest"]
         + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
     # The Docker socket replaces the earlier docker exclusion.
@@ -83,7 +91,9 @@ merge() {
         $home + "/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
         $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
         # The sandbox blocks signals to processes from earlier calls. The helper checks every target itself.
-        $home + "/.local/bin/agent-stop *"]
+        $home + "/.local/bin/agent-stop *",
+        # ps is setuid, so the sandbox blocks it. It reads process data and cannot run code.
+        "/bin/ps *"]
         # Plain ssh cannot pass the sandbox proxy. Only these servers are excluded.
         # ponytail: options such as ssh -o ProxyCommand, scp -S, and rsync -e can run local code outside the sandbox.
         # Accepted because these agents already control the servers; a validating wrapper closes it if needed.
