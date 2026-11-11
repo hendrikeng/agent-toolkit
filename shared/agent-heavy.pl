@@ -14,18 +14,21 @@ use POSIX qw(floor SIGINT SIGQUIT SIGTERM SIGHUP SIG_BLOCK SIG_SETMASK);
 use Cwd qw(getcwd);
 use File::Spec;
 
-if (@ARGV < 2 || $ARGV[0] ne '--') { print STDERR "Usage: agent-heavy -- <program> [args...]\n"; exit 2 }
+# Diagnostics must never stop the wrapper: a closed stderr pipe would otherwise kill it with SIGPIPE.
+# local restores the inherited SIGPIPE disposition, so the command gets it unchanged. Write errors are ignored.
+sub note { local $SIG{PIPE} = 'IGNORE'; print STDERR @_ }
+if (@ARGV < 2 || $ARGV[0] ne '--') { note("Usage: agent-heavy -- <program> [args...]\n"); exit 2 }
 shift @ARGV;
 
 my @locks;
 sub direct {
  close($_) for @locks; # Never let the command inherit a lock, also on the fail-open path.
  exec { $ARGV[0] } @ARGV;
- print STDERR "agent-heavy: could not start $ARGV[0]: $!\n";
+ note("agent-heavy: could not start $ARGV[0]: $!\n");
  POSIX::_exit(127);
 }
 # Fail open: the throttle must never fail the command.
-sub fail_open { print STDERR "agent-heavy: throttle unavailable, running without a slot ($_[0])\n"; direct() }
+sub fail_open { note("agent-heavy: throttle unavailable, running without a slot ($_[0])\n"); direct() }
 sub output {
  open(my $fh, '-|', @_) or return undef;
  my $value = <$fh>;
@@ -89,7 +92,7 @@ while (!defined $slot) {
   fail_open("cannot lock $dir/slot-$index: $!") unless $!{EWOULDBLOCK};
  }
  last if defined $slot;
- if (time >= $notice) { print STDERR 'agent-heavy: waiting for a slot (' . busy() . ")\n"; $notice = time + 30 }
+ if (time >= $notice) { note('agent-heavy: waiting for a slot (' . busy() . ")\n"); $notice = time + 30 }
  select(undef, undef, undef, 1 + rand());
 }
 

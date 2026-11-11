@@ -141,6 +141,19 @@ test('fails open with one warning when the lock directory cannot be created', { 
  assert.equal(result.stderr.match(/agent-heavy: throttle unavailable/g)?.length, 1, result.stderr)
 })
 
+test('a closed stderr pipe does not stop the wrapper or change the SIGPIPE disposition of the command', { timeout: 30000 }, async t => {
+ const f = fixture(t)
+ const readOnly = f.file('read-only')
+ fs.mkdirSync(readOnly, { mode: 0o500 })
+ // The fail-open warning writes to stderr. Its reader is gone before the wrapper starts to write.
+ const wrapper = f.start(['/usr/bin/perl', '-e', 'print $SIG{PIPE} // "default"; exit 5'], { AGENT_HEAVY_DIR: path.join(readOnly, 'locks') })
+ wrapper.stderr.destroy()
+ const result = await wrapper.result
+ assert.equal(result.signal, null)
+ assert.equal(result.code, 5)
+ assert.equal(result.stdout, 'default')
+})
+
 test('nested calls and AGENT_HEAVY=0 run without waiting for a busy slot', { timeout: 30000 }, async t => {
  const f = fixture(t)
  f.start(holdAndRecord(f.file('busy.pid')))
