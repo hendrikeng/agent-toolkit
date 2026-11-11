@@ -7,7 +7,9 @@ const { spawn, spawnSync } = require('node:child_process')
 const { once } = require('node:events')
 const helper = path.join(__dirname, 'agent-stop.pl')
 const stop = (...args) => spawnSync(helper, args, { encoding: 'utf8' })
-const darwin = { skip: process.platform !== 'darwin', timeout: 30000 }
+// The Claude sandbox blocks the setuid /bin/ps. agent-stop runs outside the sandbox, so test it outside.
+const ps = spawnSync('/bin/ps', ['-o', 'pid=', '-p', String(process.pid)]).status === 0
+const darwin = { skip: process.platform !== 'darwin' ? 'macOS only' : !ps && '/bin/ps is blocked, for example in the Claude sandbox', timeout: 30000 }
 
 // The session temporary directory is an allowed root on macOS, so no override of the roots is necessary.
 function fixture(t) {

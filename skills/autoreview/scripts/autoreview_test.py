@@ -26,6 +26,15 @@ assert SPEC is not None
 AUTOREVIEW = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(AUTOREVIEW)
 
+# In the Claude sandbox, TMPDIR is /tmp/claude-<uid>. The helper refuses shared scratch for Codex, so the tests
+# use the macOS private temporary directory instead, as the error message of the helper advises.
+if sys.platform == "darwin" and any(
+    AUTOREVIEW.is_within(Path(tempfile.gettempdir()).resolve(), Path(root)) for root in AUTOREVIEW.CODEX_MACOS_SCRATCH_ROOTS
+):
+    tempfile.tempdir = subprocess.run(
+        ["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
 
 FINAL_REPORT = {
     "findings": [],
