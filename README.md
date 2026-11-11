@@ -460,6 +460,7 @@ The throttle is local resource policy. It does not change the result of a check,
 | `AGENT_HEAVY_WORKERS` | The helper sets CPU count divided by slots, with a minimum of 1. Repositories can use it to limit vitest, Playwright, and `node --test` workers. |
 
 Each slot is a `slot-<n>` directory with an `owner.json` record. The record has the process IDs, the working directory, the command, and the start time.
+With a slot, `/bin/sh` starts the command with `exec` only after `owner.json` records its process ID.
 A slot becomes free when the command stops. If SIGKILL stops the helper, the slot becomes free after the helper and the command have both stopped.
 If the helper cannot create or write the lock directory, it writes one warning and runs the command without a slot.
 

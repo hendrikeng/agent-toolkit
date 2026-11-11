@@ -16,6 +16,7 @@ function fixture(t) {
  const pids = []
  t.after(() => {
   for (const pid of pids) try { process.kill(pid, 'SIGKILL') } catch {}
+  try { fs.chmodSync(dir, 0o700) } catch {} // A test can make the lock directory read-only.
   fs.rmSync(root, { recursive: true, force: true })
  })
  const dir = path.join(root, 'locks')
@@ -36,7 +37,14 @@ function fixture(t) {
  return { root, dir, start, run, occupy, track: pid => pids.push(pid) }
 }
 const node = source => [process.execPath, '-e', source]
-const printEnv = (exit = 0) => node(`console.log(JSON.stringify({ held: process.env.AGENT_HEAVY_HELD ?? null, workers: process.env.AGENT_HEAVY_WORKERS ?? null })); process.exit(${exit})`)
+// A shell probe: Node opens fd 3 itself. The gate must not leak its fd 3 into the command.
+const printEnv = (exit = 0) => ['/bin/sh', '-c', `printf '{"held":"%s","workers":"%s","fd3":%s}' "$AGENT_HEAVY_HELD" "$AGENT_HEAVY_WORKERS" "$([ -e /dev/fd/3 ] && echo true || echo false)"; exit ${exit}`]
+const deadPid = () => spawnSync(process.execPath, ['-e', '']).pid
+// A slot left by a wrapper and command that are both dead.
+const staleSlot = (dir, index) => {
+ fs.mkdirSync(path.join(dir, `slot-${index}`), { recursive: true })
+ fs.writeFileSync(path.join(dir, `slot-${index}/owner.json`), JSON.stringify({ pid: deadPid(), childPid: deadPid(), cwd: dir, command: ['dead'] }))
+}
 const readOwner = dir => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'slot-0/owner.json'), 'utf8')) } catch {} }
 const slots = dir => fs.existsSync(dir) ? fs.readdirSync(dir).filter(name => name.startsWith('slot-')) : []
 const until = async (check, ms = 10000) => {
@@ -51,7 +59,7 @@ test('passes exit codes and signals through, sets the child environment, and rel
  const f = fixture(t)
  const ok = await f.run(printEnv(7), { AGENT_HEAVY_SLOTS: '2' })
  assert.equal(ok.code, 7, ok.stderr)
- assert.deepEqual(JSON.parse(ok.stdout), { held: '1', workers: String(Math.max(1, Math.floor(os.availableParallelism() / 2))) })
+ assert.deepEqual(JSON.parse(ok.stdout), { held: '1', workers: String(Math.max(1, Math.floor(os.availableParallelism() / 2))), fd3: false })
  const killed = await f.run(node('process.kill(process.pid, "SIGTERM")'))
  assert.equal(killed.code, 128 + os.constants.signals.SIGTERM)
  assert.deepEqual(slots(f.dir), [])
@@ -60,10 +68,7 @@ test('passes exit codes and signals through, sets the child environment, and rel
 
 test('never runs more children than slots under concurrent acquires and reclaims', { timeout: 60000 }, async t => {
  const f = fixture(t)
- // A stale slot from a dead wrapper makes every waiter race to reclaim it.
- const deadPid = spawnSync(process.execPath, ['-e', '']).pid
- fs.mkdirSync(path.join(f.dir, 'slot-1'), { recursive: true })
- fs.writeFileSync(path.join(f.dir, 'slot-1/owner.json'), JSON.stringify({ pid: deadPid, childPid: null, cwd: f.root, command: ['dead'] }))
+ staleSlot(f.dir, 1) // Every waiter races to reclaim it.
  const active = path.join(f.root, 'active'), seen = path.join(f.root, 'seen')
  fs.mkdirSync(active); fs.mkdirSync(seen)
  const child = node(`const fs = require('node:fs'), path = require('node:path');
@@ -111,9 +116,26 @@ test('nested calls and AGENT_HEAVY=0 run without taking a slot', { timeout: 3000
  f.occupy()
  const nested = await f.run(printEnv(), { AGENT_HEAVY_HELD: '1', AGENT_HEAVY_WORKERS: '4' })
  assert.equal(nested.code, 0, nested.stderr)
- assert.deepEqual(JSON.parse(nested.stdout), { held: '1', workers: '4' })
+ assert.deepEqual(JSON.parse(nested.stdout), { held: '1', workers: '4', fd3: false })
  const bypass = await f.run(printEnv(), { AGENT_HEAVY: '0' })
  assert.equal(bypass.code, 0, bypass.stderr)
- assert.deepEqual(JSON.parse(bypass.stdout), { held: null, workers: null })
+ assert.deepEqual(JSON.parse(bypass.stdout), { held: '', workers: '', fd3: false })
  assert.deepEqual(slots(f.dir), ['slot-0'])
+})
+
+test('a reclaim marker left by a killed waiter does not block the slot', { timeout: 30000 }, async t => {
+ const f = fixture(t)
+ staleSlot(f.dir, 0)
+ const stat = fs.statSync(path.join(f.dir, 'slot-0'))
+ fs.mkdirSync(path.join(f.dir, `reclaim-0-${stat.ino}-${Math.round(stat.birthtimeMs)}-${deadPid()}-0000`))
+ const result = await f.run(node('process.exit(4)'))
+ assert.equal(result.code, 4, result.stderr)
+ assert.deepEqual(fs.readdirSync(f.dir), [])
+})
+
+test('keeps the exit code and warns when the slot cannot be released', { timeout: 30000 }, async t => {
+ const f = fixture(t)
+ const result = await f.run(node(`require('node:fs').chmodSync(${JSON.stringify(f.dir)}, 0o500); process.exit(6)`))
+ assert.equal(result.code, 6)
+ assert.equal(result.stderr.match(/agent-heavy: could not release/g)?.length, 1, result.stderr)
 })

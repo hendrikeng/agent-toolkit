@@ -4,6 +4,7 @@
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
+const { randomBytes } = require('node:crypto')
 const { execFileSync, spawn } = require('node:child_process')
 
 const usage = 'Usage: agent-heavy -- <program> [args...]'
@@ -37,28 +38,37 @@ function owner(slot) {
  }
 }
 const generation = slot => { const stat = fs.statSync(slot); return `${stat.ino}-${Math.round(stat.birthtimeMs)}` }
-function stale(slot) {
- const record = owner(slot)
- return record ? dead(record.pid) && dead(record.childPid) : Date.now() - fs.statSync(slot).mtimeMs > GRACE_MS
+// The command starts only after owner.json records its pid (see run), so childPid null means no command runs.
+// ponytail: a reused pid keeps a slot busy until that process exits; compare process start times if this happens.
+function staleGeneration(slot) {
+ try {
+  const id = generation(slot), record = owner(slot)
+  const stale = record ? dead(record.pid) && dead(record.childPid) : Date.now() - fs.statSync(slot).mtimeMs > GRACE_MS
+  return stale ? id : null
+ } catch (error) { if (error.code === 'ENOENT') return null; throw error }
 }
-// Only the waiter that creates the marker for this exact slot generation may remove it.
-// A late waiter gets the marker after the first one finishes, sees a new generation, and stops.
-// ponytail: a reclaimer killed inside this millisecond window keeps that slot busy until someone clears the lock directory.
+// Each reclaimer first creates its own marker, with its pid in the name, then lists the markers for this slot generation.
+// It continues only if no other marker belongs to a live process. Of two live reclaimers, the later one always sees
+// the earlier marker, so at most one continues. Both can stop and retry at the next poll. Markers of dead processes
+// do not block, so a reclaimer that is killed cannot stall the slot. Only one reclaimer can remove a given generation.
 function reclaim(dir, index) {
  const slot = path.join(dir, `slot-${index}`)
- let id
+ const id = staleGeneration(slot)
+ if (!id) return
+ const prefix = `reclaim-${index}-${id}-`
+ const marker = path.join(dir, `${prefix}${process.pid}-${randomBytes(4).toString('hex')}`)
+ fs.mkdirSync(marker)
  try {
-  id = generation(slot)
-  if (!stale(slot)) return
- } catch (error) { if (error.code === 'ENOENT') return; throw error }
- const marker = path.join(dir, `reclaim-${index}-${id}`)
- try { fs.mkdirSync(marker) } catch (error) { if (error.code === 'EEXIST') return; throw error }
- try {
-  if (generation(slot) !== id || !stale(slot)) return
+  for (const name of fs.readdirSync(dir)) {
+   if (!name.startsWith(prefix) || path.join(dir, name) === marker) continue
+   if (!dead(Number(name.slice(prefix.length).split('-')[0]))) return
+   fs.rmSync(path.join(dir, name), { recursive: true, force: true })
+  }
+  if (staleGeneration(slot) !== id) return
   const tomb = path.join(dir, `tomb-${index}-${id}`)
   fs.renameSync(slot, tomb)
   fs.rmSync(tomb, { recursive: true, force: true })
- } catch (error) { if (error.code !== 'ENOENT') throw error } finally { fs.rmdirSync(marker) }
+ } catch (error) { if (error.code !== 'ENOENT') throw error } finally { fs.rmSync(marker, { recursive: true, force: true }) }
 }
 function writeOwner(slot, record) {
  const temporary = path.join(slot, 'owner.json.tmp')
@@ -101,9 +111,15 @@ async function acquire(dir, count, record) {
   await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000))
  }
 }
-function run(command, env, onSpawn) {
+// With a slot, a gate shell waits on fd 3 and then execs the command with the same pid. The wrapper records that pid
+// in owner.json before it opens the gate, so a waiter can always see a running command. If the wrapper dies first,
+// the gate reads end of file and the command never starts.
+const gate = 'read -r go <&3 || exit 125; exec 3<&-; exec "$@"'
+function run(command, env, beforeStart) {
  return new Promise(resolve => {
-  const child = spawn(command[0], command.slice(1), { stdio: 'inherit', env })
+  const child = beforeStart
+   ? spawn('/bin/sh', ['-c', gate, 'agent-heavy', ...command], { stdio: ['inherit', 'inherit', 'inherit', 'pipe'], env })
+   : spawn(command[0], command.slice(1), { stdio: 'inherit', env })
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP']
   const forward = signal => child.kill(signal)
   for (const signal of signals) process.on(signal, forward)
@@ -116,13 +132,17 @@ function run(command, env, onSpawn) {
   }
   child.once('error', error => { console.error(`agent-heavy: could not start ${command[0]}: ${error.message}`); finish(127) })
   child.once('exit', (code, signal) => finish(code ?? 128 + (os.constants.signals[signal] ?? 0)))
-  if (child.pid) onSpawn(child.pid)
+  if (beforeStart && child.pid) {
+   child.stdio[3].on('error', () => {}) // The gate can stop before it reads, for example after a forwarded signal.
+   beforeStart(child.pid)
+   child.stdio[3].end('go\n')
+  }
  })
 }
 async function main(args) {
  if (args[0] !== '--' || !args[1]) { console.error(usage); return 2 }
  const command = args.slice(1)
- if (process.env.AGENT_HEAVY === '0' || process.env.AGENT_HEAVY_HELD === '1') return run(command, process.env, () => {})
+ if (process.env.AGENT_HEAVY === '0' || process.env.AGENT_HEAVY_HELD === '1') return run(command, process.env)
  const record = { pid: process.pid, childPid: null, cwd: process.cwd(), command, started: new Date().toISOString() }
  let slot, env = process.env
  try { // Fail open: the throttle must never fail the command.
@@ -133,16 +153,24 @@ async function main(args) {
   slot = await acquire(dir, count, record)
  } catch (error) {
   console.error(`agent-heavy: throttle unavailable, running without a slot (${error.message})`)
-  return run(command, env, () => {})
+  return run(command, env)
  }
- // Release once: after release, another wrapper can own the same slot path.
+ // Release once: after release, another wrapper can own the same slot path. A failed release never changes the exit code;
+ // the slot then has only dead pids, and waiters reclaim it.
  let held = true
- const release = () => { if (held) fs.rmSync(slot, { recursive: true, force: true }); held = false }
+ const release = () => {
+  if (!held) return
+  held = false
+  try { fs.rmSync(slot, { recursive: true, force: true }) } catch (error) { console.error(`agent-heavy: could not release ${slot} (${error.message})`) }
+ }
  process.once('exit', release)
- try {
-  return await run(command, env, childPid => {
-   try { writeOwner(slot, { ...record, childPid }) } catch {} // The wrapper pid still protects the slot.
-  })
- } finally { release() }
+ const code = await run(command, env, childPid => {
+  try { writeOwner(slot, { ...record, childPid }) } catch (error) {
+   // Fail open. While this wrapper lives, its pid still protects the slot.
+   console.error(`agent-heavy: could not record the command pid; the slot is free if this wrapper is killed (${error.message})`)
+  }
+ })
+ release()
+ return code
 }
 main(process.argv.slice(2)).then(code => { process.exitCode = code })
