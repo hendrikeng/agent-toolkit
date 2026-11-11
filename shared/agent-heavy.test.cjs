@@ -165,3 +165,16 @@ test('nested calls and AGENT_HEAVY=0 run without waiting for a busy slot', { tim
  assert.equal(bypass.code, 0, bypass.stderr)
  assert.deepEqual(JSON.parse(bypass.stdout), { held: '', workers: '' })
 })
+
+test('takes a slot without a warning when sysctl and nproc fail, as in the Claude sandbox', { timeout: 30000 }, async t => {
+ const f = fixture(t)
+ const bin = f.file('bin')
+ fs.mkdirSync(bin)
+ for (const name of ['sysctl', 'nproc']) fs.writeFileSync(path.join(bin, name), '#!/bin/sh\necho denied >&2\nexit 1\n', { mode: 0o755 })
+ // Without the memory size, the default slot count comes from the CPU count alone.
+ const result = await f.run(printEnv(), { AGENT_HEAVY_SLOTS: '', PATH: `${bin}:${process.env.PATH}` })
+ assert.equal(result.code, 0, result.stderr)
+ assert.equal(result.stderr, '')
+ const cpus = os.availableParallelism()
+ assert.deepEqual(JSON.parse(result.stdout), { held: '1', workers: String(Math.floor(cpus / Math.max(1, Math.floor(cpus / 6)))) })
+})

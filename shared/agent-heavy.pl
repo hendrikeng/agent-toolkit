@@ -29,8 +29,10 @@ sub direct {
 }
 # Fail open: the throttle must never fail the command.
 sub fail_open { note("agent-heavy: throttle unavailable, running without a slot ($_[0])\n"); direct() }
+# The probe's stderr goes to /dev/null: in a sandbox, sysctl fails with an error line on every call.
 sub output {
- open(my $fh, '-|', @_) or return undef;
+ my $pid = open(my $fh, '-|') // return undef;
+ if (!$pid) { open(STDERR, '>', '/dev/null'); exec { $_[0] } @_; POSIX::_exit(127) }
  my $value = <$fh>;
  close($fh) or return undef;
  chomp $value if defined $value;
@@ -40,16 +42,21 @@ sub output {
 direct() if ($ENV{AGENT_HEAVY} // '') eq '0' || ($ENV{AGENT_HEAVY_HELD} // '') eq '1';
 
 my $darwin = $^O eq 'darwin';
-my $cpus = $darwin ? output('/usr/sbin/sysctl', '-n', 'hw.logicalcpu') : output('nproc');
+# getconf first: the Claude sandbox denies sysctl. sysctl and nproc are fallbacks.
+my $cpus;
+for my $probe (['getconf', '_NPROCESSORS_ONLN'], $darwin ? ['sysctl', '-n', 'hw.logicalcpu'] : ['nproc']) {
+ $cpus = output(@$probe);
+ last if defined $cpus && $cpus =~ /^[1-9]\d*$/;
+}
 fail_open('cannot read the CPU count') unless defined $cpus && $cpus =~ /^[1-9]\d*$/;
 my $slots = $ENV{AGENT_HEAVY_SLOTS} // '';
 if ($slots !~ /^[1-9]\d*$/) {
  my $memory;
- if ($darwin) { $memory = output('/usr/sbin/sysctl', '-n', 'hw.memsize') }
+ if ($darwin) { $memory = output('sysctl', '-n', 'hw.memsize') }
  elsif (open(my $info, '<', '/proc/meminfo')) { while (<$info>) { if (/^MemTotal:\s+(\d+) kB/) { $memory = $1 * 1024; last } } }
- fail_open('cannot read the memory size') unless defined $memory && $memory =~ /^\d+$/;
- my ($by_memory, $by_cpu) = (floor($memory / (20 * 2**30)), floor($cpus / 6));
- $slots = $by_memory < $by_cpu ? $by_memory : $by_cpu;
+ # The memory size is optional: the sandbox denies sysctl, and Perl has no other source on macOS.
+ $slots = floor($cpus / 6);
+ if (defined $memory && $memory =~ /^\d+$/) { my $by_memory = floor($memory / (20 * 2**30)); $slots = $by_memory if $by_memory < $slots }
  $slots = 1 if $slots < 1;
 }
 my $workers = floor($cpus / $slots);

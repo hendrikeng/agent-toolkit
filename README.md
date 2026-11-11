@@ -456,7 +456,7 @@ The throttle is local resource policy. It does not change the result of a check,
 | Variable | Effect |
 |---|---|
 | `AGENT_HEAVY=0` | Run the command directly, without a slot. |
-| `AGENT_HEAVY_SLOTS` | The number of slots, a positive integer. The default is the smaller of total memory divided by 20 GiB and CPU count divided by 6, with a minimum of 1. |
+| `AGENT_HEAVY_SLOTS` | The number of slots, a positive integer. The default is the smaller of total memory divided by 20 GiB and CPU count divided by 6, with a minimum of 1. If the helper cannot read the memory size, the default is CPU count divided by 6, with a minimum of 1. |
 | `AGENT_HEAVY_DIR` | The lock directory. The default is `$(getconf DARWIN_USER_TEMP_DIR)agent-heavy` on macOS and `${XDG_RUNTIME_DIR:-/tmp}/agent-heavy-<uid>` on Linux. All worktrees share it. |
 | `AGENT_HEAVY_HELD` | The helper sets `1` for the command. A nested `agent-heavy` call then runs directly. |
 | `AGENT_HEAVY_WORKERS` | The helper sets CPU count divided by slots, with a minimum of 1. Repositories can use it to limit vitest, Playwright, and `node --test` workers. |
@@ -467,7 +467,9 @@ The command and its background processes do not get the lock descriptor, so a ba
 If SIGKILL stops the helper, the slot becomes free while the command still runs. One extra command can then run until that command stops.
 This trade-off corrects itself and can never stall a slot.
 A `slot-<n>.owner` file gives the process ID, the working directory, and the command. Only the waiting line uses it.
-If the helper cannot read the CPU count or memory size, or cannot create, open, or lock the slot files, it writes one warning and runs the command without a slot.
+The helper reads the CPU count with `getconf _NPROCESSORS_ONLN`. If that fails, it uses `sysctl -n hw.logicalcpu` on macOS or `nproc` on Linux.
+It reads the memory size with `sysctl -n hw.memsize` on macOS or from `/proc/meminfo` on Linux. The Claude sandbox denies `sysctl`, so in the sandbox the slot count comes from the CPU count only. This gives no warning.
+If the helper cannot read the CPU count, or cannot create, open, or lock the slot files, it writes one warning and runs the command without a slot.
 
 Do not add `agent-heavy` to the sandbox `excludedCommands` list. It runs any command, so an exclusion lets every command leave the sandbox.
 
