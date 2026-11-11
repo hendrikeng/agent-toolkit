@@ -70,6 +70,7 @@ If the capture script must run outside the sandbox, install a copy outside writa
       "/Users/hendrik/.claude/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
+      "/Users/hendrik/.local/bin/agent-stop *",
       "ssh agawulum@sl90.web.hostpoint.ch *", "scp * agawulum@sl90.web.hostpoint.ch:*", "rsync * agawulum@sl90.web.hostpoint.ch:*"
       // The same three entries for bonzanib@sl662.web.hostpoint.ch, wfw-prod@wfw.ch, and wfw-staging@wfw.ch.
     ]
@@ -100,11 +101,46 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | `allowUnixSockets` for the OrbStack socket | Docker works in the sandbox, also when a script such as the `tracn-api` database scripts calls it, and in chained commands. Tested with `docker info`, `docker compose version`, and Docker from Node. The Docker daemon has full host access. The Neo4j lane in `pcvc` uses Docker Compose. |
 | `ssh`, `scp`, and `rsync` for four servers | Plain `ssh` cannot pass the sandbox proxy. The script excludes these commands only for the Porta Mundi, Bonzani, and WFW deployment servers. Set `SANDBOX_SSH_SERVERS` to change the list. |
 | `paseo *` | The Paseo CLI fails because Node `os.uptime()` returns `EPERM` in the sandbox. Agents normally use the Paseo MCP tools, which run outside the sandbox. |
+| `agent-stop` path | The sandbox blocks signals to processes that an earlier call started. Without this entry, agents cannot stop their own background test servers. See [Stop background processes](#stop-background-processes). |
 | AutoReview paths | Codex runs its tool commands in its own Seatbelt sandbox. A nested sandbox fails with `sandbox_apply: Operation not permitted`. The helper owns its reviewer isolation. |
 | `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. The list applies in the other permission modes. |
 
 An excluded command runs outside the sandbox only if the whole shell call matches.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and the AutoReview helper as separate calls. Write the helper path without quotes.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `agent-stop`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
+
+## Stop background processes
+
+The sandbox blocks signals to processes that an earlier tool call started.
+An agent then cannot stop its own background servers, for example an API and fake services on ports 3401 to 3406.
+`agent-stop` closes this gap. Run it by its full installed path as a separate call:
+
+```sh
+/Users/hendrik/.local/bin/agent-stop 12345 12346
+/Users/hendrik/.local/bin/agent-stop --port 3401 3402
+/Users/hendrik/.local/bin/agent-stop --signal INT --wait 5 12345
+```
+
+The default signal is `TERM`. The other permitted signals are `INT` and `KILL`.
+`--port` stops the processes that listen on each TCP port.
+`--wait <seconds>` reports the processes that still run after that time. The helper never changes to `KILL` by itself.
+The helper writes one line for each target: `stopped`, `refused` with the reason, or `not found`.
+It exits with 0 if each target stopped or was already gone, 1 if it refused a target or a target still runs after `--wait`, and 2 for a usage error.
+
+The exclusion is safe for these reasons:
+
+- The path is fixed. `~/.local/bin` and the installed Toolkit resources are not writable in the sandbox, so an agent cannot change the helper.
+- The helper accepts only process IDs, port numbers, `--signal`, and `--wait`. It refuses `0`, negative IDs (process groups), and names. It never runs an argument as code or through a shell.
+- The process must belong to the current user. Its working directory must be below an allowed root: `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest`, the macOS temporary directory, or `/private/tmp/claude-<uid>`.
+- The helper always refuses process 1, itself, and its parent chain. It also refuses each macOS app and each process with the name Paseo, Claude, Codex, Chrome, Chromium, Firefox, Safari, or tmux.
+- If the helper cannot read the owner, the command, or the working directory, it refuses.
+- On macOS, the helper reads the home directory from the user database and the temporary directory from `getconf`. `HOME` and `TMPDIR` do not change the roots.
+
+The helper does the checks again immediately before it sends the signal. The last check compares the owner and the start time of the process.
+A pid can still be reused in the few milliseconds between that check and the signal. This needs a new process with the same pid in that window.
+The allowed roots also contain the projects of other agents. An agent can stop a server of another agent there, as it can already change its files.
+
+`agent-heavy` is different, and it must never be excluded. It runs any command that it gets, so an exclusion lets every command leave the sandbox.
+`agent-stop` runs no command. It only sends a signal after the checks above.
 
 ## Probe results
 

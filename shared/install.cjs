@@ -187,7 +187,7 @@ function planInstall(options) {
   }
   for (const name of ['codex-yolo', 'claude-yolo', 'autoreview-yolo', 'pg18-fresh-yolo', 'repo-delete']) marked(path.join(home, '.local/bin', name))
   for (const name of ['autoreview', 'development-policy.cjs', 'development.rules', 'pg18-fresh-yolo', 'repository-trust.cjs', 'git', 'open', 'pg-test', 'package.json', 'package-lock.json']) marked(path.join(legacy, name))
-  for (const [command, filename] of [['pg-test', 'shared/postgres/pg-test.cjs'], ['pg18-fresh', 'shared/postgres/pg18-fresh.cjs'], ['paseo-service', 'shared/paseo-service.cjs'], ['agent-heavy', 'shared/agent-heavy.pl']]) {
+  for (const [command, filename] of [['pg-test', 'shared/postgres/pg-test.cjs'], ['pg18-fresh', 'shared/postgres/pg18-fresh.cjs'], ['paseo-service', 'shared/paseo-service.cjs'], ['agent-heavy', 'shared/agent-heavy.pl'], ['agent-stop', 'shared/agent-stop.pl']]) {
     const file = path.join(home, '.local/bin', command)
     if (exists(file)?.isFile()) marked(file)
     link(file, path.join(resources, filename), [])
@@ -248,7 +248,7 @@ function install(plan, run = execFileSync) {
       copy(path.join(repo, directory), path.join(stage, directory))
     }
     fs.copyFileSync(path.join(repo, 'shared/AGENTS.md'), path.join(stage, 'shared/AGENTS.md'))
-    for (const file of ['shared/paseo-service.cjs', 'shared/agent-heavy.pl']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
+    for (const file of ['shared/paseo-service.cjs', 'shared/agent-heavy.pl', 'shared/agent-stop.pl']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     fs.mkdirSync(path.join(stage, 'docs'), { recursive: true })
     for (const file of ['docs/paseo-worktrees.md', 'docs/claude-sandbox.md', 'shared/sandbox-probe.sh']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     run('npm', ['ci', '--prefix', path.join(stage, 'skills/react-doctor'), '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })

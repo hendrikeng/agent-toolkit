@@ -473,6 +473,9 @@ If the helper cannot read the CPU count, or cannot create, open, or lock the slo
 
 Do not add `agent-heavy` to the sandbox `excludedCommands` list. It runs any command, so an exclusion lets every command leave the sandbox.
 
+The Claude sandbox blocks signals to processes from earlier calls. To stop a background process that you started, use `agent-stop <pid>` or `agent-stop --port <port>`.
+The sandbox excludes its installed path, because the helper signals only processes of the user below the allowed project and temporary roots. See [docs/claude-sandbox.md](docs/claude-sandbox.md#stop-background-processes).
+
 Spotlight indexes each new worktree, and this adds load. To stop it, add `~/Code` to System Settings > Spotlight > Privacy one time. Do this manually.
 
 ## Migration, backups, and update
@@ -630,5 +633,6 @@ Automatic skill use by a real model, fresh Codex/Claude skill loading, and a liv
 | `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
 | `shared/agent-heavy.pl` | Machine-wide limit for heavy local checks |
+| `shared/agent-stop.pl` | Stops background processes of agents, also from the Claude sandbox |
 | `docs/claude-sandbox.md`, `shared/sandbox-probe.sh` | Tested Claude sandbox settings and a probe for agent work |
 | `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |

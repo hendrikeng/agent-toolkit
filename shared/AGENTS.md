@@ -63,6 +63,8 @@ Record the command, target, agent, effective permission mode, and denial type. A
 Never change live permission settings or grant access that managed policy forbids.
 With the Claude sandbox on, run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and the AutoReview helper as separate shell calls.
 Write the helper path without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
+To stop a background process that you started, run `agent-stop <pid>` or `agent-stop --port <port>` as a separate call.
+Write its full path without `~`, for example `/Users/<name>/.local/bin/agent-stop`. Never ask the user to turn off the sandbox for this.
 
 ## Reviews
 

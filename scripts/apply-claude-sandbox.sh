@@ -81,7 +81,9 @@ merge() {
         "pg-test *", "pg18-fresh", "paseo *",
         $home + "/.claude/skills/autoreview/scripts/autoreview *",
         $home + "/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
-        $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *"]
+        $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
+        # The sandbox blocks signals to processes from earlier calls. The helper checks every target itself.
+        $home + "/.local/bin/agent-stop *"]
         # Plain ssh cannot pass the sandbox proxy. Only these servers are excluded.
         # ponytail: options such as ssh -o ProxyCommand, scp -S, and rsync -e can run local code outside the sandbox.
         # Accepted because these agents already control the servers; a validating wrapper closes it if needed.

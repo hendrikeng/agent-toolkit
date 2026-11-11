@@ -146,7 +146,7 @@ test('permission-preserving install and repeat install preserve configuration, i
   assert.equal(fs.readFileSync(path.join(backup, '.codex/AGENTS.md'), 'utf8'), 'Human Codex instructions\n')
   install(f.plan({ reviewNetwork: false }), noDownload)
   for (const [file, content] of Object.entries(untouched)) assert.equal(fs.readFileSync(path.join(f.home, file), 'utf8'), content, file)
-  for (const command of ['pg-test', 'pg18-fresh', 'paseo-service', 'agent-heavy']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
+  for (const command of ['pg-test', 'pg18-fresh', 'paseo-service', 'agent-heavy', 'agent-stop']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
   assert.equal(fs.readFileSync(path.join(f.home, '.local/bin/pg-test'), 'utf8'), fs.readFileSync(path.join(repo, 'shared/postgres/pg-test.cjs'), 'utf8'))
   const pairing = spawnSync(process.execPath, [path.join(f.home, '.local/bin/paseo-service')], { encoding: 'utf8', env: { PATH: process.env.PATH } })
   assert.equal(pairing.status, 1)
