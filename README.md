@@ -447,7 +447,9 @@ agent-heavy -- pnpm run typecheck
 
 The helper waits for a free slot, then runs the command with the same standard input, output, and error.
 It returns the exit code of the command. If a signal stops the command, it returns 128 plus the signal number.
-It forwards SIGINT, SIGTERM, and SIGHUP to the command. It waits without a time limit.
+It waits without a time limit.
+The helper ignores SIGINT and SIGQUIT, because the terminal sends them to the command directly. It forwards SIGTERM and SIGHUP.
+A SIGTERM or SIGHUP to the whole process group can reach the command two times.
 While it waits, it writes one line to stderr every 30 seconds. The line names the commands that hold the slots.
 The throttle is local resource policy. It does not change the result of a check, and CI does not use it.
 
@@ -459,10 +461,13 @@ The throttle is local resource policy. It does not change the result of a check,
 | `AGENT_HEAVY_HELD` | The helper sets `1` for the command. A nested `agent-heavy` call then runs directly. |
 | `AGENT_HEAVY_WORKERS` | The helper sets CPU count divided by slots, with a minimum of 1. Repositories can use it to limit vitest, Playwright, and `node --test` workers. |
 
-Each slot is a `slot-<n>` directory with an `owner.json` record. The record has the process IDs, the working directory, the command, and the start time.
-With a slot, `/bin/sh` starts the command with `exec` only after `owner.json` records its process ID.
-A slot becomes free when the command stops. If SIGKILL stops the helper, the slot becomes free after the helper and the command have both stopped.
-If the helper cannot create or write the lock directory, it writes one warning and runs the command without a slot.
+The helper is a Perl script that uses only core modules. Each slot is a `slot-<n>` file with a kernel `flock`.
+The helper holds the lock and waits for the command. The kernel releases the lock when the helper stops, also after SIGKILL.
+The command and its background processes do not get the lock descriptor, so a background process cannot hold a slot.
+If SIGKILL stops the helper, the slot becomes free while the command still runs. One extra command can then run until that command stops.
+This trade-off corrects itself and can never stall a slot.
+A `slot-<n>.owner` file gives the process ID, the working directory, and the command. Only the waiting line uses it.
+If the helper cannot read the CPU count or memory size, or cannot create, open, or lock the slot files, it writes one warning and runs the command without a slot.
 
 Do not add `agent-heavy` to the sandbox `excludedCommands` list. It runs any command, so an exclusion lets every command leave the sandbox.
 
@@ -622,6 +627,6 @@ Automatic skill use by a real model, fresh Codex/Claude skill loading, and a liv
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
 | `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
-| `shared/agent-heavy.cjs` | Machine-wide limit for heavy local checks |
+| `shared/agent-heavy.pl` | Machine-wide limit for heavy local checks |
 | `docs/claude-sandbox.md`, `shared/sandbox-probe.sh` | Tested Claude sandbox settings and a probe for agent work |
 | `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |
