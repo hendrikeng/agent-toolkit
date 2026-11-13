@@ -143,7 +143,8 @@ test('the deny rules catch actions that cannot be undone and leave normal comman
     'git clean -fdx', 'git clean -fX', 'git stash clear', 'git reflog expire --expire=now --all', 'git gc --prune=now',
     'git push -uf origin HEAD', 'git push -vf', 'git push origin main -fu', 'git push -uvf origin main',
     'fly apps destroy demo', 'flyctl machine destroy 123 --force', 'fly destroy demo', 'fly m rm 123', 'fly vol delete vol_1 -y',
-    'fly -t token apps delete demo', 'fly mpg destroy abc', 'fly ext kubernetes destroy demo', 'supabase projects delete abc', 'supabase db reset --linked',
+    'fly -t token apps delete demo', 'fly mpg destroy abc', 'fly ext kubernetes destroy demo', 'supabase projects delete abc', 'supabase db reset --linked', 'git push --mirror origin', 'git push origin --mirror',
+    'supabase db reset --db-url postgres://u@db.example.com/postgres', 'supabase db reset --debug --db-url=postgres://x',
     'vercel remove demo --yes', 'vercel rm demo']) {
     assert.ok(denied(command), command)
   }
@@ -151,7 +152,7 @@ test('the deny rules catch actions that cannot be undone and leave normal comman
     'git push -u origin feature', 'git push -u origin main', 'git push --follow-tags', 'git push -v origin fix',
     'git reset --hard', 'git branch -D old', 'fly deploy', 'fly status', 'fly ssh console',
     'fly deploy --app destroy-demo', 'fly status --app destroy-demo', 'fly ssh console -a destroy-demo', 'fly --app destroy-demo status',
-    'supabase db reset', 'vercel deploy']) {
+    'git push --delete origin old', 'git push origin :old', 'supabase db reset', 'supabase db reset --debug', 'vercel deploy']) {
     assert.ok(!denied(command), command)
   }
 })

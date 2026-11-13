@@ -58,7 +58,7 @@ merge() {
     | .permissions.deny |= append(
         # -f alone or in a short-option cluster with -u, -v, or -q, such as -uf or -uvf. -*f* would also match -u feature.
         deny("git"; [("", "u", "v", "q", "uv", "vu", "uq", "qu", "vq", "qv") as $c | "push -\($c)f*", "push * -\($c)f*"]
-          + ["push --force*", "push * --force*", "push +*", "push * +*",
+          + ["push --force*", "push * --force*", "push --mirror*", "push * --mirror*", "push +*", "push * +*",
           "clean -*x*", "clean -*X*", "stash clear*", "reflog expire*", "gc --prune*", "gc * --prune*"])
         # Only the subcommands that delete, with the aliases from fly --help. An argument such as --app destroy-demo stays allowed.
         # The deprecated fly destroy has no option form: fly -* destroy* matches fly --app destroy-demo status.
@@ -68,7 +68,7 @@ merge() {
           + [("machine", "machines", "m") as $g | ("destroy", "remove", "rm") as $v | "\($g) \($v)*"]
           + [("volumes", "volume", "vol", "v") as $g | ("destroy", "delete", "rm") as $v | "\($g) \($v)*"]
           + [("mpg", "redis", "storage", "tigris") as $g | "\($g) destroy*"])] | add)
-        + deny("supabase"; ["projects delete*", "db reset *--linked*"])
+        + deny("supabase"; ["projects delete*", "db reset *--linked*", "db reset *--db-url*"])
         + deny("vercel"; ["remove*", "rm*"]))
     # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not move its write rule there, so every
     # temporary file and the cwd file of each call fail. Remove any value.

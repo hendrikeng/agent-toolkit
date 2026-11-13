@@ -45,13 +45,13 @@ If the capture script must run outside the sandbox, install a copy outside writa
     "deny": [
       "Bash(git push -f*)", "Bash(git push * -f*)", "Bash(git push -uf*)", "Bash(git push * -uf*)",
       // The same two rules for the clusters -vf, -qf, -uvf, -vuf, -uqf, -quf, -vqf, and -qvf.
-      "Bash(git push --force*)", "Bash(git push * --force*)",
+      "Bash(git push --force*)", "Bash(git push * --force*)", "Bash(git push --mirror*)", "Bash(git push * --mirror*)",
       "Bash(git push +*)", "Bash(git push * +*)", "Bash(git clean -*x*)", "Bash(git clean -*X*)", "Bash(git stash clear*)",
       "Bash(git reflog expire*)", "Bash(git gc --prune*)", "Bash(git gc * --prune*)",
       "Bash(fly destroy*)", "Bash(fly apps destroy*)", "Bash(fly machine destroy*)", "Bash(fly volumes destroy*)",
       // More fly rules: the aliases app, machines, m, volume, vol, v and delete, remove, rm,
       // mpg, redis, storage, and tigris destroy, and ext … destroy. The same rules for flyctl.
-      "Bash(supabase projects delete*)", "Bash(supabase db reset *--linked*)",
+      "Bash(supabase projects delete*)", "Bash(supabase db reset *--linked*)", "Bash(supabase db reset *--db-url*)",
       "Bash(vercel remove*)", "Bash(vercel rm*)"
     ]
   },
@@ -141,11 +141,11 @@ The script adds deny rules only for actions that you cannot undo:
 
 | Rule | Reason |
 |---|---|
-| `git push` with `-f`, `--force`, `--force-with-lease`, or a `+` refspec. `-f` also in the clusters `-uf`, `-vf`, `-qf`, and three-letter clusters of these options. | Replaces the remote branch. The commits of other people can disappear from the remote. |
+| `git push` with `-f`, `--force`, `--force-with-lease`, `--mirror`, or a `+` refspec. `-f` also in the clusters `-uf`, `-vf`, `-qf`, and three-letter clusters of these options. | Replaces the remote branch. The commits of other people can disappear from the remote. `--mirror` also removes remote branches that are not local. `git push --delete` and `git push origin :branch` stay allowed for the cleanup of merged branches. |
 | `git clean` with `-x` or `-X` | Removes ignored files, for example `.env` files, evidence folders, and local databases. Git keeps no copy. |
 | `git stash clear`, `git reflog expire`, `git gc --prune` | Removes the last references to lost commits, so you cannot recover them. |
 | The delete subcommands of `fly` and `flyctl`: `apps`, `machine`, and `volumes` with `destroy`, `delete`, `remove`, or `rm` and their aliases. Also `destroy` for `mpg`, `redis`, `storage`, extensions, and the old `fly destroy`. | Removes Fly apps, machines, volumes, databases, or buckets. `fly deploy`, `fly status`, and `fly ssh console` stay allowed, also with an app name such as `destroy-demo`. |
-| `supabase projects delete`, `supabase db reset --linked` | Removes a hosted project, or resets the linked remote database. A local `supabase db reset` stays allowed. |
+| `supabase projects delete`, `supabase db reset` with `--linked` or `--db-url` | Removes a hosted project, or resets a remote database. A local `supabase db reset` stays allowed. |
 | `vercel remove`, `vercel rm` | Removes Vercel projects or deployments. |
 
 Each rule has four forms: the plain command, the command with global options (`git -C dir`), the command by path (`/usr/bin/git`), and the command by path with global options.
