@@ -43,10 +43,14 @@ If the capture script must run outside the sandbox, install a copy outside writa
   "permissions": {
     // See "Deny rules" below. Each rule also has the forms "git -* …", "*/git …", and "*/git -* …".
     "deny": [
-      "Bash(git push -f*)", "Bash(git push * -f)", "Bash(git push * -f *)", "Bash(git push --force*)", "Bash(git push * --force*)",
+      "Bash(git push -f*)", "Bash(git push * -f*)", "Bash(git push -uf*)", "Bash(git push * -uf*)",
+      // The same two rules for the clusters -vf, -qf, -uvf, -vuf, -uqf, -quf, -vqf, and -qvf.
+      "Bash(git push --force*)", "Bash(git push * --force*)",
       "Bash(git push +*)", "Bash(git push * +*)", "Bash(git clean -*x*)", "Bash(git clean -*X*)", "Bash(git stash clear*)",
       "Bash(git reflog expire*)", "Bash(git gc --prune*)", "Bash(git gc * --prune*)",
-      "Bash(fly *destroy*)", "Bash(flyctl *destroy*)",
+      "Bash(fly destroy*)", "Bash(fly apps destroy*)", "Bash(fly machine destroy*)", "Bash(fly volumes destroy*)",
+      // More fly rules: the aliases app, machines, m, volume, vol, v and delete, remove, rm,
+      // mpg, redis, storage, and tigris destroy, and ext … destroy. The same rules for flyctl.
       "Bash(supabase projects delete*)", "Bash(supabase db reset *--linked*)",
       "Bash(vercel remove*)", "Bash(vercel rm*)"
     ]
@@ -137,15 +141,20 @@ The script adds deny rules only for actions that you cannot undo:
 
 | Rule | Reason |
 |---|---|
-| `git push` with `-f`, `--force`, `--force-with-lease`, or a `+` refspec | Replaces the remote branch. The commits of other people can disappear from the remote. |
+| `git push` with `-f`, `--force`, `--force-with-lease`, or a `+` refspec. `-f` also in the clusters `-uf`, `-vf`, `-qf`, and three-letter clusters of these options. | Replaces the remote branch. The commits of other people can disappear from the remote. |
 | `git clean` with `-x` or `-X` | Removes ignored files, for example `.env` files, evidence folders, and local databases. Git keeps no copy. |
 | `git stash clear`, `git reflog expire`, `git gc --prune` | Removes the last references to lost commits, so you cannot recover them. |
-| `fly … destroy`, `flyctl … destroy` | Removes Fly apps, machines, or volumes. `fly deploy`, `fly status`, and `fly ssh console` stay allowed. |
+| The delete subcommands of `fly` and `flyctl`: `apps`, `machine`, and `volumes` with `destroy`, `delete`, `remove`, or `rm` and their aliases. Also `destroy` for `mpg`, `redis`, `storage`, extensions, and the old `fly destroy`. | Removes Fly apps, machines, volumes, databases, or buckets. `fly deploy`, `fly status`, and `fly ssh console` stay allowed, also with an app name such as `destroy-demo`. |
 | `supabase projects delete`, `supabase db reset --linked` | Removes a hosted project, or resets the linked remote database. A local `supabase db reset` stays allowed. |
 | `vercel remove`, `vercel rm` | Removes Vercel projects or deployments. |
 
 Each rule has four forms: the plain command, the command with global options (`git -C dir`), the command by path (`/usr/bin/git`), and the command by path with global options.
+The old `fly destroy` has no form with global options, because `fly -* destroy*` also refuses `fly --app destroy-demo status`.
+The aliases come from `fly --help`. If flyctl adds a delete subcommand, add it to the script.
+The script writes about 440 rules, because each alias and each form is a separate rule.
 `*` matches any text, also spaces. Thus `git clean -*x*` also refuses `git clean -f src/index.ts`. In that case, remove the files with `rm`.
+For the same reason, the rules do not use `push -*f*` for option clusters. That rule also refuses `git push -u origin feature`.
+The rules catch `-f` alone and in clusters of up to three letters with `-u`, `-v`, and `-q`. The classifier reviews other clusters, such as `-nf` or `-4f`.
 `git reset --hard`, `git stash drop`, and `git branch -D` stay with the auto mode classifier. Git can usually recover their results until garbage collection.
 The rules do not catch wrappers such as `npx vercel rm` or `sh -c "…"`. The auto mode classifier still reviews these calls.
 The script appends the rules after your own rules and does not add a rule twice. `--undo` restores the earlier list.

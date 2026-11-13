@@ -141,12 +141,17 @@ test('the deny rules catch actions that cannot be undone and leave normal comman
   const denied = command => rules.some(rule => rule.test(command))
   for (const command of ['git push --force-with-lease origin main', 'git push origin +main', 'git -C /x push -f', '/usr/bin/git push --force',
     'git clean -fdx', 'git clean -fX', 'git stash clear', 'git reflog expire --expire=now --all', 'git gc --prune=now',
-    'fly apps destroy demo', 'flyctl machine destroy 123 --force', 'supabase projects delete abc', 'supabase db reset --linked',
+    'git push -uf origin HEAD', 'git push -vf', 'git push origin main -fu', 'git push -uvf origin main',
+    'fly apps destroy demo', 'flyctl machine destroy 123 --force', 'fly destroy demo', 'fly m rm 123', 'fly vol delete vol_1 -y',
+    'fly -t token apps delete demo', 'fly mpg destroy abc', 'fly ext kubernetes destroy demo', 'supabase projects delete abc', 'supabase db reset --linked',
     'vercel remove demo --yes', 'vercel rm demo']) {
     assert.ok(denied(command), command)
   }
   for (const command of ['git push origin main', 'git push -u origin HEAD', 'git clean -fd', 'git stash list', 'git gc',
-    'git reset --hard', 'git branch -D old', 'fly deploy', 'fly status', 'fly ssh console', 'supabase db reset', 'vercel deploy']) {
+    'git push -u origin feature', 'git push -u origin main', 'git push --follow-tags', 'git push -v origin fix',
+    'git reset --hard', 'git branch -D old', 'fly deploy', 'fly status', 'fly ssh console',
+    'fly deploy --app destroy-demo', 'fly status --app destroy-demo', 'fly ssh console -a destroy-demo', 'fly --app destroy-demo status',
+    'supabase db reset', 'vercel deploy']) {
     assert.ok(!denied(command), command)
   }
 })

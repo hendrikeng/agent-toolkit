@@ -56,9 +56,18 @@ merge() {
     .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
     # Actions that cannot be undone. reset --hard, stash drop, and branch -D stay with the auto mode classifier.
     | .permissions.deny |= append(
-        deny("git"; ["push -f*", "push * -f", "push * -f *", "push --force*", "push * --force*", "push +*", "push * +*",
+        # -f alone or in a short-option cluster with -u, -v, or -q, such as -uf or -uvf. -*f* would also match -u feature.
+        deny("git"; [("", "u", "v", "q", "uv", "vu", "uq", "qu", "vq", "qv") as $c | "push -\($c)f*", "push * -\($c)f*"]
+          + ["push --force*", "push * --force*", "push +*", "push * +*",
           "clean -*x*", "clean -*X*", "stash clear*", "reflog expire*", "gc --prune*", "gc * --prune*"])
-        + deny("fly"; ["*destroy*"]) + deny("flyctl"; ["*destroy*"])
+        # Only the subcommands that delete, with the aliases from fly --help. An argument such as --app destroy-demo stays allowed.
+        # The deprecated fly destroy has no option form: fly -* destroy* matches fly --app destroy-demo status.
+        + ([("fly", "flyctl") as $tool | ["Bash(\($tool) destroy*)", "Bash(*/\($tool) destroy*)"]
+          + deny($tool; ["ext * destroy", "ext * destroy *", "extensions * destroy", "extensions * destroy *"]
+          + [("apps", "app") as $g | ("destroy", "delete", "remove", "rm") as $v | "\($g) \($v)*"]
+          + [("machine", "machines", "m") as $g | ("destroy", "remove", "rm") as $v | "\($g) \($v)*"]
+          + [("volumes", "volume", "vol", "v") as $g | ("destroy", "delete", "rm") as $v | "\($g) \($v)*"]
+          + [("mpg", "redis", "storage", "tigris") as $g | "\($g) destroy*"])] | add)
         + deny("supabase"; ["projects delete*", "db reset *--linked*"])
         + deny("vercel"; ["remove*", "rm*"]))
     # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not move its write rule there, so every
