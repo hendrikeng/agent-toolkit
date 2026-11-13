@@ -110,12 +110,16 @@ If the existing host context already supplies these references, the extra prompt
 ## Shared skills and review policy
 
 On macOS, run `agent-awake` before agent work and `agent-sleep` when finished.
-The `paseo-awake` and `paseo-sleep` aliases control the same process.
-These commands use the built-in `caffeinate -i` to prevent idle system sleep. The screen can still turn off.
-The PID file is `${XDG_STATE_HOME:-~/.local/state}/agent-toolkit/caffeinate.pid`.
-It also records the process start time to detect reused PIDs.
-Repeated starts reuse the tracked process. Stop removes stale state and stops only the tracked caffeinate process, leaving Paseo running.
-The commands use the built-in `lockf` to serialize simultaneous calls. The OS releases locks when a command exits.
+The `paseo-awake` and `paseo-sleep` aliases control the same hold.
+`agent-awake` installs the LaunchAgent `~/Library/LaunchAgents/com.agent-toolkit.awake.plist`.
+The LaunchAgent runs the built-in `caffeinate -i` to prevent idle system sleep. The screen can still turn off.
+launchd starts `caffeinate` again after a crash, and after a restart when you log in.
+Thus the hold stays on until you run `agent-sleep`. A change to the `pmset` settings is not necessary.
+`agent-sleep` removes the LaunchAgent. Then the Mac sleeps normally.
+Run `agent-awake --status` to show the LaunchAgent state and the active `caffeinate` hold.
+Earlier versions kept a PID file in `${XDG_STATE_HOME:-~/.local/state}/agent-toolkit/caffeinate.pid`.
+The next `agent-awake` or `agent-sleep` stops that tracked process and removes the file.
+The commands use the built-in `lockf` to serialize simultaneous calls.
 
 Run `agent-display-off` to turn off the displays after a three-second delay. After you press Enter, stop keyboard and mouse input.
 The command does not change the system sleep settings or the `agent-awake` hold.

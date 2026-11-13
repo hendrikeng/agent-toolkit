@@ -4,48 +4,75 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { execFile, execFileSync, spawn } = require('node:child_process')
-const { promisify } = require('node:util')
+const { execFileSync, spawn, spawnSync } = require('node:child_process')
 
-test('keep-awake lifecycle is idempotent and preserves unrelated or reused processes', { skip: process.platform !== 'darwin' }, async t => {
-  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-awake-'))
-  const awake = path.join(state, 'agent-awake'), sleep = path.join(state, 'agent-sleep')
-  const aliases = ['paseo-awake', 'paseo-sleep'].map(name => path.join(state, name))
-  const pidFile = path.join(state, 'agent-toolkit/caffeinate.pid')
-  for (const file of [awake, sleep, ...aliases]) fs.symlinkSync(path.join(__dirname, 'agent-awake'), file)
-  const run = file => execFileSync(file, { env: { ...process.env, XDG_STATE_HOME: state }, encoding: 'utf8' })
+const label = 'com.agent-toolkit.awake'
+const domain = `gui/${process.getuid()}`
+// The Claude sandbox blocks the setuid /bin/ps, which the migration needs.
+const ps = process.platform === 'darwin' && spawnSync('/bin/ps', ['-p', String(process.pid)]).status === 0
+
+function fixture(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'tmp.')))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const commands = {}
+  for (const name of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
+    commands[name] = path.join(root, name)
+    fs.symlinkSync(path.join(__dirname, 'agent-awake'), commands[name])
+  }
+  const env = { ...process.env, AGENT_AWAKE_TEST_ROOT: root, XDG_STATE_HOME: root }
+  const run = name => execFileSync(commands[name], { env, encoding: 'utf8' })
+  const calls = () => { try { return fs.readFileSync(path.join(root, 'launchctl.log'), 'utf8').trimEnd().split('\n') } catch { return [] } }
+  return { root, run, calls, env, commands, plist: path.join(root, 'LaunchAgents', `${label}.plist`), pidFile: path.join(root, 'agent-toolkit/caffeinate.pid') }
+}
+
+test('agent-awake installs a KeepAlive caffeinate LaunchAgent and agent-sleep removes it', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  assert.match(f.run('agent-awake'), /Keeping the Mac awake/)
+  const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', f.plist], { encoding: 'utf8' }))
+  assert.deepEqual(plist, { Label: label, ProgramArguments: ['/usr/bin/caffeinate', '-i'], RunAtLoad: true, KeepAlive: true })
+  assert.equal(fs.statSync(f.plist).mode & 0o777, 0o644)
+  assert.deepEqual(f.calls(), [`print ${domain}/${label}`, `enable ${domain}/${label}`, `bootstrap ${domain} ${f.plist}`])
+
+  assert.match(f.run('paseo-awake'), /Already keeping/)
+  assert.equal(f.calls().length, 4, 'a loaded agent is not bootstrapped again')
+
+  assert.match(f.run('paseo-sleep'), /Stopped keep-awake/)
+  assert.equal(fs.existsSync(f.plist), false)
+  assert.equal(f.calls().at(-1), `bootout ${domain}/${label}`)
+  assert.match(f.run('agent-sleep'), /already stopped/)
+})
+
+test('agent-awake refuses a symlinked plist path', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  const target = path.join(f.root, 'target')
+  fs.mkdirSync(path.dirname(f.plist))
+  fs.symlinkSync(target, f.plist)
+  const result = spawnSync(f.commands['agent-awake'], { env: f.env, encoding: 'utf8' })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Refusing a symlink plist/)
+  assert.equal(fs.existsSync(target), false)
+  assert.ok(!f.calls().some(call => call.startsWith('bootstrap')))
+})
+
+test('the first run stops only the tracked caffeinate of earlier versions', { skip: !ps && 'needs /bin/ps, which the Claude sandbox blocks' }, async t => {
+  const f = fixture(t)
+  const old = spawn('/usr/bin/caffeinate', ['-i'], { stdio: 'ignore' })
   const other = spawn('/usr/bin/caffeinate', ['-i'], { stdio: 'ignore' })
-  t.after(() => { try { run(sleep) } finally { other.kill(); fs.rmSync(state, { recursive: true, force: true }) } })
+  t.after(() => { old.kill(); other.kill() })
+  await new Promise(resolve => setTimeout(resolve, 200))
+  const started = execFileSync('/bin/ps', ['-p', String(old.pid), '-o', 'lstart='], { encoding: 'utf8' }).replace(/\n$/, '')
+  fs.mkdirSync(path.dirname(f.pidFile))
+  fs.writeFileSync(f.pidFile, `${old.pid}\n${started}\n`)
+  const exited = new Promise(resolve => old.on('exit', resolve))
 
-  assert.match(run(awake), /Keeping the Mac awake/)
-  const original = fs.readFileSync(pidFile, 'utf8')
-  const pid = Number(original.split('\n')[0])
-  process.kill(pid, 0)
-  assert.match(run(awake), /Already keeping/)
-  assert.equal(fs.readFileSync(pidFile, 'utf8'), original)
-  const concurrent = await Promise.all(Array.from({ length: 6 }, () => promisify(execFile)(awake, { env: { ...process.env, XDG_STATE_HOME: state } })))
-  for (const result of concurrent) assert.match(result.stdout, /Already keeping/)
-  assert.equal(fs.readFileSync(pidFile, 'utf8'), original)
-  assert.match(run(aliases[1]), /Stopped keep-awake/)
-  assert.equal(fs.existsSync(pidFile), false)
+  assert.match(f.run('agent-awake'), /Keeping the Mac awake/)
+  await exited
+  assert.equal(fs.existsSync(f.pidFile), false)
   process.kill(other.pid, 0)
-  assert.match(run(sleep), /already stopped/)
 
-  fs.writeFileSync(pidFile, `${other.pid}\nwrong start time\n`)
-  assert.match(run(sleep), /already stopped/)
+  // A reused PID with a different start time is not stopped.
+  fs.writeFileSync(f.pidFile, `${other.pid}\nwrong start time\n`)
+  f.run('agent-sleep')
   process.kill(other.pid, 0)
-  assert.equal(fs.existsSync(pidFile), false)
-  const unrelated = spawn('/bin/sleep', ['30'], { stdio: 'ignore' })
-  t.after(() => unrelated.kill())
-  const start = execFileSync('/bin/ps', ['-p', String(unrelated.pid), '-o', 'lstart='], { encoding: 'utf8' }).trimEnd()
-  fs.writeFileSync(pidFile, `${unrelated.pid}\n${start}\n`)
-  assert.match(run(sleep), /already stopped/)
-  process.kill(unrelated.pid, 0)
-
-  fs.writeFileSync(pidFile, 'invalid PID\n')
-  const deadPid = execFileSync('/bin/sh', ['-c', 'echo $$'], { encoding: 'utf8' }).trim()
-  fs.writeFileSync(path.join(state, 'agent-toolkit/caffeinate.lock'), `${deadPid}\n`)
-  assert.match(run(aliases[0]), /Keeping the Mac awake/)
-  assert.notEqual(fs.readFileSync(pidFile, 'utf8'), 'invalid PID\n')
-  assert.match(run(sleep), /Stopped keep-awake/)
+  assert.equal(fs.existsSync(f.pidFile), false)
 })

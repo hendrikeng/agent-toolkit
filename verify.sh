@@ -4,7 +4,7 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cd "$repo_dir"
 
 [[ $# -eq 0 ]] || { printf 'Usage: ./verify.sh\n' >&2; exit 2; }
-for script in install.sh setup-paseo.sh update.sh shared/sandbox-probe.sh scripts/apply-claude-sandbox.sh skills/deepsec/scripts/deepsec; do
+for script in install.sh shared/macos/agent-awake setup-paseo.sh update.sh shared/sandbox-probe.sh scripts/apply-claude-sandbox.sh skills/deepsec/scripts/deepsec; do
   bash -n "$script"
 done
 for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs; do
@@ -12,6 +12,6 @@ for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs
 done
 perl -c shared/agent-heavy.pl
 perl -T -c shared/agent-stop.pl
-NO_COLOR=1 FORCE_COLOR=0 node --test scripts/apply-claude-sandbox.test.cjs shared/install.test.cjs shared/paseo-setup.test.cjs shared/paseo-service.test.cjs shared/agent-heavy.test.cjs shared/agent-stop.test.cjs shared/postgres/*.test.cjs
+NO_COLOR=1 FORCE_COLOR=0 node --test scripts/apply-claude-sandbox.test.cjs shared/install.test.cjs shared/paseo-setup.test.cjs shared/paseo-service.test.cjs shared/agent-heavy.test.cjs shared/agent-stop.test.cjs shared/macos/agent-awake.test.cjs shared/postgres/*.test.cjs
 python3 skills/autoreview/scripts/autoreview_test.py
 printf 'Toolkit checks passed. Fresh CLI/model behavior and live reviewer invocation still require human acceptance.\n'

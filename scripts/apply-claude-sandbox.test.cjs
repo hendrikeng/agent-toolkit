@@ -59,6 +59,9 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.ok(settings.sandbox.excludedCommands.includes('make release'))
   assert.ok(settings.sandbox.excludedCommands.includes('pg-test *'))
   assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/agent-stop *`), 'agents stop their own background processes')
+  for (const name of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
+    assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/${name}`), name)
+  }
   // Docker uses the socket in the sandbox; the earlier exclusion is removed.
   assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
   assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.orbstack/run/docker.sock`, `${f.home}/.fly/fly-agent.sock`])

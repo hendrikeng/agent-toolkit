@@ -75,6 +75,8 @@ If the capture script must run outside the sandbox, install a copy outside writa
       "/Users/hendrik/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.local/bin/agent-stop *",
+      "/Users/hendrik/.local/bin/agent-awake", "/Users/hendrik/.local/bin/agent-sleep",
+      "/Users/hendrik/.local/bin/paseo-awake", "/Users/hendrik/.local/bin/paseo-sleep",
       "/bin/ps *",
       "ssh agawulum@sl90.web.hostpoint.ch *", "scp * agawulum@sl90.web.hostpoint.ch:*", "rsync * agawulum@sl90.web.hostpoint.ch:*"
       // The same three entries for bonzanib@sl662.web.hostpoint.ch, wfw-prod@wfw.ch, and wfw-staging@wfw.ch.
@@ -109,11 +111,12 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | `paseo *` | The Paseo CLI fails because Node `os.uptime()` returns `EPERM` in the sandbox. Agents normally use the Paseo MCP tools, which run outside the sandbox. |
 | `/bin/ps *` | `/bin/ps` is setuid, so the sandbox blocks it. `ps` only reads process data and cannot run code. The exclusion applies only to a whole call, so scripts must use `lsof -t` instead. |
 | `agent-stop` path | The sandbox blocks signals to processes that an earlier call started. Without this entry, agents cannot stop their own background test servers. See [Stop background processes](#stop-background-processes). |
+| `agent-awake`, `agent-sleep`, `paseo-awake`, `paseo-sleep` paths | The sandbox blocks writes to `~/Library/LaunchAgents` and `launchctl bootstrap`. These commands run no arguments. They only manage the one fixed LaunchAgent `com.agent-toolkit.awake`. The entries have no `*`, so only the plain command runs outside the sandbox. `agent-awake --status` works in the sandbox. |
 | AutoReview paths | Codex runs its tool commands in its own Seatbelt sandbox. A nested sandbox fails with `sandbox_apply: Operation not permitted`. The helper owns its reviewer isolation. |
 | `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. In auto mode, which Paseo uses, the sandbox refuses a host outside this list without a prompt. A missing host fails the command. |
 
 An excluded command runs outside the sandbox only if the whole shell call matches.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, `agent-stop`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, `agent-stop`, `agent-awake`, `agent-sleep`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
 
 ## Stop background processes
 

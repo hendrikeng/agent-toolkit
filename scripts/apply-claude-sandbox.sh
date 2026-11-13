@@ -92,6 +92,9 @@ merge() {
         $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
         # The sandbox blocks signals to processes from earlier calls. The helper checks every target itself.
         $home + "/.local/bin/agent-stop *",
+        # The sandbox blocks ~/Library/LaunchAgents and launchctl bootstrap. These run no arguments; they manage one fixed LaunchAgent.
+        $home + "/.local/bin/agent-awake", $home + "/.local/bin/agent-sleep",
+        $home + "/.local/bin/paseo-awake", $home + "/.local/bin/paseo-sleep",
         # ps is setuid, so the sandbox blocks it. It reads process data and cannot run code.
         "/bin/ps *"]
         # Plain ssh cannot pass the sandbox proxy. Only these servers are excluded.
