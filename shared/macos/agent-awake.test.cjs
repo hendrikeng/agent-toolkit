@@ -79,9 +79,16 @@ test('an unknown launchctl state keeps the plist and fails instead of reporting 
   const f = fixture(t)
   const run = (name, args = []) => spawnSync(f.commands[name], args, { env: f.env, encoding: 'utf8' })
   const unknown = /Could not check com\.agent-toolkit\.awake; keep-awake may still be on\./
+  const status = (code, pattern) => {
+    const result = run('agent-awake', ['--status'])
+    assert.equal(result.status, code)
+    assert.match(result.stdout, pattern)
+  }
+  status(0, /is not loaded/)
   f.run('agent-awake')
+  status(0, /is loaded/)
   fs.writeFileSync(path.join(f.root, 'print-fails'), '')
-  assert.match(run('agent-awake', ['--status']).stdout, /state is unknown/)
+  status(1, /state is unknown/)
   for (const name of ['agent-sleep', 'agent-awake']) {
     const result = run(name)
     assert.equal(result.status, 1, name)

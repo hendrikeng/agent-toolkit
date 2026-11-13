@@ -23,10 +23,11 @@ loaded() {
 }
 
 if [[ ${1:-} == --status ]]; then
+  status=0
   case $(print_status) in
     0) echo "LaunchAgent $label is loaded." ;;
     113) echo "LaunchAgent $label is not loaded." ;;
-    *) echo "LaunchAgent $label state is unknown: launchctl print failed." ;;
+    *) echo "LaunchAgent $label state is unknown: launchctl print failed."; status=1 ;;
   esac
   # grep reads all input: with pipefail, an early grep -q exit fails the pipeline through SIGPIPE.
   if /usr/bin/pmset -g assertions | grep 'PreventUserIdleSystemSleep named: "caffeinate' >/dev/null; then
@@ -34,7 +35,7 @@ if [[ ${1:-} == --status ]]; then
   else
     echo 'No caffeinate hold is active.'
   fi
-  exit 0
+  exit "$status"
 fi
 
 mkdir -p "$state_dir"
