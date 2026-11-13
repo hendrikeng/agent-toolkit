@@ -12,11 +12,24 @@ state_dir=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-toolkit
 pid_file=$state_dir/caffeinate.pid
 lock_file=$state_dir/caffeinate.lock
 
-loaded() { "$launchctl" print "$domain/$label" >/dev/null 2>&1; }
+# launchctl print exits 113 only when the service does not exist. Any other failure leaves the state unknown.
+print_status() { local rc=0; "$launchctl" print "$domain/$label" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+loaded() {
+  case $(print_status) in
+    0) return 0 ;;
+    113) return 1 ;;
+    *) echo "Could not check $label; keep-awake may still be on." >&2; exit 1 ;;
+  esac
+}
 
 if [[ ${1:-} == --status ]]; then
-  if loaded; then echo "LaunchAgent $label is loaded."; else echo "LaunchAgent $label is not loaded."; fi
-  if /usr/bin/pmset -g assertions | grep -q 'PreventUserIdleSystemSleep named: "caffeinate'; then
+  case $(print_status) in
+    0) echo "LaunchAgent $label is loaded." ;;
+    113) echo "LaunchAgent $label is not loaded." ;;
+    *) echo "LaunchAgent $label state is unknown: launchctl print failed." ;;
+  esac
+  # grep reads all input: with pipefail, an early grep -q exit fails the pipeline through SIGPIPE.
+  if /usr/bin/pmset -g assertions | grep 'PreventUserIdleSystemSleep named: "caffeinate' >/dev/null; then
     echo 'A caffeinate hold prevents idle sleep.'
   else
     echo 'No caffeinate hold is active.'

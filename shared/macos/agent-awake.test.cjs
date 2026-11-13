@@ -12,14 +12,17 @@ const domain = `gui/${process.getuid()}`
 const ps = process.platform === 'darwin' && spawnSync('/bin/ps', ['-p', String(process.pid)]).status === 0
 
 // A fake launchctl: it records each call and keeps the loaded state in a file.
-// The file bootout-fails makes bootout fail and leaves the job loaded.
+// The file bootout-fails makes bootout fail and leaves the job loaded. With print-fails, print fails
+// with an unrelated error. The file bootout-breaks-print makes bootout create print-fails.
+// A missing service exits 113, as on macOS 27.
 const fakeLaunchctl = `#!/bin/bash
 root=\${0%/*}
 printf '%s\\n' "$*" >> "$root/launchctl.log"
 case $1 in
-  print) [[ -e $root/loaded ]] ;;
+  print) [[ ! -e $root/print-fails ]] || exit 5; [[ -e $root/loaded ]] || exit 113 ;;
   bootstrap) : > "$root/loaded" ;;
-  bootout) [[ ! -e $root/bootout-fails && -e $root/loaded ]] && rm "$root/loaded" ;;
+  bootout) [[ ! -e $root/bootout-breaks-print ]] || : > "$root/print-fails"
+    [[ ! -e $root/bootout-fails && -e $root/loaded ]] && rm "$root/loaded" ;;
 esac
 `
 const constants = 'agents_dir=$HOME/Library/LaunchAgents\nlaunchctl=/bin/launchctl\n'
@@ -68,6 +71,31 @@ test('agent-sleep keeps the plist and fails when the job stays loaded', { skip: 
   const result = spawnSync(f.commands['agent-sleep'], { env: f.env, encoding: 'utf8' })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Could not unload/)
+  assert.doesNotMatch(result.stdout, /normal sleep is allowed/)
+  assert.ok(fs.existsSync(f.plist))
+})
+
+test('an unknown launchctl state keeps the plist and fails instead of reporting off', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  const run = (name, args = []) => spawnSync(f.commands[name], args, { env: f.env, encoding: 'utf8' })
+  const unknown = /Could not check com\.agent-toolkit\.awake; keep-awake may still be on\./
+  f.run('agent-awake')
+  fs.writeFileSync(path.join(f.root, 'print-fails'), '')
+  assert.match(run('agent-awake', ['--status']).stdout, /state is unknown/)
+  for (const name of ['agent-sleep', 'agent-awake']) {
+    const result = run(name)
+    assert.equal(result.status, 1, name)
+    assert.match(result.stderr, unknown, name)
+  }
+  assert.ok(!f.calls().some(call => call.startsWith('bootout')), 'no bootout without a known state')
+  assert.ok(fs.existsSync(f.plist))
+
+  // The check after bootout follows the same rule.
+  fs.rmSync(path.join(f.root, 'print-fails'))
+  fs.writeFileSync(path.join(f.root, 'bootout-breaks-print'), '')
+  const result = run('agent-sleep')
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, unknown)
   assert.doesNotMatch(result.stdout, /normal sleep is allowed/)
   assert.ok(fs.existsSync(f.plist))
 })
