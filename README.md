@@ -482,6 +482,11 @@ The sandbox excludes its installed path, because the helper signals only process
 
 Spotlight indexes each new worktree, and this adds load. To stop it, add `~/Code` to System Settings > Spotlight > Privacy one time. Do this manually.
 
+## Backups
+
+Only Time Machine can reliably undo what an agent did on this Mac. Turn it on, with hourly local snapshots.
+The Toolkit cannot turn on Time Machine for you. The sandbox and the [deny rules](docs/claude-sandbox.md#deny-rules) block some damage, but not all of it.
+
 ## Migration, backups, and update
 
 Stop active providers before installation. Inspect current settings and historical backups in a trusted human terminal. Old installations can contain both native sandbox settings and Toolkit approval extensions. A generic setting such as `sandbox.enabled` or `approval_policy` is not proof of Toolkit ownership.

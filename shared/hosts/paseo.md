@@ -69,5 +69,13 @@ After a task branch is merged and its results are safely delivered, archive its 
 A merged branch alone does not remove its worktree. Paseo removes an owned worktree after its last active workspace reference is archived.
 Verify removal through the native workspace list and the returned worktree path. Report cleanup failures instead of leaving them silent.
 Retain blocked or unresolved workspaces. Never archive the coordinator workspace, a handoff recipient, or user-retained resources.
+`archive_workspace` force-removes the worktree. It does not check for uncommitted or unpushed work.
+Before each `archive_workspace` call, run these checks in that workspace:
+
+1. Make sure that `git status --porcelain --ignored=no` prints nothing.
+2. Make sure that `git rev-list --count HEAD --not --remotes` prints `0`, or that the branch is merged.
+3. If the repository keeps ignored local data, such as evidence folders or local database directories, make sure that nothing there is needed.
+
+If a check fails, keep the workspace and report it. Never archive a workspace with uncommitted, untracked, or unpushed work.
 Cross-workspace children remain subagents. Archiving a parent does not prove that child workspaces were removed.
 Handoffs name the receiving agent/workspace and leave detachment to the user. No timer-based cleanup or separate lifecycle collector.

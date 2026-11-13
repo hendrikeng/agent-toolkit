@@ -69,8 +69,10 @@ Record the command, target, agent, effective permission mode, and denial type. A
 Never change live permission settings or grant access that managed policy forbids.
 With the Claude sandbox on, no escalation exists. Use the helpers and patterns below.
 If none fits, record the exact denial, continue other work, and report the gap at the end.
+If Claude auto mode returns no verdict for a call, retry the same call once. If it fails again, continue other work and report it at the end. Do not ask the user.
 Never ask the user to run a command or to turn off the sandbox.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, and the AutoReview helper as separate shell calls.
+Run `pg-test`, `paseo`, `agent-stop`, `agent-awake`, `ssh`, `scp`, `rsync`, `/bin/ps`, and the AutoReview helper as separate shell calls.
+Never chain these helpers with other commands through `&&`, `;`, `|`, or a subshell.
 Write the helper path without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
 Run `pg-test start` as its own call, and pass its URL to scripts. The exclusion does not apply inside a script.
 In scripts, use `lsof -t` instead of `ps`. The sandbox blocks the setuid `/bin/ps`.
@@ -105,6 +107,7 @@ A completed review with findings is not a reviewer failure.
 
 Use the session's host context, not installed binaries or skill availability, to identify its owner.
 Paseo sessions load `%TOOLKIT%/shared/hosts/paseo.md` before host operations.
+Before `archive_workspace`, follow the archive check in `paseo.md`. Never archive a workspace with uncommitted, untracked, or unpushed work.
 If the owner is unclear, ask before delegation, browser control, handoff, or cleanup. Ordinary coding can continue.
 A provider session keeps its original owner on resume. Cross-host ownership transfers require an explicit handoff.
 Never install, repair, or broaden live permissions from an agent session. Installation and migration use a trusted human terminal.

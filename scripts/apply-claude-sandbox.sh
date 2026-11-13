@@ -51,7 +51,16 @@ merge() {
   jq --arg home "$home" --arg darwin_tmp "${darwin_tmp%/}" --arg servers "$servers" '
     # Append missing items and keep the existing order.
     def append($items): reduce $items[] as $item (. // []; if index([$item]) then . else . + [$item] end);
+    # Deny rules for each command form: plain, with global options, and by path. See docs/claude-sandbox.md.
+    def deny($tool; $actions): [($tool, "\($tool) -*", "*/\($tool)", "*/\($tool) -*") as $form | $actions[] | "Bash(\($form) \(.))"];
     .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
+    # Actions that cannot be undone. reset --hard, stash drop, and branch -D stay with the auto mode classifier.
+    | .permissions.deny |= append(
+        deny("git"; ["push -f*", "push * -f", "push * -f *", "push --force*", "push * --force*", "push +*", "push * +*",
+          "clean -*x*", "clean -*X*", "stash clear*", "reflog expire*", "gc --prune*", "gc * --prune*"])
+        + deny("fly"; ["*destroy*"]) + deny("flyctl"; ["*destroy*"])
+        + deny("supabase"; ["projects delete*", "db reset *--linked*"])
+        + deny("vercel"; ["remove*", "rm*"]))
     # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not move its write rule there, so every
     # temporary file and the cwd file of each call fail. Remove any value.
     | del(.env.CLAUDE_CODE_TMPDIR)

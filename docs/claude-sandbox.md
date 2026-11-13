@@ -40,6 +40,17 @@ If the capture script must run outside the sandbox, install a copy outside writa
     // Go tools such as gh and infisical cannot reach the macOS trust service in the sandbox.
     "SSL_CERT_FILE": "/etc/ssl/cert.pem"
   },
+  "permissions": {
+    // See "Deny rules" below. Each rule also has the forms "git -* …", "*/git …", and "*/git -* …".
+    "deny": [
+      "Bash(git push -f*)", "Bash(git push * -f)", "Bash(git push * -f *)", "Bash(git push --force*)", "Bash(git push * --force*)",
+      "Bash(git push +*)", "Bash(git push * +*)", "Bash(git clean -*x*)", "Bash(git clean -*X*)", "Bash(git stash clear*)",
+      "Bash(git reflog expire*)", "Bash(git gc --prune*)", "Bash(git gc * --prune*)",
+      "Bash(fly *destroy*)", "Bash(flyctl *destroy*)",
+      "Bash(supabase projects delete*)", "Bash(supabase db reset *--linked*)",
+      "Bash(vercel remove*)", "Bash(vercel rm*)"
+    ]
+  },
   "sandbox": {
     "enabled": true,
     "failIfUnavailable": true,
@@ -117,6 +128,27 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 
 An excluded command runs outside the sandbox only if the whole shell call matches.
 Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, `agent-stop`, `agent-awake`, `agent-sleep`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
+
+## Deny rules
+
+The sandbox limits files and hosts. It does not stop a command that destroys data on GitHub or on a production service.
+Claude Code refuses a call that matches a `permissions.deny` rule, in every permission mode. The rules have no exception.
+The script adds deny rules only for actions that you cannot undo:
+
+| Rule | Reason |
+|---|---|
+| `git push` with `-f`, `--force`, `--force-with-lease`, or a `+` refspec | Replaces the remote branch. The commits of other people can disappear from the remote. |
+| `git clean` with `-x` or `-X` | Removes ignored files, for example `.env` files, evidence folders, and local databases. Git keeps no copy. |
+| `git stash clear`, `git reflog expire`, `git gc --prune` | Removes the last references to lost commits, so you cannot recover them. |
+| `fly … destroy`, `flyctl … destroy` | Removes Fly apps, machines, or volumes. `fly deploy`, `fly status`, and `fly ssh console` stay allowed. |
+| `supabase projects delete`, `supabase db reset --linked` | Removes a hosted project, or resets the linked remote database. A local `supabase db reset` stays allowed. |
+| `vercel remove`, `vercel rm` | Removes Vercel projects or deployments. |
+
+Each rule has four forms: the plain command, the command with global options (`git -C dir`), the command by path (`/usr/bin/git`), and the command by path with global options.
+`*` matches any text, also spaces. Thus `git clean -*x*` also refuses `git clean -f src/index.ts`. In that case, remove the files with `rm`.
+`git reset --hard`, `git stash drop`, and `git branch -D` stay with the auto mode classifier. Git can usually recover their results until garbage collection.
+The rules do not catch wrappers such as `npx vercel rm` or `sh -c "…"`. The auto mode classifier still reviews these calls.
+The script appends the rules after your own rules and does not add a rule twice. `--undo` restores the earlier list.
 
 ## Stop background processes
 

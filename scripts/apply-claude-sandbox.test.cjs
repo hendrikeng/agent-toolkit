@@ -45,7 +45,8 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.equal(applied.status, 0, applied.stdout)
   const settings = JSON.parse(fs.readFileSync(f.real, 'utf8'))
   assert.equal(settings.model, 'fable')
-  assert.deepEqual(settings.permissions, { deny: ['Bash(git push -f*)'] })
+  assert.equal(settings.permissions.deny[0], 'Bash(git push -f*)', 'existing deny rules stay first')
+  assert.equal(new Set(settings.permissions.deny).size, settings.permissions.deny.length, 'no duplicate deny rules')
   assert.equal(settings.skipDangerousModePermissionPrompt, true)
   assert.deepEqual(settings.env, { SSL_CERT_FILE: '/etc/ssl/cert.pem' }, 'the earlier CLAUDE_CODE_TMPDIR value is removed')
   assert.equal(settings.sandbox.enabled, true)
@@ -130,4 +131,22 @@ test('the sandbox script removes any CLAUDE_CODE_TMPDIR value and the docker exc
   assert.deepEqual(settings.env, { KEEP: '1', SSL_CERT_FILE: '/etc/ssl/cert.pem' })
   assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
   assert.ok(settings.sandbox.excludedCommands.includes('make release'))
+})
+
+// A model of the Claude Code rule match: * matches any text. It shows which commands the rules catch.
+test('the deny rules catch actions that cannot be undone and leave normal commands alone', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  const rules = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout).permissions.deny
+    .map(rule => new RegExp('^' + rule.slice(5, -1).split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$'))
+  const denied = command => rules.some(rule => rule.test(command))
+  for (const command of ['git push --force-with-lease origin main', 'git push origin +main', 'git -C /x push -f', '/usr/bin/git push --force',
+    'git clean -fdx', 'git clean -fX', 'git stash clear', 'git reflog expire --expire=now --all', 'git gc --prune=now',
+    'fly apps destroy demo', 'flyctl machine destroy 123 --force', 'supabase projects delete abc', 'supabase db reset --linked',
+    'vercel remove demo --yes', 'vercel rm demo']) {
+    assert.ok(denied(command), command)
+  }
+  for (const command of ['git push origin main', 'git push -u origin HEAD', 'git clean -fd', 'git stash list', 'git gc',
+    'git reset --hard', 'git branch -D old', 'fly deploy', 'fly status', 'fly ssh console', 'supabase db reset', 'vercel deploy']) {
+    assert.ok(!denied(command), command)
+  }
 })
