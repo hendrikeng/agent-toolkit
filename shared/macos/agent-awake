@@ -6,25 +6,13 @@ umask 077
 label=com.agent-toolkit.awake
 domain=gui/$(id -u)
 agents_dir=$HOME/Library/LaunchAgents
-# Test-only: AGENT_AWAKE_TEST_ROOT replaces the LaunchAgents directory and records launchctl calls
-# instead of running them. It runs no program from the test root, and the label stays fixed.
-test_root=${AGENT_AWAKE_TEST_ROOT:-}
-[[ -z $test_root ]] || agents_dir=$test_root/LaunchAgents
+launchctl=/bin/launchctl
 plist=$agents_dir/$label.plist
 state_dir=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-toolkit
 pid_file=$state_dir/caffeinate.pid
 lock_file=$state_dir/caffeinate.lock
 
-launchctl() {
-  if [[ -z $test_root ]]; then /bin/launchctl "$@"; return; fi
-  printf '%s\n' "$*" >> "$test_root/launchctl.log"
-  case $1 in
-    print) [[ -e $test_root/loaded ]] ;;
-    bootstrap) : > "$test_root/loaded" ;;
-    bootout) [[ -e $test_root/loaded ]] && rm "$test_root/loaded" ;;
-  esac
-}
-loaded() { launchctl print "$domain/$label" >/dev/null 2>&1; }
+loaded() { "$launchctl" print "$domain/$label" >/dev/null 2>&1; }
 
 if [[ ${1:-} == --status ]]; then
   if loaded; then echo "LaunchAgent $label is loaded."; else echo "LaunchAgent $label is not loaded."; fi
@@ -42,7 +30,7 @@ if [[ ${1:-} != --locked ]]; then
 fi
 
 # Migration: stop the caffeinate process that earlier versions started and tracked in the PID file.
-stopped_old=
+stopped=
 if [[ -L $pid_file ]]; then
   echo "Refusing a symlink PID file: $pid_file" >&2
   exit 1
@@ -55,7 +43,7 @@ elif [[ -f $pid_file ]]; then
     [[ $(/bin/ps -p "$pid" -o lstart= 2>/dev/null) == "$started" ]] &&
     [[ $(/bin/ps -p "$pid" -o uid= 2>/dev/null | tr -d ' ') == "$(id -u)" ]] &&
     [[ $(/bin/ps -p "$pid" -o command= 2>/dev/null) == '/usr/bin/caffeinate -i' ]]; then
-    kill "$pid" 2>/dev/null && stopped_old=1
+    kill "$pid" 2>/dev/null && stopped=1
   fi
   rm -f "$pid_file"
 fi
@@ -87,17 +75,25 @@ case ${0##*/} in
 EOF
     chmod 644 "$tmp"
     mv -f "$tmp" "$plist"
-    launchctl enable "$domain/$label"
-    launchctl bootstrap "$domain" "$plist"
+    "$launchctl" enable "$domain/$label"
+    "$launchctl" bootstrap "$domain" "$plist"
     echo 'Keeping the Mac awake, also after a restart. Run agent-sleep when done.'
     ;;
   agent-sleep|paseo-sleep)
-    if launchctl bootout "$domain/$label" >/dev/null 2>&1 || [[ -n $stopped_old ]]; then
+    if loaded; then
+      "$launchctl" bootout "$domain/$label" || true
+      if loaded; then
+        echo "Could not unload $label; keep-awake is still on." >&2
+        exit 1
+      fi
+      stopped=1
+    fi
+    rm -f "$plist"
+    if [[ -n $stopped ]]; then
       echo 'Stopped keep-awake; normal sleep is allowed.'
     else
       echo 'Keep-awake is already stopped; normal sleep is allowed.'
     fi
-    rm -f "$plist"
     ;;
   *) echo "Run this command as agent-awake or agent-sleep." >&2; exit 2 ;;
 esac
