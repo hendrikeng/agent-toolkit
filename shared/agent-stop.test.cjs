@@ -60,7 +60,7 @@ test('refuses pid 1, the caller chain, protected hosts, groups, and malformed ta
 
 test('--port stops the listening process and reports a free port as not found', darwin, async t => {
  const f = fixture(t)
- const server = await f.start(f.root, "const s = require('node:net').createServer().listen(0, '127.0.0.1', () => console.log('ready', s.address().port))")
+ const server = await f.start(f.root, "const s = require('node:net').createServer().listen(0, '127.0.0.1', () => console.log('ready', String(s.address().port)))")
  const port = server.output.trim().split(' ')[1]
  const result = stop('--port', port)
  assert.equal(result.stdout, `port ${port} pid ${server.pid}: stopped (TERM)\n`)
