@@ -1,6 +1,8 @@
 # Claude sandbox for agent work
 
-This guide gives a Claude Code sandbox configuration for Toolkit and TRACN work on macOS.
+This guide gives an optional Claude Code sandbox configuration for Toolkit and TRACN work on macOS.
+The Toolkit default is the sandbox off and sessions in auto mode. See [Permissions and sandbox](../README.md#permissions-and-sandbox).
+With the sandbox on, Chromium, Railway SSH, Neo4j Bolt, and other non-HTTP database drivers need the escape for each call.
 The sandbox is enforced by the operating system. It applies in `bypassPermissions` mode and to all child processes, including Python and Node scripts.
 With the sandbox on, shell commands can write only to the working directory, added directories, and `$TMPDIR`.
 

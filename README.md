@@ -205,6 +205,13 @@ Verify `running` status with `paseo plugin ls`. Disable it with `paseo plugin di
 
 ## Permissions and sandbox
 
+Recommended setup: run sessions in auto mode (the Toolkit profiles use it), with the Claude sandbox off.
+In auto mode, the auto-mode classifier reviews each shell command before it runs, and Claude Code never auto-approves `rm` or `rmdir` on critical paths such as the home folder.
+Auto mode asks the user only for protected paths, ask rules, and explicit questions. The Paseo tool-trust plugin approves agents' own memory notes, and its permission log shows what still asks.
+Do not use `bypassPermissions` mode for unattended work: it skips the classifier.
+The sandbox is optional. On macOS it blocks Chromium, SSH keys, and database drivers that cannot use its proxy, so these commands need the escape each time.
+Keep a backup of the machine, such as Time Machine, because neither mode is an OS boundary without the sandbox.
+
 The installer keeps existing provider and host permissions. It adds no workspace scope, credential denies, or Git guards. Approval prompts are not an OS sandbox.
 The [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
 `scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a backup.
