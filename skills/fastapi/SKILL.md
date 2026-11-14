@@ -11,15 +11,18 @@ Follow the repository's supported Python, FastAPI, and Pydantic versions and its
 
 ## Compatibility First
 
-Inspect the pinned FastAPI version and available APIs before using examples below. Do not upgrade FastAPI just to use a newer pattern. In particular, `app.frontend()`, `router.frontend()`, `fastapi.sse`, and directly yielding from a path operation are latest-version features and may be unavailable in existing projects; use the compatible alternatives noted below.
+Inspect the pinned FastAPI version and available APIs before using examples below. Do not upgrade FastAPI just to use a newer pattern. In particular, `app.frontend()`, `router.frontend()`, `fastapi.sse`, directly yielding from a path operation, native OpenTelemetry support, `Depends(max_concurrency=...)`, and multiple or optional parameter models are latest-version features and may be unavailable in existing projects; use the compatible alternatives noted below or the project's existing patterns.
 
 ## Quick Reference
 
 * Serve frontend apps: when the installed version provides them, use `app.frontend()` or `router.frontend()`; otherwise keep the project's `StaticFiles` setup. See [Serve Frontend Apps](#serve-frontend-apps).
+* Frontend and API clients: reuse the project's generated SDK and generation setup. When adding a client, prefer generating it from the app's OpenAPI schema. Regenerate it when the API schema changes, and avoid editing generated files manually. See [Generating SDKs](https://fastapi.tiangolo.com/advanced/generate-clients/).
 * Server-Sent Events (SSE): when `fastapi.sse` is available, use `response_class=EventSourceResponse` and `yield`; otherwise use the project's SSE integration or an explicit `StreamingResponse`. See [Streaming](#streaming-json-lines-sse-bytes) and [the streaming reference](references/streaming.md).
 * JSON Lines and byte streaming: direct `yield` path operations are version-dependent; `StreamingResponse` is the compatible fallback. See [the streaming reference](references/streaming.md).
-* Dependencies: use `Annotated[..., Depends(...)]`; see [Dependency Injection](#dependency-injection) and [the dependency injection reference](references/dependencies.md) for `yield`, scopes, and class dependencies.
+* OpenTelemetry: when the installed version supports it, use FastAPI's native traces, metrics, and logs. See [OpenTelemetry](#opentelemetry).
+* Dependencies: use `Annotated[..., Depends(...)]`; see [Dependency Injection](#dependency-injection) and [the dependency injection reference](references/dependencies.md) for `yield`, scopes, concurrency limits, and class dependencies.
 * Response models: prefer return types; use `response_model` when the public response schema differs from the internal return value; see [the response reference](references/responses.md).
+* Parameter models: `Query`, `Header`, `Cookie`, and `Form` support multiple models and optional groups. See [the parameter models reference](references/parameter-models.md) for declarations, form unions, and extra-field behavior.
 * Pydantic models: do not use ellipsis or `RootModel`; see [the Pydantic reference](references/pydantic.md).
 * Routing: declare router-level prefix, tags, and shared dependencies on the `APIRouter`; see [the path operation reference](references/path-operations.md).
 * Tooling and related libraries: use uv, Ruff, ty, Asyncer, SQLModel, and HTTPX when applicable; see [the other tools reference](references/other-tools.md).
@@ -219,13 +222,25 @@ app.mount("/", StaticFiles(directory="dist", html=True), name="frontend")
 
 Add a root mount after API routes, and preserve any existing SPA fallback behavior.
 
+## OpenTelemetry
+
+When the installed FastAPI version provides it, prefer FastAPI's native OpenTelemetry support for request traces, metrics, and logs.
+
+Install `fastapi[standard]` to include the SDK and HTTP/protobuf exporters. Enable automatic exporter setup with `FASTAPI_OTEL_AUTO_CONFIGURE=true`, set `OTEL_SERVICE_NAME` to identify the app, and set `OTEL_EXPORTER_OTLP_ENDPOINT` to the collector's HTTP/protobuf base URL. Use `OTEL_EXPORTER_OTLP_HEADERS` when authentication is required. FastAPI uses providers configured by another telemetry library without needing automatic setup.
+
+Use `FastAPI(telemetry={...})` for custom configuration, such as choosing signals or supplying providers.
+
+See the [OpenTelemetry tutorial](https://fastapi.tiangolo.com/advanced/opentelemetry/) for configuration details.
+
 ## Dependency Injection
 
 Use dependencies when the logic can't be declared in Pydantic validation, depends on external resources, needs cleanup with `yield`, or is shared across endpoints.
 
 Apply shared dependencies at the router level via `dependencies=[Depends(...)]`.
 
-See [the dependency injection reference](references/dependencies.md) for detailed patterns including `yield` with `scope`, and class dependencies.
+When concurrent dependency calls could exhaust a shared resource, use `Depends(max_concurrency=...)`. Read [dependency concurrency](references/dependencies.md#limit-dependency-concurrency) to choose the limit and share it across routes.
+
+See [the dependency injection reference](references/dependencies.md) for `yield` with `scope`, concurrency limits, and class dependencies.
 
 ## Async vs Sync *path operations*
 

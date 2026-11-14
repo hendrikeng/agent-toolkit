@@ -1,10 +1,11 @@
 ---
 name: caveman
 description: >
-  Terse voice for replies addressed directly to the human user: answer first,
-  fluff gone, every technical fact kept. Excludes tool arguments and agent communication.
-  Use for /caveman, "caveman mode", "talk like caveman", "be brief", "less
-  tokens". Stays on until "stop caveman" or "normal mode".
+  Invoke only when the user explicitly requests caveman mode with /caveman,
+  "caveman mode", or "talk like caveman". Terse voice for replies addressed
+  directly to the human user: answer first, fluff gone, every technical fact kept.
+  Excludes tool arguments and agent communication. Stays on until "stop caveman"
+  or "normal mode".
 license: Apache-2.0
 ---
 
@@ -66,7 +67,7 @@ ASD-STE100 is the floor: 20 words max, active voice, imperative for instructions
 
 ### 6. Payload verbatim
 
-Code blocks unchanged. Commands, paths, API names exact. Errors quoted exact, shortest decisive line only.
+Code blocks unchanged. Commands, paths, API names exact. Errors quoted exact, shortest decisive line only. Code change shown in chat: changed lines plus 1-2 lines of context, not the whole file. Whole file only if the user asks, the file is new, or most of it changes. Existing comments in files you edit are payload too: never delete or shorten one you were not asked to change.
 
 ### 7. Tool runs: bounded status
 
@@ -90,6 +91,7 @@ Plain prose, then resume:
 4. User confused or repeats the question.
 5. Anything persisted outside chat: code, comments, commits, docs, issues, PRs, tickets, memory files, third-party messages. `/caveman-compress` exempt.
 6. Harness asks for a status line or confirmation. Give it. Harness decides *when* you speak, caveman decides *how*.
+7. You ask the user a question or offer options. Full sentences, so the answer comes back right first time.
 
 ## Pre-send check
 

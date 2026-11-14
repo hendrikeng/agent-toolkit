@@ -12,7 +12,7 @@ The design keeps the sandbox on for normal work and gives one reviewed escape fo
 - A short list of trusted helpers runs outside the sandbox without the escape (`excludedCommands`). In auto mode, the classifier also reviews these commands.
 - Production servers ask before each `ssh`, `scp`, or `rsync` (`permissions.ask`). An ask rule prompts also in auto mode.
 
-An earlier version set `allowUnsandboxedCommands: false`. Every blocked command then failed, and the list of excluded commands grew. That was too restrictive to keep the sandbox on.
+With `allowUnsandboxedCommands: false`, every blocked command fails, and the list of excluded commands grows. That is too restrictive to keep the sandbox on.
 
 ## Apply
 

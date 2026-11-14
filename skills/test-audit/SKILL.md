@@ -23,7 +23,7 @@ If an answer is missing, do not add the test. Give each contract one primary tes
 
 Prefer an existing table, fixture, or owner-boundary test over a near duplicate. A test that breaks after a behavior-preserving refactor usually tests implementation instead of behavior.
 
-A bug regression test must fail on the pre-fix code for the intended reason and pass after the owner-boundary fix. Do not repeat the same regression at each layer that it crosses.
+A bug regression test must fail on the pre-fix code for the intended reason and pass after the owner-boundary fix. If you cannot show the pre-fix failure, report that. Do not repeat the same regression at each layer that it crosses.
 
 ## Low-value patterns
 
@@ -82,7 +82,8 @@ Do not add replacement tests that restate the same implementation. Prefer net-ne
 1. Run the smallest owner and sibling tests.
 2. For a removed source search or plan assertion, run the executable owner or its dry run.
 3. Run targeted formatting and `git diff --check`.
-4. Inspect the final diff. Report production code separately from tests and test support.
+4. After you remove tests, run the repository's dead-code or unused-export check, if it has one. Removed tests can leave orphaned support files and exports.
+5. Inspect the final diff. Report production code separately from tests and test support.
 
 ## Report
 

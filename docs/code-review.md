@@ -11,6 +11,16 @@ Match the reviewer to the provider family of the agent that requests the review.
 claude -p "/code-review medium [target]" --model claude-opus-5-5 --effort medium --safe-mode --setting-sources user --permission-mode dontAsk --strict-mcp-config --allowedTools "Read Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git ls-files *)" --disallowedTools "Bash(*--output*) Bash(*--ext-diff*)" < /dev/null
 ```
 
+### Threat note
+
+If the change touches code that runs outside a sandbox or with more rights than its caller (helpers, installers, CLIs, hooks), add a threat note after the target. The reviewer reads text after the level as extra instructions. Example:
+
+```sh
+claude -p "/code-review medium Threat model: helpers excluded from the sandbox run unsandboxed, so environment variables, argv, PATH, and cwd from the calling agent are attacker-controlled." ...
+```
+
+For Codex, put the same note in the `[PROMPT]` argument of `codex exec review`.
+
 ## Codex
 
 ```sh

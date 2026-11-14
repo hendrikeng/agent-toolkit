@@ -2,19 +2,15 @@
 
 One shared skill collection for Codex and Claude Code, in native Paseo or a terminal. Start with normal provider commands.
 
-The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
+The Toolkit has three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`.
+It supplies no custom permission engine, provider sandbox, Git wrapper, or executable coding-guidance hook.
 
-Replies addressed directly to the human user are brief and keep every technical fact. The pinned [Caveman skill](skills/caveman/SKILL.md) is available on request (`/caveman`).
-It removes filler and keeps technical meaning. Use `normal mode` or request more detail when needed.
-Tool arguments, delegation briefs, agent messages, worker reports, and handoffs use normal English with complete sentences and normal spacing.
-This exclusion also applies to worker reports addressed to a coordinator and agent messages visible in the user timeline.
-Documentation uses Simple English. Toolkit installs only Caveman skill text, without its proxy, runtime, or hooks.
-Shorter replies can reduce output tokens. This does not guarantee a reduction in reasoning tokens or total subscription usage.
+Replies to the human user are brief and keep every technical fact. The pinned [Caveman skill](skills/caveman/SKILL.md) is available on request (`/caveman`). Use `normal mode` to stop it.
+Tool arguments, delegation briefs, agent messages, worker reports, and handoffs always use normal English.
 
 ## Install and start
 
-Use Node.js 24, npm, Git, Python 3.11+, and your chosen provider CLIs. Toolkit does not install or upgrade provider CLIs.
-It preserves selected models and accounts. Install the official Paseo skills through Paseo for host operations.
+Use Node.js 24, npm, Git, Python 3.11+, and your chosen provider CLIs. The Toolkit does not install or upgrade provider CLIs. Install the official Paseo skills through Paseo.
 
 From a trusted human terminal:
 
@@ -26,46 +22,30 @@ npm ci --prefix shared --ignore-scripts --no-audit --no-fund
 ./install.sh
 ```
 
-Normal installation configures reviewer networking and standing authorization for reviews and scoped advisers.
-To retain your current provider permissions, use:
+To keep your current provider permissions, use:
 
 ```sh
 ./install.sh --preserve-permissions
 ```
 
-Run installation from a trusted human terminal. Normal installation updates the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, using their normal defaults when absent.
-Codex retains workspace file restrictions and enables command network access with automatic approval review.
-If Claude `settings.json` already has a `sandbox` object, the installer adds `api.openai.com`, `chatgpt.com`, `auth.openai.com`, and `api.anthropic.com` to `sandbox.network.allowedDomains`.
-The installer never turns the Claude sandbox on and sets no other sandbox key. Only `scripts/apply-claude-sandbox.sh` turns the sandbox on. See the [Claude sandbox guide](docs/claude-sandbox.md).
-Existing Claude domain denies stop setup for reconciliation. Models, accounts, file boundaries, and unrelated settings remain intact.
-Claude `WebFetch(domain:...)` deny rules also stop conflicting setup.
-Existing Codex named permission profiles or other filesystem modes require `--preserve-permissions` or reconciliation from a trusted human terminal.
-The selected provider instructions record authorization for normal review and scoped adviser model requests. Adviser investigations still require task authorization.
-Repeat installs retain this authorization. Before the installer changes a Claude `settings.json` or Codex `config.toml`, it copies the original file to the install backup folder. An install that does not change a file makes no copy of it. Failed deployment restores the original configs.
-The former `--review-network` option remains accepted, with the same behavior as normal installation.
+The installer refuses noninteractive invocation. Do not run it from an agent to repair that agent's security boundary. The former `--review-network` option is the same as normal installation.
 
-Add `~/.local/bin` to `PATH` for PostgreSQL helpers. Restart old sessions, then use:
+Normal installation changes the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR` (normal defaults when not set):
+
+- It copies Git-tracked `skills/` files and the helpers to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to these copies, never to the checkout.
+- It appends one marked instruction block to each provider instruction file, with review authorization from `shared/review-authorization.md`. Human text stays unchanged.
+- Codex keeps workspace file restrictions and gets command network access with automatic approval review.
+- If Claude `settings.json` has a `sandbox` object, it adds `api.openai.com`, `chatgpt.com`, `auth.openai.com`, and `api.anthropic.com` to `sandbox.network.allowedDomains`. It never turns the sandbox on.
+- It backs up each Claude `settings.json` or Codex `config.toml` before it changes it, and restores them if deployment fails.
+
+`--preserve-permissions` skips the permission and network changes. Existing Claude domain denies, `WebFetch(domain:...)` deny rules, Codex named permission profiles, or other Codex filesystem modes stop normal installation. Use `--preserve-permissions` or reconcile them first.
+
+Source edits do not deploy until a human installs again. Add `~/.local/bin` to `PATH` for the helpers. Restart old sessions, then use:
 
 ```sh
 codex
 claude
 ```
-
-For optional native Paseo profiles, run this command after installation from a trusted human terminal on the daemon machine:
-
-```sh
-./setup-paseo.sh
-```
-
-Use the intended local `PASEO_HOME`. A host selected in a phone or desktop client does not select this command's daemon.
-See the [profile setup and instructions](docs/paseo-profiles.md).
-
-The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits do not deploy changes. Normal installation configures reviewer networking from a trusted human terminal. The `--preserve-permissions` option leaves provider permissions unchanged. Start fresh sessions after setup. In Paseo, select Codex Auto-review mode to retain automatic approval review.
-
-The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It copies only Git-tracked files under `skills/`. Untracked local skill folders are not installed. It appends a marked instruction block without replacing human instructions. The block text for review authorization comes from `shared/review-authorization.md`.
-
-Copies include skill-local scripts and PostgreSQL helpers. Installation does not make the checkout read-only.
-Editing a source script cannot change an installed executable until a human installs it again.
 
 ### Provider discovery
 
@@ -74,117 +54,8 @@ Editing a source script cannot change an installed executable until a human inst
 | Codex | `~/.agents/skills/<name>` | `$CODEX_HOME/AGENTS.md`, default `~/.codex/AGENTS.md` |
 | Claude Code | `$CLAUDE_CONFIG_DIR/skills/<name>`, default `~/.claude/skills` | `$CLAUDE_CONFIG_DIR/CLAUDE.md`, default `~/.claude/CLAUDE.md` |
 
-Codex and Claude symlinks resolve to the same installed collection.
-These are [Codex's supported skill paths](https://developers.openai.com/codex/skills/) and [Claude's personal skill mechanism](https://code.claude.com/docs/en/skills).
-Full skill bodies load on demand.
-
-Toolkit honors `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `PASEO_HOME` during installation. It also adds guidance to existing `~/.codex-accounts/*/` account homes. Install with the same directory overrides you use to start a provider. It stops if `AGENTS.override.md` would hide the Codex block.
-
-Installing another provider home preserves the first home's discovery links, instruction files, and ownership records. Obsolete links retire only in the discovery folders being updated. Reinstall each home to refresh its startup guidance. All homes share the copied skill resources.
-
-### Startup instructions and full skills
-
-The [small shared block](shared/AGENTS.md) supplies startup guidance through the native instruction files in the table. Each provider controls message roles and precedence. The block does not replace the provider's system prompt or the user's existing instructions.
-
-The block tells the agent to load Ponytail full for coding tasks and Test Audit for test work. Before Markdown documentation work, it requires a full Simple English read. This includes creating, editing, reviewing, or auditing README.md, AGENTS.md, CLAUDE.md, SKILL.md, and Markdown prompt files. The default is pragmatic mode. Code, commands, identifiers, paths, and quoted output stay exact. No explicit Simple English command is required.
-
-The block also defines review gates, database-test precautions, and the session owner's host guidance. Skill discovery supplies skill names and descriptions. The agent reads the full `SKILL.md` when the task requires it or you request it explicitly. Discovery alone does not load every skill body.
-
-For explicit loading:
-
-| Provider | Ponytail | Test Audit |
-|---|---|---|
-| Codex | `$ponytail full` | `$test-audit` |
-| Claude Code | `/ponytail full` | `/test-audit` |
-
-Startup guidance replaces the old Ponytail coding hooks. Shared instructions are essential, but native instruction files already supply them. Paseo setup offers a separate, default-off compact System Prompt context that references installed guidance. Instructions guide the model. They do not enforce permissions or guarantee model behavior.
-The extra Paseo prompt is not required for task-skill discovery or coding guidance.
-Its purpose is to identify fresh Paseo ownership, default primary delivery sessions to Orchestrator, and reference shared role guidance.
-Enable this compact context if you want orchestration as the primary default without repeating the role in each task prompt.
-Explicit roles, native Plan mode, and delegated assignments take precedence. Small tasks still finish directly.
-Official Paseo skills describe native tools. Tool injection and browser access still require deliberate host enablement.
-If the existing host context already supplies these references, the extra prompt is optional.
-
-## Shared skills and review policy
-
-On macOS, run `agent-awake` before agent work and `agent-sleep` when finished.
-The `paseo-awake` and `paseo-sleep` aliases control the same hold.
-`agent-awake` installs the LaunchAgent `~/Library/LaunchAgents/com.agent-toolkit.awake.plist`.
-The LaunchAgent runs the built-in `caffeinate -i` to prevent idle system sleep. The screen can still turn off.
-launchd starts `caffeinate` again after a crash, and after a restart when you log in.
-Thus the hold stays on until you run `agent-sleep`. A change to the `pmset` settings is not necessary.
-`agent-sleep` removes the LaunchAgent. Then the Mac sleeps normally.
-Run `agent-awake --status` to show the LaunchAgent state and the active `caffeinate` hold.
-Earlier versions kept a PID file in `${XDG_STATE_HOME:-~/.local/state}/agent-toolkit/caffeinate.pid`.
-The next `agent-awake` or `agent-sleep` stops that tracked process and removes the file.
-The commands use the built-in `lockf` to serialize simultaneous calls.
-
-Run `agent-display-off` to turn off the displays after a three-second delay. After you press Enter, stop keyboard and mouse input.
-The command does not change the system sleep settings or the `agent-awake` hold.
-Agents can run the command on request. A macOS Shortcut can run the same command for keyboard access.
-
-| Skill | When to use it |
-|---|---|
-| Caveman | On request only (`/caveman`): terse replies to the human user. Agent communication and tool arguments use normal English. |
-| Ponytail | Coding tasks; full mode prefers the smallest correct solution |
-| Test Audit | Writing, changing, reviewing, or auditing tests |
-| Python, FastAPI, Fastify, Vue | Work in the corresponding language or framework |
-| Simple English | Automatic for Markdown documentation work; explicit checks or rewrites of other technical text |
-| Ponytail Review | Explicit complexity review, or a qualifying publication boundary |
-| Ponytail Audit | Explicit whole-repository complexity audit; findings only |
-| Ponytail Debt | Explicit report of `ponytail:` shortcuts and revisit conditions |
-| Security Audit | Explicit request only (`/security-audit`); Cloudflare's security guidance; a full repository audit runs only on an explicit audit request |
-| React Doctor | Explicit request only; pinned deterministic React scan |
-
-Ponytail Audit and Debt are optional maintenance tools.
-The historical `ponytail-gain` scoreboard is intentionally omitted; it does not improve coding, review, or permission behavior.
-
-Automatic reviews occur only when the user requests a commit, push, PR, merge, or ship boundary. Passing tests or finishing an edit never triggers one. First inspect the change and run focused deterministic checks.
-
-- Ponytail Review applies to a new dependency, abstraction, layer, configurable surface, or at least 150 changed non-test, non-documentation lines.
-- A native code review applies to authentication, security, secrets, money, persisted data, schemas, migrations, concurrency, public APIs, installation, upgrades, release machinery, or at least 200 changed non-test, non-documentation lines.
-- Review an unchanged bundle once across boundaries. Verify advisory findings. After an accepted review fix, rerun affected checks and that review.
-- `reviews:off` disables automatic reviews; `reviews:auto` restores the gates. Explicit reviews remain available. There are no Git review hooks.
-
-Each provider runs its native review as a separate headless process from the repository or worktree root, at medium effort.
-The reviewer matches the provider family of the agent that requests the review. Other provider families use Codex.
-
-The exact commands are in the Reviews section of [shared/AGENTS.md](shared/AGENTS.md). Claude uses `/code-review medium` with read-only tools. Codex uses `codex exec review` with `gpt-6.1-sol` at medium reasoning.
-A review takes about 1-4 minutes. Run it in the background or with a long timeout.
-
-Findings are advice. Verify each finding against the code.
-Fix confirmed correctness, security, and data-loss problems inside the task scope. Report other confirmed problems as follow-ups.
-Skip style, duplication, and performance findings unless they are in the task scope.
-If the native reviewer is unavailable or fails, report it. A switch to another provider needs explicit user authorization.
-Do not retry after permission denials, approval-review rejections, or explicit task prohibitions.
-
-Toolkit replaced its former AutoReview skill with these native reviews on 2026-11-14.
-In a benchmark of 5 past commits with 14 known bugs, Claude Code `/code-review medium` found 8 bugs. AutoReview found 1 at medium effort and 0 at high effort.
-
-Codex's automatic approval reviewer is separate from code review. It can reject network access even when the user requested code review. Toolkit instructions do not override native permissions. See [Codex automatic approval review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
-
-For recurring reviews, a human can put this explicit standing authorization in the applicable repository instructions:
-
-```text
-For explicitly requested reviews and Toolkit's required publication reviews, I authorize the native reviewer of the requesting agent's provider to send the selected review source and context through its normal model requests. Claude agents use Claude, and Codex agents use Codex. Explicit reviewer choices take precedence. A switch to another provider needs my explicit authorization. This does not authorize permission bypasses, Cloud tasks, other providers, account changes, unrelated files, credentials, or production data.
-```
-
-This wording clarifies authorization. It does not guarantee approval or grant network access.
-A human can configure a [permission profile](https://learn.chatgpt.com/docs/permissions) with workspace file restrictions and command network access.
-Domain restrictions require the network proxy. Choose destinations for the actual Codex authentication route, not only `api.openai.com`.
-Paseo launch settings can override provider defaults. Verify the effective permissions in a fresh session.
-Normal `./install.sh` installs this authorization for selected provider homes and configures their reviewer networking.
-The `--preserve-permissions` option skips these changes and retains any previously installed authorization.
-Earlier task-specific transmission blocks remain binding until the user explicitly revokes them in that task's session.
-
-For explicit manual skills:
-
-```text
-Claude: /react-doctor changed
-Codex:  $react-doctor changed
-```
-
-Use the same syntax with `security-audit`. A full Security Audit starts many agents and can cost much. Read its skill and agree on the scope and budget with the user first. See the Security section of [docs/code-review.md](docs/code-review.md).
+The installer honors `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `PASEO_HOME`, and also adds guidance to existing `~/.codex-accounts/*/` homes.
+It stops if `AGENTS.override.md` would hide the Codex block. Install with the same overrides that you use to start a provider. Each home keeps its own links and records.
 
 Codex CLI account selection is independent:
 
@@ -192,220 +63,174 @@ Codex CLI account selection is independent:
 CODEX_HOME="$HOME/.codex-accounts/work" codex
 ```
 
-A newly created Codex account home receives its own native configuration choices; Toolkit does not mirror a previous account's settings. Run installation again to append shared guidance to new account homes. Preserve provider aliases, models, reasoning, and credentials in each home.
+Run installation again after you create a new account home.
+
+### Startup instructions and full skills
+
+The [shared block](shared/AGENTS.md) loads through the native instruction files.
+It tells the agent to load Ponytail full for coding, Test Audit for test work, and Simple English (pragmatic) before Markdown documentation work. It also sets review gates, database-test precautions, and host guidance.
+The agent reads a full `SKILL.md` only when the task needs it. Instructions guide the model. They do not enforce permissions.
+
+| Provider | Ponytail | Test Audit |
+|---|---|---|
+| Codex | `$ponytail full` | `$test-audit` |
+| Claude Code | `/ponytail full` | `/test-audit` |
+
+## Skills and review policy
+
+| Skill | When to use it |
+|---|---|
+| Caveman | On request only (`/caveman`): terse replies to the human user |
+| Ponytail | Coding tasks; full mode prefers the smallest correct solution |
+| Test Audit | Writing, changing, reviewing, or auditing tests |
+| Python, FastAPI, Fastify, Vue | Work in that language or framework |
+| Simple English | Automatic for Markdown documentation; explicit checks of other technical text |
+| Ponytail Review | Explicit request only (`/ponytail-review`); quality review of a change |
+| Ponytail Audit | Explicit request only (`/ponytail-audit`); quality audit of the whole repository, findings only |
+| Ponytail Debt | Explicit report of `shortcut:` and older `ponytail:` markers |
+| Security Audit | Explicit request only (`/security-audit`); Cloudflare's security guidance |
+| React Doctor | Explicit request only; pinned deterministic React scan |
+
+Manual skills use the provider syntax:
+
+```text
+Claude: /react-doctor changed
+Codex:  $react-doctor changed
+```
+
+A full Security Audit starts many agents and can cost much. Agree on the scope and budget with the user first.
+
+Automatic reviews run only when the user requests a commit, push, PR, merge, or ship boundary. First inspect the change and run focused deterministic checks.
+
+- Native code review: authentication, security, secrets, money, persisted data, schemas, migrations, concurrency, public APIs, installation, upgrades, release machinery, or at least 200 changed non-test, non-documentation lines.
+- Review an unchanged bundle once. After an accepted review fix, run the affected checks and that review again.
+- `reviews:off` stops automatic reviews and `reviews:auto` restores them. Explicit reviews stay available. There are no Git review hooks.
+
+The reviewer matches the provider family of the requesting agent. Other families use Codex. Claude uses `/code-review medium` with `claude-opus-5-5`. Codex uses `codex exec review` with `gpt-6.1-sol` at medium reasoning.
+The [code review commands](docs/code-review.md) give the exact commands, tool limits, and the pre-push secret scan. A review takes about 1-4 minutes.
+Native reviews replaced AutoReview on 2026-11-14 (8 of 14 known bugs found, against 1).
+
+Findings are advice. Verify each one. Fix confirmed correctness, security, and data-loss problems in scope, and report the others as follow-ups.
+If the reviewer fails, report it. A switch to another provider needs explicit user authorization. Do not retry after a permission denial or rejection.
+Codex automatic approval review is separate and can reject reviewer network access.
+
+For a repository-level standing authorization, a human can add this text to the repository instructions:
+
+```text
+For explicitly requested reviews and Toolkit's required publication reviews, I authorize the native reviewer of the requesting agent's provider to send the selected review source and context through its normal model requests. Claude agents use Claude, and Codex agents use Codex. Explicit reviewer choices take precedence. A switch to another provider needs my explicit authorization. This does not authorize permission bypasses, Cloud tasks, other providers, account changes, unrelated files, credentials, or production data.
+```
+
+This text does not grant network access. Earlier task-specific transmission blocks stay binding until the user revokes them.
 
 ## Native Paseo
 
-The small shared block selects host guidance only from the current session's ownership context. Skill availability or an installed host binary does not establish ownership. If it is unclear, ask before delegation, browser control, handoff, or cleanup; ordinary coding can continue.
-
-Native Paseo uses normal providers, its native permission modes, and official Paseo skills. Toolkit never installs, overwrites, or duplicates those skills. Ordinary installation leaves Paseo configuration unchanged. The optional trusted-terminal setup adds missing profiles and offers a separate, default-off System Prompt context. It preserves customized profiles, human text, and provider security settings. Profile notes, account aliases, provider/model/reasoning choices, and asynchronous lifecycle rules come from the official skills. Paseo browser control uses Paseo's enabled browser host.
-
-Paseo launches the installed providers with their configuration and skills. The same native discovery paths serve sessions in Paseo and ordinary terminals. Toolkit installation belongs on the machine and under the user account that runs the Paseo daemon. A phone or remote desktop client does not supply that daemon's skill files. See [Paseo providers](https://paseo.sh/docs/providers).
-
-The startup block must reach the provider home that Paseo uses. A terminal can select a separate account through `CODEX_HOME`.
-Installation writes guidance to that home and existing `~/.codex-accounts/*/` homes.
-It writes to `~/.codex` only when that home is selected. The shared Codex skill directory remains `~/.agents/skills`.
-
-Before installation, inspect the host's provider configuration and your terminal's directory overrides:
+Install the Toolkit on the machine and user account that run the Paseo daemon.
+The startup block must reach the provider homes that Paseo uses. Inspect the overrides before installation:
 
 ```sh
 printenv CODEX_HOME CLAUDE_CONFIG_DIR PASEO_HOME
 ```
 
-If no override exists, the command prints no value for that variable. Use the same provider homes for installation and fresh sessions. For hosts with different homes, run the same installer for each intended configuration from a trusted terminal. Preserve each home's accounts, models, permissions, and human instructions. A successful install into one account does not prove startup guidance in another account.
+Host guidance comes from the ownership context of the session, not from installed binaries. If the owner is unclear, ask before delegation, browser control, handoff, or cleanup. A resumed session keeps its owner.
+The [Paseo worktree guide](docs/paseo-worktrees.md) covers project setup, cross-repository workers, previews, service pairs, and cleanup.
 
-Handoffs require explicit ownership. A resumed session keeps its original owner. Collect results before integrating or archiving disposable work; keep unresolved and user-retained resources. Do not archive the active user workspace or a handoff recipient. No timer-based collector runs.
+### Profiles and setup
 
-The [central Paseo worktree guide](docs/paseo-worktrees.md) covers project setup, cross-repository workers, previews, and cleanup.
-Each project keeps its native `paseo.json`. The shared workflow stays in this Toolkit guide.
-The generic `paseo-service` command records explicit cross-workspace service pairs and resolves current ports at consumer startup.
-See the guide for environment-loader ordering, small application integration, and required restarts.
-
-### Recommended native Paseo profiles
-
-Use four roles, a dedicated UI Worker specialization, and a High effort Orchestrator, each with a Codex and Claude choice: twelve optional native profiles.
-Create only the profiles that you use. These are presets, not twelve running agents.
-The [complete profile guide](docs/paseo-profiles.md) supplies exact fields, selection notes, instruction text, permission explanations, and acceptance steps.
-After installation, create the profiles automatically from a trusted human terminal:
+After installation, run this command on the daemon machine with the intended local `PASEO_HOME`:
 
 ```sh
 ./setup-paseo.sh
 ```
 
-The command uses installed resource copies and Paseo's native CLI. It honors `PASEO_HOME` for a running local daemon.
-Select each intended account alias and permission mode once, or enter `-` to skip a provider family.
-Choose whether to add the compact System Prompt context separately. The default leaves the prompt unchanged.
-One save confirmation applies the selected changes. Customized profiles remain unchanged.
-Setup also offers the guarded Codex Adviser migration described in the update instructions.
-Private backups and ownership receipts protect deliberate recovery. This does not enable tool injection or launch workers.
-Setup also offers the included Paseo tool-trust plugin. The default accepts it at the setup save confirmation.
-This enables Paseo's global plugin switch and installs trusted, unsandboxed code through the native CLI.
-The plugin approves only Paseo MCP tools on a name allowlist, for Codex and Claude:
-- Discovery and status: the `list_*` tools, `get_agent_status`, `get_agent_activity`, `inspect_provider`, `inspect_schedule`, and `schedule_logs`.
-- Worker cleanup: `cancel_agent` and `archive_agent`. Archive is a soft delete.
-- Workspaces: `create_workspace` and `rename_workspace`.
+It adds up to six missing presets for each provider family. Select an account alias and a permission mode, or enter `-` to skip a family. Customized profiles stay unchanged, and private backups protect recovery.
+It also offers:
 
-For Claude, it also approves `create_agent`, `update_agent`, and `set_agent_mode` when the call names a safe mode.
-A call without a mode gets a prompt, because the plugin does not know the provider default mode.
-A call that requests `bypassPermissions`, `full-access`, or an unknown mode also gets a prompt.
-Codex requests do not include tool arguments, so these three tools always get a prompt for Codex.
-`send_agent_prompt` keeps its prompt, because it can send work to an agent with full access.
-Terminal tools, including `capture_terminal`, browser tools, schedule changes, `respond_to_permission`, `kill_agent`, and `archive_workspace` keep their prompts.
-It handles Default mode too. Other MCP servers, shell commands, questions, and URL authorization requests keep their existing approvals.
-Provider tool limits and browser enablement still apply. Trust does not authorize work outside the user's task.
-Run `./install.sh`, then `./setup-paseo.sh` from a trusted human terminal to deploy and enable this change.
-Verify `agent-toolkit-paseo-tool-trust` has `running` status with `paseo plugin ls`.
-Disable this trust with `paseo plugin disable agent-toolkit-paseo-tool-trust`.
-See [Paseo permission hooks](https://paseo.sh/docs/plugins/reference.md#lifecycle-hooks) and [tool configuration](https://paseo.sh/docs/mcp.md).
-Setup adds up to six missing presets per selected provider family. Use the native editor to create only individual presets.
-The [canonical presets](shared/hosts/paseo-profiles.json) supply new profile values.
-The compact [context block](shared/hosts/paseo-context.md) points fresh sessions to installed [role guidance](shared/hosts/paseo-roles.md).
-The actual task prompt still supplies the assigned role and task brief.
-`./install.sh` installs shared startup instructions in each selected provider home and copies the Paseo guidance.
-`./setup-paseo.sh` adds context to Paseo's native System Prompt (`daemon.appendSystemPrompt`) only when you select that option.
-That context directs the agent to the shared guidance, role instructions, and official Paseo skill for native tools.
-It does not replace human System Prompt text or install another copy of the official skills.
+- A default-off System Prompt context (`daemon.appendSystemPrompt`). It points to the [role guidance](shared/hosts/paseo-roles.md) and makes primary sessions Orchestrator by default. Without it, name the role in the first prompt.
+- The [Paseo tool trust](#paseo-tool-trust) plugin, accepted by default.
+- The guarded Codex Adviser High → Medium migration. See [profile updates](docs/paseo-profiles.md#updates-and-customization).
 
-Skill rules apply across profiles. Coding Workers load Ponytail full, and test work loads Test Audit.
-Every Markdown task requires Simple English, including documentation work assigned to a Worker, Planner, or Orchestrator.
-A separate Document Worker preset is optional convenience, not a requirement for these instructions.
-Use an ordinary Worker with a documentation objective and explicit file ownership.
-Profile names and selection notes do not automatically deliver these instructions or prove that an agent obeys them.
-These task-based defaults use your existing subscriptions:
+Create only the profiles that you use. In Paseo, select Codex Auto-review mode to keep automatic approval review.
 
 | Profile | Model | Thinking | Planning control | When to use |
 |---|---|---|---|---|
-| Toolkit Med - Codex Orchestrator | `gpt-6.1-sol` | Medium | `plan_mode: false` | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
-| Toolkit High - Codex Orchestrator | `gpt-6.1-sol` | High | `plan_mode: false` | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
-| Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
-| Toolkit High - Claude Fable Orchestrator | `claude-fable-5-2` | High | Existing non-`plan` mode | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
-| Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
-| Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | Native `plan` mode | A substantial implementation plan for later approval. For a straightforward plan, use the Med Claude Orchestrator in `plan` mode. |
-| Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation, debugging, and verification after authorization |
-| Toolkit Med - Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
-| Toolkit Med - Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
-| Toolkit Med - Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend components, responsive layouts, accessibility, styling, and visual verification |
-| Toolkit Med - Codex Adviser | `gpt-6.1-sol` | Medium | `plan_mode: false` | A completed recommendation or second opinion on a bounded question |
-| Toolkit Med - Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | A completed recommendation or second opinion on a bounded question |
+| Toolkit Med - Codex Orchestrator | `gpt-6.1-sol` | Medium | `plan_mode: false` | Primary session |
+| Toolkit High - Codex Orchestrator | `gpt-6.1-sol` | High | `plan_mode: false` | Hard primary work |
+| Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session |
+| Toolkit High - Claude Fable Orchestrator | `claude-fable-5-2` | High | Existing non-`plan` mode | Hard primary work |
+| Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | Substantial plan for later approval |
+| Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | Native `plan` mode | Substantial plan for later approval |
+| Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation and verification |
+| Toolkit Med - Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation and verification |
+| Toolkit Med - Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend, accessibility, and visual checks |
+| Toolkit Med - Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend, accessibility, and visual checks |
+| Toolkit Med - Codex Adviser | `gpt-6.1-sol` | Medium | `plan_mode: false` | Second opinion on a bounded question |
+| Toolkit Med - Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Second opinion on a bounded question |
 
-These profiles are launch presets. Select them for the tasks that need their roles.
-The Orchestrator can complete ordinary changes directly. Delegation needs useful scopes, explicit ownership, and sufficient task context.
-The Planner adds a repeatable native planning workflow. The Adviser returns a judgment through an analysis-only task prompt.
-Code review remains a separate role through native code reviews and Ponytail Review.
-
-Medium is the routine default for coordination, bounded implementation, simple planning, and advice.
-Codex Adviser defaults to Sol with Medium effort for bounded second opinions.
-Planner defaults to High for substantial planning that resolves design choices, dependencies, risks, and acceptance criteria before handoff.
-High also fits ambiguous architecture, difficult integration, security-sensitive work, concurrency, migrations, and difficult debugging.
-A small change can still need High. Select it before a difficult assignment rather than waiting for a failed attempt.
-Low is an optional adjustment for mechanical work with reliable checks and close supervision. It is not the saved Worker default.
-Adjust effort for the assignment through native controls. Honor an explicit human effort choice and explain any proposed adjustment.
-Keep the same profiles. For hard primary work, select `Toolkit High - Claude Fable Orchestrator` or `Toolkit High - Codex Orchestrator`. No other effort variants are required.
-
-These defaults are provisional, not measured optima. Higher effort can increase latency and usage without a useful improvement on routine tasks.
-Higher effort does not inherently cause overengineering. Scope, Ponytail guidance, and verification remain separate controls.
-OpenAI documents Medium as Sol's API default and recommends task-based comparison of Medium and High.
-API defaults do not establish Paseo defaults. Extra High and Max need evidence of a useful improvement.
-See [OpenAI reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning).
-Claude's current Opus 5.5 default is Medium. Anthropic recommends explicit Medium as the starting point for calibration.
-High targets harder work where verification and edge cases matter. Effort labels do not represent equal reasoning budgets across models.
-Sonnet 5.5 is an optional Worker choice after task-level comparison, without adding another profile.
-Astra remains an optional task-specific choice rather than the Codex Adviser default.
-At API prices, Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. Subscription usage weights are not published.
-The Claude High Orchestrator and Planner use Fable 5.2 at High. Anthropic reports good early-tester results with Fable as a planner and orchestrator for other models.
-All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily. Its notes and the Orchestrator role limit delegation to bounded work, and its workers and subagents use Opus.
+Medium is the routine default. Select High before a difficult assignment. Fable 5.2 costs two times more per API token than Opus 5.5.
 To make Opus the default for native subagents, set `CLAUDE_CODE_SUBAGENT_MODEL` to `claude-opus-5-5` in the `env` block of the Claude `settings.json`.
-Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
-See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config), [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5), and [Fable 5.2 guidance](https://platform.claude.com/docs/en/models/fable-5-2/overview.md).
+Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you do not use them.
 
-Use `./setup-paseo.sh` for automatic setup. The remaining steps describe the manual alternative:
-Create the profiles through Settings → your daemon host → Agents → Agent profiles → New profile.
-Use your intended existing provider/account alias for each family.
-Select each model and the table's thinking level explicitly.
-For the Codex Planner, select your intended native permission mode.
-Enable the discovered Plan feature (`plan_mode`).
-For the Claude Planner, select native Plan mode (`plan`). Do not copy Codex's feature into Claude settings.
-For Codex Orchestrator, Worker, UI Worker, and Adviser, select your intended existing native permission mode. Set `plan_mode` explicitly to false.
-For Claude Orchestrator, Worker, UI Worker, and Adviser, select your intended existing non-`plan` permission mode.
-If the host does not expose the required restrictions, leave that profile unvalidated. Do not substitute a more permissive mode.
-Keep Fast and other usage multipliers off where the host exposes them.
-Verify other active native workflow settings. Selecting Medium or High does not necessarily disable an existing Claude Ultracode preference.
-Save each profile's table description in **When to use**.
-After you save, ask your Paseo agent to inspect `list_profiles`.
-Verify explicit true and false values for the required features.
-If a required Off value is absent, set it On in the profile editor.
-Then set it Off. Save again. The inspected editor can display an unsaved default Off value.
-Keep your other profiles and account settings. Ordinary installation and updates do not reset saved profiles.
-The optional setup merges missing presets through native configuration commands. Profiles persist under `daemon.agentProfiles`.
-The profile array is a whole-list replacement, so setup preserves existing entries and detects ambiguous collisions.
-Keep other configuration writers idle during setup. Inspect reported backups after any partial save.
-No custom Paseo plugin or new SDK dependency is required.
-See the [supported automation route](docs/paseo-profiles.md#supported-automation-route) and [Paseo's profile setup](https://paseo.sh/docs/agent-profiles).
+Workers use the provider family and account alias of the Orchestrator unless the user requests another.
+A profile name does not set permissions, and native Plan mode is not a read-only sandbox. Verify effective settings in a fresh session.
+The [profile guide](docs/paseo-profiles.md) gives exact fields, manual steps, instruction text, and effort sources. The [canonical presets](shared/hosts/paseo-profiles.json) supply the values. The inspected host runs Paseo 0.10.3.
 
-A profile name does not determine permissions. Native Plan controls guide the workflow. They do not establish an OS-enforced read-only sandbox.
-Claude Plan mode also changes native tool permission handling. Leaving it changes those controls; verify the intended execution mode before authorized work.
-Provider modes with the same name do not guarantee the same behavior. Native permissions remain a deliberate human selection.
-For a planning-only assignment, collect the plan without approving its Implement action.
-Before later implementation, select the intended Worker settings and verify the effective native permissions.
-By default, the Orchestrator selects workers from the current session's provider family and exact account alias.
-Use another provider or account only when explicitly requested or authorized.
-For example, a Codex session can launch a requested Claude UI Worker. The primary session remains Codex.
-If no matching profile exists, discover native settings for the current alias. Ask before launch if the alias is unknown.
+### Paseo tool trust
 
-Profile notes guide the coordinator's selection. They do not supply a worker system prompt or install skills.
-With the compact context enabled, primary delivery sessions use Orchestrator by default.
-Without it, request orchestration in the first prompt. The profile label alone does not assign this role.
-For example:
+The `agent-toolkit-paseo-tool-trust` plugin is trusted, unsandboxed code. Setup installs it through the native CLI and enables the global Paseo plugin switch.
+It approves only these Paseo MCP tools, for Codex and Claude:
 
-```text
-Act as Orchestrator for this task. Read the applicable shared and Paseo guidance. Use saved profiles for useful delegation.
-Give each worker a bounded assignment. Collect evidence and check the integrated result. Preserve the active review policy and publication limits.
+- The `list_*` tools, `get_agent_status`, `get_agent_activity`, `inspect_provider`, `inspect_schedule`, and `schedule_logs`.
+- `cancel_agent` and `archive_agent` (a soft delete).
+- `create_workspace` and `rename_workspace`.
+
+For Claude, it also approves `create_agent`, `update_agent`, and `set_agent_mode` when the call names a safe mode. No mode, `bypassPermissions`, `full-access`, or an unknown mode gets a prompt. For Codex, these three tools always prompt.
+All other tools and approvals stay unchanged, including `send_agent_prompt`, terminal and browser tools, `kill_agent`, and `archive_workspace`.
+Verify `running` status with `paseo plugin ls`. Disable it with `paseo plugin disable agent-toolkit-paseo-tool-trust`.
+
+## Permissions and sandbox
+
+The Toolkit keeps existing provider and host permissions. It adds no workspace scope, credential denies, network allowlist, or Git guards. Approval prompts are not an OS sandbox.
+The [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
+`scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a backup.
+A blocked command can be retried once outside the sandbox, with classifier review in auto mode. Production servers ask before `ssh`, `scp`, and `rsync`.
+
+## Helper commands
+
+Agents call the helpers by full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. The sandbox exclusion matches only that form.
+
+### Keep the Mac awake
+
+Run `agent-awake` before agent work and `agent-sleep` when finished (aliases `paseo-awake` and `paseo-sleep`). `agent-awake --status` shows the hold.
+`agent-awake` installs the LaunchAgent `~/Library/LaunchAgents/com.agent-toolkit.awake.plist`, which runs `caffeinate -i` until `agent-sleep` removes it, also across restarts. The screen can still turn off.
+`agent-display-off` turns off the displays after three seconds. It does not change the sleep settings or the hold.
+
+### Heavy local checks
+
+`agent-heavy` is a machine-wide semaphore for typechecks, linters, test suites, and builds:
+
+```sh
+agent-heavy -- pnpm run typecheck
 ```
 
-The actual task prompt supplies the objective, permitted actions, evidence paths, edit ownership, acceptance criteria, and expected result.
-It also supplies the active review policy, publication authorization, and any delegation limits.
-Name the assigned role in each task prompt.
-The existing startup block and shared skills supply recurring guidance, including automatic Simple English for Markdown work.
+It waits for a free slot without a time limit, then returns the exit code of the command. While it waits, it prints the slot holders to stderr every 30 seconds. If it cannot lock a slot, it warns and runs the command directly.
 
-The official Paseo skill maps the exact provider/model, mode, thinking, and features into a launch request.
-Discover a model for the exact provider if an existing profile has none.
-Absent optional settings stay absent, and explicit `false` feature values must remain present.
-Saved changes affect future profile selections. They do not update running agents.
-Authentication or quota errors stop the affected launch. They do not authorize another account or paid API fallback.
+| Variable | Effect |
+|---|---|
+| `AGENT_HEAVY=0` | Run the command directly, without a slot. |
+| `AGENT_HEAVY_SLOTS` | Number of slots. Default: the smaller of memory / 20 GiB and CPU count / 6, minimum 1. |
+| `AGENT_HEAVY_DIR` | Lock directory. Default `$(getconf DARWIN_USER_TEMP_DIR)agent-heavy` on macOS, `${XDG_RUNTIME_DIR:-/tmp}/agent-heavy-<uid>` on Linux. |
+| `AGENT_HEAVY_HELD` | Set to `1` for the command, so nested calls run directly. |
+| `AGENT_HEAVY_WORKERS` | Set to CPU count / slots, minimum 1, to limit test runner workers. |
 
-Code reviews use the native reviewer of each provider and Ponytail Review's existing gates.
-A saved Reviewer profile does not configure the native reviewer.
-`docs/code-review.md` gives the headless review commands. Claude reviews pin `claude-opus-5-5` at medium effort, with read-only tools and without project settings or hooks. Codex reviews pin `gpt-6.1-sol` at medium reasoning effort.
-Reviewer effort is independent of profile effort. The worker's effort does not select reviewer effort.
-Run the review in the intended native account context. The command does not select a Paseo account alias.
-Codex's `auto-review` permission mode reviews approval requests. A native code review examines a change bundle.
-Neither changes the other's policy, and `reviews:off` never changes native permissions.
-See [Codex approval review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
+Do not add `agent-heavy` to `excludedCommands`, because it runs any command.
 
-Before relying on these profiles, verify a fresh session's exact account alias, model, thinking, native mode, Plan, and other features.
-Then perform the skill-loading and review checks in [fresh-session acceptance](#installation-and-fresh-session-acceptance).
-Verify an analysis assignment leaves files unchanged and a worker changes only its assigned files.
-Verify idle resume and explicit cleanup through the official Paseo workflow.
-For parallel edits, verify the intended base and required dirty files before launch, then check the integrated result.
-A new worktree contains committed history. It does not automatically include staged, unstaged, or untracked source changes.
+### Stop background processes
 
-The inspected host runs Paseo 0.10.3. Current public documentation includes later features and fixes.
+The Claude sandbox blocks signals to processes from earlier calls. Use `agent-stop <pid>` or `agent-stop --port <port>`. See [the sandbox guide](docs/claude-sandbox.md#stop-background-processes).
 
-## Permissions and the security tradeoff
+### Disposable PostgreSQL
 
-Toolkit preserves existing provider and host permissions. Approval policy controls whether a tool may run; an OS sandbox constrains what the process can access. They are different protections.
-
-Retiring the old wrappers removes Toolkit's extra workspace scope, denied credential and `.env` paths, network allowlist, isolated Git settings, publication rules, and legacy Git/process guards. Normal commands use only the protections configured in the provider and host. The installer does not turn a native Codex or Claude sandbox on or off.
-
-The [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
-`scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. If the sandbox blocks a command, the agent can retry it once outside the sandbox. In auto mode, the classifier reviews that retry. Production servers ask before `ssh`, `scp`, and `rsync`.
-Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a full backup.
-Host terminal brokers, MCP servers, Docker, and frontend services have their own privileges.
-Workspace selection alone cannot protect other projects or secrets. Keep appropriate native sandbox settings and backups.
-
-## Disposable PostgreSQL
-
-Agents call the helper by its full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. The sandbox exclusion matches only that form. The bare commands below are for a human terminal.
+From a human terminal:
 
 ```sh
 pg-test start
@@ -416,7 +241,7 @@ pg-test stop <id>
 pg-test gc
 ```
 
-All start modes create PostgreSQL 18 fixtures. There is no version selector. Homebrew PostgreSQL 18 must already be installed. The helper never installs a server, falls back to another version, or targets an existing database. New IDs use `pg18-…`. Status, stop, and garbage collection still recognize old `pg17-…` fixtures; their original PostgreSQL binaries must remain available for safe management.
+All start modes create PostgreSQL 18 fixtures with IDs `pg18-…`. Homebrew PostgreSQL 18 must be installed. The helper never installs a server or targets an existing database. Old `pg17-…` fixtures stay manageable while their binaries exist.
 
 | Profile | Fixture role permissions |
 |---|---|
@@ -424,124 +249,18 @@ All start modes create PostgreSQL 18 fixtures. There is no version selector. Hom
 | `start-migration` | Same owner with `CREATEROLE`, without `BYPASSRLS` |
 | `start-admin` | Same owner with `CREATEROLE` and `BYPASSRLS` |
 
-All roles are non-superusers without database-creation privilege. The bootstrap administrator is disabled after setup. Use the returned connection URL only in the test process. No raw SQL, database path, or server options are accepted. New files, logs, and sockets stay under the session's physical temporary directory. Fixture records use its `agent-toolkit-fixtures` subdirectory. The helper still locates old fixtures under `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures` and historical temporary roots. It never retries a denied write through another directory. Use the same temporary root for later status and stop commands.
+Roles are never superusers. Use the returned URL only in the test process. Files stay under the session's temporary directory, so use the same root for `status` and `stop`.
+`stop` removes the database files, socket, and log, and is safe to repeat. Garbage collection stops ownerless fixtures after two hours. Only a human terminal runs `gc`.
+If PostgreSQL reports denied shared-memory initialization, use the native approval path or a trusted human terminal.
 
-Run `stop` when done. After a verified stop, the helper removes the fixture database files, socket, and server log. It keeps only the small lifecycle record. Repeated stop and status calls remain safe. Normal provider sessions do not create a Toolkit fixture owner or run exit cleanup. Garbage collection runs before a start and through `gc`. It stops a running ownerless fixture after two hours, releases its files, and removes stopped metadata older than three days. It protects recent ownerless setups for two hours so concurrent starts do not delete unfinished fixtures. It recognizes legacy owner records, stops dead owners, and retains live owners. Changed, invalid, or ambiguous identities are preserved and reported. The `gc` command runs only from a human terminal. Agents stop their own fixtures with `/Users/<name>/.local/bin/pg-test stop <id>`. Status/stop also find old temporary-directory roots, refusing duplicate IDs. A denied process inspection or loopback bind requires native approval or a trusted terminal.
+`pg18-fresh` runs an existing reviewed PostgreSQL 18 fresh-install inventory suite with Docker isolation, from the target repository. It takes no arguments and needs `pnpm@11.22.0`.
+It installs dependencies in a networked container, then runs the source read-only without network. It builds from `postgres:18-bookworm` and `node:24-bookworm-slim`, which are not pinned digests.
 
-Failed setup reports the operation, PostgreSQL command, exit status, and signal when available.
-An `initdb` failure includes at most 2048 characters of stderr, with terminal controls removed.
-The helper suppresses bootstrap stderr, SQL, command arguments, and raw exception messages to protect credentials.
-Failed fixtures remain available for status and stop; explicit stop releases their files too. The helper does not retry initialization automatically.
-If PostgreSQL reports denied shared-memory initialization, use the provider's native approval path or a trusted human terminal.
-Do not retry through another tool or change server settings to bypass a hard denial.
-Provider checks and current limits are recorded in [Toolkit acceptance](docs/toolkit-acceptance.md).
-See [PostgreSQL shared-memory configuration](https://www.postgresql.org/docs/18/runtime-config-resource.html).
+### Paseo services
 
-`pg18-fresh` retains a distinct requirement: run an existing reviewed PostgreSQL 18 fresh-install inventory suite with Docker isolation. It accepts no arguments, requires the exact scripts, exact dependency versions, and `pnpm@11.22.0`, and runs from the target repository in either host or a terminal. Home and filesystem-root invocation are refused. It downloads dependencies from manifests in a separate networked container, then runs copied source without network access. The host checkout is mounted read-only; only the bounded JSON inventory is copied back. Invocation-owned containers and tmpfs volumes are cleaned up. It builds a local image from `postgres:18-bookworm` and `node:24-bookworm-slim`; these tags track patches rather than fixed digests. Docker is an explicit host capability, with no Toolkit approval bypass.
-
-## Heavy local checks
-
-Parallel agents that each run a typecheck, a linter, a test suite, or a build can overload one machine.
-`agent-heavy` is a machine-wide semaphore that limits how many of these commands run at the same time.
-
-```sh
-agent-heavy -- pnpm run typecheck
-```
-
-The helper waits for a free slot, then runs the command with the same standard input, output, and error.
-It returns the exit code of the command. If a signal stops the command, it returns 128 plus the signal number.
-It waits without a time limit.
-The helper ignores SIGINT and SIGQUIT, because the terminal sends them to the command directly. It forwards SIGTERM and SIGHUP.
-A SIGTERM or SIGHUP to the whole process group can reach the command two times.
-While it waits, it writes one line to stderr every 30 seconds. The line names the commands that hold the slots.
-The throttle is local resource policy. It does not change the result of a check, and CI does not use it.
-
-| Variable | Effect |
-|---|---|
-| `AGENT_HEAVY=0` | Run the command directly, without a slot. |
-| `AGENT_HEAVY_SLOTS` | The number of slots, a positive integer. The default is the smaller of total memory divided by 20 GiB and CPU count divided by 6, with a minimum of 1. If the helper cannot read the memory size, the default is CPU count divided by 6, with a minimum of 1. |
-| `AGENT_HEAVY_DIR` | The lock directory. The default is `$(getconf DARWIN_USER_TEMP_DIR)agent-heavy` on macOS and `${XDG_RUNTIME_DIR:-/tmp}/agent-heavy-<uid>` on Linux. All worktrees share it. |
-| `AGENT_HEAVY_HELD` | The helper sets `1` for the command. A nested `agent-heavy` call then runs directly. |
-| `AGENT_HEAVY_WORKERS` | The helper sets CPU count divided by slots, with a minimum of 1. Repositories can use it to limit vitest, Playwright, and `node --test` workers. |
-
-The helper is a Perl script that uses only core modules. Each slot is a `slot-<n>` file with a kernel `flock`.
-The helper holds the lock and waits for the command. The kernel releases the lock when the helper stops, also after SIGKILL.
-The command and its background processes do not get the lock descriptor, so a background process cannot hold a slot.
-If SIGKILL stops the helper, the slot becomes free while the command still runs. One extra command can then run until that command stops.
-This trade-off corrects itself and can never stall a slot.
-A `slot-<n>.owner` file gives the process ID, the working directory, and the command. Only the waiting line uses it.
-The helper reads the CPU count with `getconf _NPROCESSORS_ONLN`. If that fails, it uses `sysctl -n hw.logicalcpu` on macOS or `nproc` on Linux.
-It reads the memory size with `sysctl -n hw.memsize` on macOS or from `/proc/meminfo` on Linux. The Claude sandbox denies `sysctl`, so in the sandbox the slot count comes from the CPU count only. This gives no warning.
-If the helper cannot read the CPU count, or cannot create, open, or lock the slot files, it writes one warning and runs the command without a slot.
-
-Do not add `agent-heavy` to the sandbox `excludedCommands` list. It runs any command, so an exclusion lets every command leave the sandbox.
-
-The Claude sandbox blocks signals to processes from earlier calls. To stop a background process that you started, use `agent-stop <pid>` or `agent-stop --port <port>`.
-The sandbox excludes its installed path, because the helper signals only processes of the user below the allowed project and temporary roots. See [docs/claude-sandbox.md](docs/claude-sandbox.md#stop-background-processes).
-
-Spotlight indexes each new worktree, and this adds load. To stop it, add `~/Code` to System Settings > Spotlight > Privacy one time. Do this manually.
+`paseo-service` records cross-workspace service pairs and resolves current ports when the consumer starts. See [service pairs](docs/paseo-worktrees.md#pair-services-across-repositories).
 
 ## Migration, backups, and update
-
-Stop active providers before installation. Inspect current settings and historical backups in a trusted human terminal. Old installations can contain both native sandbox settings and Toolkit approval extensions. A generic setting such as `sandbox.enabled` or `approval_policy` is not proof of Toolkit ownership.
-
-The installer completes a read-only preflight before deployment. It parses Ponytail registrations structurally in the selected Codex home and every existing account home that receives guidance. TOML table indentation, dotted keys, and inline tables do not bypass detection. Claude and Paseo configuration can contain comments and trailing commas. Preflight reads those files without changing their bytes. It stops for manual reconciliation when an existing resource, managed instruction block, active Ponytail plugin/package has unclear ownership. It preserves accounts, credentials, provider aliases, models, reasoning, hooks, official host skills, and unrelated settings. Do not clear a directory to resolve a conflict.
-
-Use the [migration and acceptance runbook](docs/toolkit-acceptance.md) for a fresh checkout, safe retirement, and copyable test prompts.
-There is no blanket uninstall command. Preserve provider homes and migrate proven Toolkit resources through the installer.
-
-For complete removal before a fresh install, use the runbook's [legacy removal procedure](docs/toolkit-acceptance.md#completely-remove-the-legacy-toolkit).
-It includes all selected provider homes and removes the old snapshot after human ownership classification.
-
-The following steps are the alternative migration route, which retains historical snapshots until later inspection:
-
-1. Back up the relevant configuration and compare it with the old Toolkit backups and ownership markers.
-2. Reconcile proven old Ponytail plugin/package registrations so they cannot duplicate the shared skill or execute coding-guidance hooks. If a registration is user-owned and should stay, stop and resolve the conflict deliberately.
-3. Remove only proven stale Toolkit provider prompt/rule references. Preserve unrelated packages and native permission choices.
-4. Run `./install.sh`. Only exact marked legacy files and recognized Toolkit symlink targets are retired. Modified or unmarked files stop installation. The installer leaves unmanifested legacy resource snapshots intact for manual inspection.
-5. Restart normal providers and verify behavior before removing any remaining historical data.
-
-The installer removes the retired AutoReview skill links in `~/.agents`, `~/.claude`, and the Codex homes. Paseo homes that link `skills` to `~/.claude/skills` are covered. For other Paseo homes, run `ls -l ~/.paseo/zerosub/homes/*/skills/autoreview` and remove only links to `~/.local/share/agent-toolkit/resources/skills/autoreview`.
-It does not remove the former AutoReview output directory. After `./install.sh`, remove it by hand:
-
-1. Run `ls -ld ~/.claude/autoreview-out ~/.paseo/zerosub/homes/*/autoreview-out`.
-2. Remove each Paseo home link that points to `~/.claude/autoreview-out`. Then remove `~/.claude/autoreview-out`.
-3. Keep all other entries.
-
-### Resolving an active Ponytail registration
-
-The reconciliation error names the exact configuration that blocks installation. No new Toolkit files deploy until preflight succeeds. Disabling an old plugin alone does not install the replacement skill or startup block.
-
-Inspect that configuration and its historical backups. An enabled registration in an old backup does not prove Toolkit ownership. Choose whether to replace the plugin's coding hooks with the shared skill before you disable it.
-
-For Claude's default user configuration, back up the file in your trusted terminal:
-
-```sh
-cp -p ~/.claude/settings.json \
-  ~/.claude/settings.json.before-toolkit-$(date +%Y%m%d-%H%M%S)
-claude plugin disable ponytail@ponytail --scope user
-```
-
-For a custom `CLAUDE_CONFIG_DIR`, back up that directory's configuration instead. Use the same directory override with Claude's command.
-
-For Codex, back up the exact `config.toml` named in the error. Then change only the plugin's enabled value:
-
-```toml
-[plugins."ponytail@ponytail"]
-enabled = false
-```
-
-Keep the hook trust records and native permission configuration. Start fresh sessions after migration. Disabling the plugin stops its hooks in those sessions. It does not disable an OS sandbox.
-
-Replaced instruction and configuration files are backed up under `~/.local/share/agent-toolkit/backups/`. The installer does not back up `~/.local/share/agent-toolkit/resources/`. It replaces that folder only when the folder matches the receipt, so the old copy holds no user work. The receipt records owned links, exact instruction blocks, and the copied source snapshot. Modified installed skill/script resources stop replacement. Repeat installation preserves human text outside the block. Installation re-reads configuration after staging and restores replaced files if deployment fails. A crash or an existing lock requires manual inspection, not automatic lock theft. Backups can contain private settings: keep them private. Restore specific files after comparing them; do not blindly restore an entire global configuration.
-
-Older installs also copied the full resources folder into each backup. These copies can use many gigabytes. They hold only Toolkit files, not user settings. To find them, run this command from a trusted human terminal:
-
-```sh
-ls -d ~/.local/share/agent-toolkit/backups/*/.local/share/agent-toolkit/resources
-```
-
-Remove each listed folder that you do not need. Keep the other files in each backup folder, because they can hold your original settings.
 
 To update from a trusted human terminal:
 
@@ -550,9 +269,9 @@ cd /Users/hendrik/Code/wewereyoung/agent-toolkit
 ./update.sh
 ```
 
-The script requires a clean checkout, confirms its actual upstream, fast-forwards, runs checks, and installs copies. It does not blanket-update global skills, official host skills, provider CLIs, or user packages. Toolkit never updates itself or its skill pins at startup.
+The script needs a clean checkout. It fast-forwards from its upstream, runs checks, and installs copies. It does not update official host skills, provider CLIs, or user packages. The Toolkit never updates itself at startup.
 
-The update script has no `--preserve-permissions` option. To preserve current provider permissions, use this alternative from a clean checkout:
+`update.sh` has no `--preserve-permissions` option. To keep current provider permissions, use:
 
 ```sh
 cd /Users/hendrik/Code/wewereyoung/agent-toolkit
@@ -562,42 +281,61 @@ npm ci --prefix shared --ignore-scripts --no-audit --no-fund
 ./install.sh --preserve-permissions
 ```
 
-After the installed resources are current, run this command from the checkout in a trusted human terminal:
+Then run `./setup-paseo.sh` for profile changes (see [profile updates](docs/paseo-profiles.md#updates-and-customization)) and start fresh sessions.
+
+### Preflight and conflicts
+
+Stop active providers before installation. A read-only preflight stops before deployment when a resource, instruction block, or active Ponytail plugin has unclear ownership.
+Do not clear a directory or the receipt to resolve a conflict. There is no blanket uninstall command.
+
+If preflight names an active Ponytail registration, back up the file and disable only that registration. For Claude's default configuration:
 
 ```sh
-./setup-paseo.sh
+cp -p ~/.claude/settings.json \
+  ~/.claude/settings.json.before-toolkit-$(date +%Y%m%d-%H%M%S)
+claude plugin disable ponytail@ponytail --scope user
 ```
 
-Select the existing Codex account alias. Enter `-` to skip an unrelated provider family.
-For profile-only migration, decline context refresh and enter `n` for tool trust.
-Review the Adviser candidate, then confirm the save only if High was the Toolkit default.
-If High is your deliberate choice, cancel or rerun setup with Codex skipped.
-Keep the profile editor idle during setup.
+For a custom `CLAUDE_CONFIG_DIR`, use the same override. For Codex, back up the `config.toml` named in the error and change only the existing registration:
 
-Setup offers High → Medium only for an exact legacy Toolkit Codex Adviser match on the selected account.
-The recognized ID is `toolkit-codex-adviser`, with model `gpt-6.1-sol`, original notes, and mode `auto` or `auto-review`.
-Features must be exactly `{plan_mode:false}` or `{plan_mode:false,fast_mode:false}`.
-Missing `fast_mode` stays missing. Explicit false stays false. Only Thinking changes.
-The account, ID, model, mode, features, notes, and unrelated settings remain intact.
-Extra fields or changed values prevent migration. An omitted family or different selected account also prevents migration.
-Setup validates Medium support on the exact account before offering the change.
+```toml
+[plugins."ponytail@ponytail"]
+enabled = false
+```
 
-Historical Sol/High presets appear in commits `7f58ade` and `0f0d570`. The omitted-fast variant supports older saved records.
-Neither a matching name nor the context receipt proves profile ownership. The save confirmation explicitly names High → Medium.
-A private backup retains the original configuration. Repeated setup leaves Medium unchanged.
-Customized profiles remain human choices. Use native Paseo settings for deliberate changes outside this migration.
-Start fresh sessions to verify the updated installed guidance and effective launch settings.
+### Backups
+
+Replaced configuration and instruction files go to `~/.local/share/agent-toolkit/backups/`. Keep them private. Restore single compared files, not a whole global configuration.
+A crash or an existing lock needs manual inspection.
+
+Older installs also copied the full resources folder into each backup, which can use many gigabytes. To find these copies, run:
+
+```sh
+ls -d ~/.local/share/agent-toolkit/backups/*/.local/share/agent-toolkit/resources
+```
+
+Remove each listed folder that you do not need. Keep the other files in each backup folder, because they can hold your original settings.
+
+### Remove AutoReview leftovers
+
+The installer removes the retired AutoReview skill links in `~/.agents`, `~/.claude`, and the Codex homes.
+For other Paseo homes, run `ls -l ~/.paseo/zerosub/homes/*/skills/autoreview` and remove only links to `~/.local/share/agent-toolkit/resources/skills/autoreview`.
+After `./install.sh`, remove the former output directory by hand:
+
+1. Run `ls -ld ~/.claude/autoreview-out ~/.paseo/zerosub/homes/*/autoreview-out`.
+2. Remove each Paseo home link that points to `~/.claude/autoreview-out`. Then remove `~/.claude/autoreview-out`.
+3. Keep all other entries.
 
 ### Pins
 
 | Resource | Pin |
 |---|---|
-| Ponytail skill family (four skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
-| React Doctor | `npx react-doctor@0.9.13`, manual only |
+| Ponytail skill family (four skills) | Upstream v5.3.3, revision `7801d061243d7b753bad0e0b3c057cd250b11755`, vendored without hooks |
+| React Doctor | `npx react-doctor@0.9.23`, manual only |
 | Security Audit | [`cloudflare/security-audit-skill`](https://github.com/cloudflare/security-audit-skill) revision `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, MIT, manual only |
 | Installer configuration parsers | `smol-toml@1.9.0`, `jsonc-parser@3.3.1`, locked in `shared/` |
 
-Python, framework, writing, and Test Audit guidance is vendored; revisions and licenses are kept beside the skill where supplied. Change pins deliberately in source, check, then reinstall.
+Other vendored skills keep their revisions and licenses beside the skill. Change pins in source, run the checks, then install again.
 
 ## Verification and limits
 
@@ -605,51 +343,20 @@ Python, framework, writing, and Test Audit guidance is vendored; revisions and l
 ./verify.sh
 ```
 
-Checks cover installation and repetition, configuration/account preservation, Paseo preservation, migration refusal, backups and recovery, source/install separation, and PostgreSQL role/lifecycle behavior. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
-
-Tests must remove their temporary directories after the owning test or helper finishes, including failure paths.
-They must register cleanup before fixture setup. Requested evidence uses an explicit output directory.
-Repository evidence must use text: commands, observed outcomes, commit references, and unresolved risks.
-Do not commit screenshots, images, videos, or binary evidence, including embedded or base64-encoded media.
-Use temporary captures for visual checks. Record the inspected behavior and result in text.
-If retained media is necessary, link an artifact in an existing approved external store.
-Do not create storage only for evidence. Product assets and required test fixtures remain allowed.
-`~/Code/.agent-toolkit-scratch` is a legacy location. Paseo workspaces do not require it.
-Project scripts can still use that path until their owning repositories remove the old default.
-
-Paseo setup checks cover profile merging, preserved choices, repeated setup, private backups, concurrent-edit refusal, and partial saves.
-They substitute native CLI persistence. They do not prove live CLI compatibility or support for the saved feature IDs.
-Setup checks advertised providers, models, thinking levels, and mode labels. Native feature discovery remains part of fresh-session acceptance.
-The coordinator must inspect the exact provider and selected settings before launch. Unsupported required planning controls stop that profile's launch.
-
-### Installation and fresh-session acceptance
-
-1. After a successful installation, inspect `~/.local/share/agent-toolkit/installed.json`. The receipt records the owned skill links and each managed instruction block.
-2. Inspect the native startup file for every provider home you use. It must contain exactly one `<!-- agent-toolkit -->` block. A receipt for another home is insufficient.
-3. Resolve the Ponytail skill link. Its body must come from `~/.local/share/agent-toolkit/resources/skills/ponytail/SKILL.md`. A link to the old `~/.local/libexec/agent-toolkit` snapshot is not the rebuilt installation.
-4. Start a fresh native Paseo session in a disposable repository for each provider you use. Explicitly load Ponytail and Test Audit with the syntax in the table. Inspect the skill expansion or file-read event for the full copied body.
-5. Exercise small coding, test, and Markdown documentation tasks without explicit skill requests. Verify full Ponytail, Test Audit, and Simple English reads respectively. A skill listing or the model's unsupported claim is insufficient.
-6. Explicitly request a small native code review with the headless command from the review policy. Verify that findings come back. A permission denial leaves this check unverified.
-7. For host operations, verify that Paseo guidance and official Paseo skills load.
-8. After optional Paseo setup, inspect `list_profiles` on the selected daemon. Verify effective models, thinking, modes, and features. Inspect actual context and role-guidance reads in fresh sessions.
-
-Passing `./verify.sh` proves the covered fixture behavior. It does not prove that your live installation or fresh Paseo sessions meet these acceptance checks.
-The [acceptance runbook](docs/toolkit-acceptance.md#fresh-session-tests) covers all shared skills, host roles and PostgreSQL helpers.
-
-Automatic skill use by a real model, fresh Codex/Claude skill loading, and a live review require fresh-session acceptance.
+Fixture checks cover installation, preservation of settings and accounts, Paseo setup, migration refusal, backups, and PostgreSQL lifecycle. They substitute downloads, PostgreSQL processes, and Paseo persistence.
+They do not prove a provider security boundary, model adherence, a live review, live Paseo CLI support, or real Docker and PostgreSQL startup. Use [Toolkit acceptance](docs/toolkit-acceptance.md) in fresh sessions for these.
+`~/Code/.agent-toolkit-scratch` is a legacy location that some project scripts still use.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `skills/` | One shared collection, including skill-local scripts and upstream notices |
-| `shared/AGENTS.md` | Small coding/review and host-selection guidance |
-| `shared/hosts/` | Paseo instructions |
-| `shared/install.cjs` | Human-terminal installation and conservative migration |
-| `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
-| `paseo/tool-trust/` | Native plugin that approves allowlisted Paseo MCP tools in Codex and Claude. For Claude, it also approves agent tools that name a safe mode |
-| `shared/postgres/` | Disposable PostgreSQL helpers |
-| `shared/agent-heavy.pl` | Machine-wide limit for heavy local checks |
-| `shared/agent-stop.pl` | Stops background processes of agents, also from the Claude sandbox |
-| `docs/claude-sandbox.md`, `shared/sandbox-probe.sh` | Tested Claude sandbox settings and a probe for agent work |
-| `paseo/tool-approvals/` | Unrelated work preserved; not installed or managed by Toolkit |
+| `skills/` | Shared skill collection |
+| `shared/AGENTS.md`, `shared/hosts/` | Startup guidance and Paseo instructions |
+| `shared/install.cjs` | Installation and migration |
+| `setup-paseo.sh`, `shared/paseo-setup.cjs` | Paseo profile, System Prompt, and tool trust setup |
+| `paseo/tool-trust/` | Paseo tool trust plugin |
+| `shared/postgres/` | PostgreSQL helpers |
+| `shared/agent-heavy.pl`, `shared/agent-stop.pl` | Heavy-check limit and background process stop |
+| `docs/` | Sandbox, code review, Paseo profile, worktree, and acceptance guides |
+| `paseo/tool-approvals/` | Unrelated work; not managed by Toolkit |

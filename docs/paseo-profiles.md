@@ -728,7 +728,7 @@ Leave finish notifications enabled for supervised workers.
 
 Before relying on the recipe:
 
-- Verify actual skill loading in fresh sessions through [Toolkit acceptance](../README.md#installation-and-fresh-session-acceptance).
+- Verify actual skill loading in fresh sessions through [Toolkit acceptance](toolkit-acceptance.md).
 - Verify that an Adviser leaves project files unchanged.
 - Verify that a Planner asks a meaningful unresolved question and stops without implementation.
 - In a disposable trial only, verify that approving a plan enters the intended implementation settings.
@@ -743,7 +743,7 @@ No live acceptance or coding-quality benchmark was performed for this recipe.
 
 A saved Reviewer profile is not necessary for Toolkit's change-bundle reviews.
 Each provider runs its native code review as a separate headless process. `docs/code-review.md` gives the commands.
-Ponytail Review retains its complexity-review gate.
+Ponytail Review and Ponytail Audit run only on explicit request.
 An Adviser is not a way to bypass the active review policy with an unrequested second-model review.
 
 Match the reviewer to the agent requesting the review: Claude uses Claude, and Codex uses Codex.
