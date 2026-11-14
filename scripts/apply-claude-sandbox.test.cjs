@@ -17,22 +17,24 @@ function fixture(t) {
   fs.mkdirSync(path.dirname(real), { recursive: true })
   fs.mkdirSync(paseo, { recursive: true })
   const original = JSON.stringify({
-    model: 'fable', env: { CLAUDE_CODE_TMPDIR: `${home}/.agent-tmp` }, permissions: { deny: ['Bash(git push -f*)'] }, skipDangerousModePermissionPrompt: true,
+    model: 'fable', env: { CLAUDE_CODE_TMPDIR: `${home}/.agent-tmp` }, permissions: { deny: ['Bash(git push -f*)'], ask: ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
-      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'docker *', 'make release', `${home}/.claude/skills/autoreview/scripts/autoreview *`, '/opt/tools/autoreview/scripts/autoreview *'] },
+      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'docker *', 'make release', 'paseo *', 'pg-test *', 'pg18-fresh', 'ssh old@prod.example *', 'scp * old@prod.example:*', `${home}/.claude/skills/autoreview/scripts/autoreview *`, '/opt/tools/autoreview/scripts/autoreview *'] },
   }, null, 2) + '\n'
   fs.writeFileSync(real, original, { mode: 0o600 })
   fs.symlinkSync(real, path.join(paseo, 'settings.json'))
   const env = { PATH: process.env.PATH, HOME: home, TMPDIR: root, CLAUDE_CONFIG_DIR: paseo, GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig') }
   // script(1) supplies a terminal, as a human terminal does.
   const run = (...args) => spawnSync('script', ['-q', '/dev/null', 'bash', script, '--no-update', ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  // The answer goes through the terminal that script(1) supplies. script(1) sends EOF first for input that is ready at once, so write it after the prompt.
+  const answer = (input, ...args) => spawnSync('bash', ['-c', '(sleep 1; printf "%s" "$0") | script -q /dev/null bash "$@"', input, script, ...args], { env, encoding: 'utf8' })
   // Another rewrite value on the same key must survive apply and undo.
   spawnSync('git', ['config', '--global', 'url.https://github.com/.insteadOf', 'ssh://git@github.com/'], { env })
   const gitRule = () => spawnSync('git', ['config', '--global', '--get-all', 'url.https://github.com/.insteadOf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').filter(value => value !== 'ssh://git@github.com/').join('\n')
-  return { home, real, original, env, run, gitRule }
+  return { home, real, original, env, run, answer, gitRule }
 }
 
-test('the sandbox script previews, merges without dropping settings, repeats cleanly, and undoes', terminal, t => {
+test('the sandbox script previews, merges without dropping settings, repeats cleanly, turns off, and restores', terminal, t => {
   const f = fixture(t)
   const preview = f.run('--dry-run')
   assert.equal(preview.status, 0, preview.stdout)
@@ -45,35 +47,38 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.equal(applied.status, 0, applied.stdout)
   const settings = JSON.parse(fs.readFileSync(f.real, 'utf8'))
   assert.equal(settings.model, 'fable')
-  assert.deepEqual(settings.permissions, { deny: ['Bash(git push -f*)'] })
+  assert.deepEqual(settings.permissions.deny, ['Bash(git push -f*)'])
+  // Ask rules are only added: existing rules stay, production servers ask, staging uses the reviewed escape.
+  assert.deepEqual(settings.permissions.ask, ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)', ...['agawulum@sl90.web.hostpoint.ch', 'bonzanib@sl662.web.hostpoint.ch', 'wfw-prod@wfw.ch']
+    .flatMap(server => ['ssh', 'scp', 'rsync'].map(command => `Bash(${command} *${server}*)`))])
   assert.equal(settings.skipDangerousModePermissionPrompt, true)
   assert.deepEqual(settings.env, { SSL_CERT_FILE: '/etc/ssl/cert.pem' }, 'the earlier CLAUDE_CODE_TMPDIR value is removed')
   assert.equal(settings.sandbox.enabled, true)
-  assert.equal(settings.sandbox.allowUnsandboxedCommands, false)
+  assert.equal(settings.sandbox.allowUnsandboxedCommands, true)
+  assert.equal(settings.sandbox.autoAllowBashIfSandboxed, true)
+  assert.deepEqual(settings.sandbox.filesystem.denyRead, [`${f.home}/.ssh`])
   assert.deepEqual(settings.sandbox.network.allowedDomains.slice(0, 3), ['example.org', 'api.openai.com', 'github.com'])
   assert.equal(settings.sandbox.network.allowedDomains.filter(domain => domain === 'api.openai.com').length, 1)
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Library/pnpm/store`))
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Code/paseo-worktrees`), 'orchestrators write in worker worktrees')
   assert.ok(settings.sandbox.filesystem.allowWrite.some(dir => dir.startsWith('/var/folders/')), 'plain mktemp -d uses the macOS temporary directory')
   assert.ok(!settings.sandbox.excludedCommands.some(command => command.includes('capture.mjs')))
-  assert.ok(settings.sandbox.excludedCommands.includes('make release'))
+  assert.deepEqual(settings.sandbox.excludedCommands.filter(command => !command.startsWith(`${f.home}/.local/bin/`)), ['make release', '/opt/tools/autoreview/scripts/autoreview *', '/bin/ps *'],
+    'docker, paseo, bare helper names, and server entries go; user entries stay')
   assert.deepEqual(settings.sandbox.excludedCommands.filter(command => command.includes('autoreview')), ['/opt/tools/autoreview/scripts/autoreview *'], 'only the former Toolkit AutoReview exclusions are removed')
-  assert.ok(settings.sandbox.excludedCommands.includes('pg-test *'))
+  assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/pg-test *`))
   assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/agent-stop *`), 'agents stop their own background processes')
   for (const name of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
     assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/${name}`), name)
   }
-  // Docker uses the socket in the sandbox; the earlier exclusion is removed.
-  assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
+  // Docker uses the socket in the sandbox.
   assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.orbstack/run/docker.sock`, `${f.home}/.fly/fly-agent.sock`])
-  for (const entry of ['ssh agawulum@sl90.web.hostpoint.ch *', 'scp * agawulum@sl90.web.hostpoint.ch:*', 'rsync * bonzanib@sl662.web.hostpoint.ch:*', 'ssh wfw-prod@wfw.ch *']) {
-    assert.ok(settings.sandbox.excludedCommands.includes(entry), entry)
-  }
-  // A shorter server list replaces the generated entries; an empty list removes them.
-  const servers = list => JSON.parse(spawnSync('bash', [script, '--emit'], { env: { ...f.env, SANDBOX_SSH_SERVERS: list }, encoding: 'utf8' }).stdout)
-    .sandbox.excludedCommands.filter(command => /^(ssh|scp|rsync) /.test(command))
-  assert.deepEqual(servers('wfw-prod@wfw.ch'), ['ssh wfw-prod@wfw.ch *', 'scp * wfw-prod@wfw.ch:*', 'rsync * wfw-prod@wfw.ch:*'])
-  assert.deepEqual(servers(''), [])
+  // Only servers in SANDBOX_SSH_STAGING skip the ask rules. A host name with "staging" alone does not.
+  const asks = (servers, staging) => JSON.parse(spawnSync('bash', [script, '--emit'], { env: { ...f.env, SANDBOX_SSH_SERVERS: servers, SANDBOX_SSH_STAGING: staging }, encoding: 'utf8' }).stdout)
+    .permissions.ask.filter(rule => !settings.permissions.ask.includes(rule))
+  const rules = server => ['ssh', 'scp', 'rsync'].map(command => `Bash(${command} *${server}*)`)
+  assert.deepEqual(asks('stage@example.org new-staging@example.org', 'stage@example.org'), rules('new-staging@example.org'))
+  assert.deepEqual(asks('', ''), [])
   assert.equal(fs.statSync(f.real).mode & 0o777, 0o600)
   assert.equal(f.gitRule(), 'git@github.com:')
   const backups = fs.readdirSync(path.dirname(f.real)).filter(name => /^settings\.json\.before-sandbox-\d{8}-\d{6}$/.test(name))
@@ -85,15 +90,23 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.equal(f.run().status, 0)
   assert.equal(fs.readFileSync(f.real, 'utf8'), merged)
 
-  const undone = f.run('--undo')
-  assert.equal(undone.status, 0, undone.stdout)
-  assert.equal(fs.readFileSync(f.real, 'utf8'), merged, 'undo restores the latest backup, which is the second run')
-  assert.equal(f.gitRule(), 'git@github.com:', 'the second run did not add the Git rule')
-  assert.equal(f.run('--undo').status, 0)
+  spawnSync('sleep', ['1'])
+  const off = f.run('--off')
+  assert.equal(off.status, 0, off.stdout)
+  const offState = fs.readFileSync(f.real, 'utf8')
+  assert.deepEqual(JSON.parse(offState), { ...JSON.parse(merged), sandbox: { ...JSON.parse(merged).sandbox, enabled: false } }, '--off changes only sandbox.enabled')
+
+  const first = path.join(path.dirname(f.real), backups[0])
+  const declined = f.answer('n\n', '--restore', first)
+  assert.equal(declined.status, 0, declined.stdout)
+  assert.equal(fs.readFileSync(f.real, 'utf8'), offState, 'a "no" changes nothing')
+  const restored = f.answer('y\n', '--restore', first)
+  assert.equal(restored.status, 0, restored.stdout)
   assert.equal(fs.readFileSync(f.real, 'utf8'), f.original)
-  assert.equal(f.gitRule(), '')
+  assert.equal(fs.readFileSync(first, 'utf8'), f.original, 'the backup stays')
+  assert.equal(f.gitRule(), '', 'the first run added the Git rule, so its restore removes it')
   assert.match(spawnSync('git', ['config', '--global', '--get-all', 'url.https://github.com/.insteadOf'], { env: f.env, encoding: 'utf8' }).stdout, /^ssh:\/\/git@github\.com\/\n$/)
-  assert.equal(f.run('--undo').status, 1, 'no backup remains')
+  assert.equal(f.run('--restore').status, 2, 'restore needs an explicit file')
 })
 
 test('the sandbox script refuses changes without a terminal and refuses invalid JSON', terminal, t => {

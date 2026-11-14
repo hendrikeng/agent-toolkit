@@ -35,9 +35,8 @@ To retain your current provider permissions, use:
 
 Run installation from a trusted human terminal. Normal installation updates the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, using their normal defaults when absent.
 Codex retains workspace file restrictions and enables command network access with automatic approval review.
-Claude enables sandbox auto-allow and adds `api.openai.com`, `chatgpt.com`, `auth.openai.com`, and `api.anthropic.com` to its allowed domains.
-Claude also enables `sandbox.network.allowLocalBinding` for local PostgreSQL/API/restart tests on macOS.
-This permits local port binding and connections to localhost services. Tests must still use inspected, disposable fixtures and returned credentials.
+If Claude `settings.json` already has a `sandbox` object, the installer adds `api.openai.com`, `chatgpt.com`, `auth.openai.com`, and `api.anthropic.com` to `sandbox.network.allowedDomains`.
+The installer never turns the Claude sandbox on and sets no other sandbox key. Only `scripts/apply-claude-sandbox.sh` turns the sandbox on. See the [Claude sandbox guide](docs/claude-sandbox.md).
 Existing Claude domain denies stop setup for reconciliation. Models, accounts, file boundaries, and unrelated settings remain intact.
 Claude `WebFetch(domain:...)` deny rules also stop conflicting setup.
 Existing Codex named permission profiles or other filesystem modes require `--preserve-permissions` or reconciliation from a trusted human terminal.
@@ -396,13 +395,17 @@ The inspected host runs Paseo 0.10.3. Current public documentation includes late
 
 Toolkit preserves existing provider and host permissions. Approval policy controls whether a tool may run; an OS sandbox constrains what the process can access. They are different protections.
 
-Retiring the old wrappers removes Toolkit's extra workspace scope, denied credential and `.env` paths, network allowlist, isolated Git settings, publication rules, and legacy Git/process guards. Normal commands use only the protections configured in the provider and host. Existing native Codex/Claude sandboxes remain as configured; Toolkit neither enables nor disables them.
+Retiring the old wrappers removes Toolkit's extra workspace scope, denied credential and `.env` paths, network allowlist, isolated Git settings, publication rules, and legacy Git/process guards. Normal commands use only the protections configured in the provider and host. The installer does not turn a native Codex or Claude sandbox on or off.
 
-The [Claude sandbox guide](docs/claude-sandbox.md) gives tested settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
+The [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
+`scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. If the sandbox blocks a command, the agent can retry it once outside the sandbox. In auto mode, the classifier reviews that retry. Production servers ask before `ssh`, `scp`, and `rsync`.
+Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a full backup.
 Host terminal brokers, MCP servers, Docker, and frontend services have their own privileges.
 Workspace selection alone cannot protect other projects or secrets. Keep appropriate native sandbox settings and backups.
 
 ## Disposable PostgreSQL
+
+Agents call the helper by its full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. The sandbox exclusion matches only that form. The bare commands below are for a human terminal.
 
 ```sh
 pg-test start
@@ -423,7 +426,7 @@ All start modes create PostgreSQL 18 fixtures. There is no version selector. Hom
 
 All roles are non-superusers without database-creation privilege. The bootstrap administrator is disabled after setup. Use the returned connection URL only in the test process. No raw SQL, database path, or server options are accepted. New files, logs, and sockets stay under the session's physical temporary directory. Fixture records use its `agent-toolkit-fixtures` subdirectory. The helper still locates old fixtures under `~/Code/.agent-toolkit-scratch/agent-toolkit-fixtures` and historical temporary roots. It never retries a denied write through another directory. Use the same temporary root for later status and stop commands.
 
-Run `stop` when done. After a verified stop, the helper removes the fixture database files, socket, and server log. It keeps only the small lifecycle record. Repeated stop and status calls remain safe. Normal provider sessions do not create a Toolkit fixture owner or run exit cleanup. Garbage collection runs before a start and through `gc`. It stops a running ownerless fixture after two hours, releases its files, and removes stopped metadata older than three days. It protects recent ownerless setups for two hours so concurrent starts do not delete unfinished fixtures. It recognizes legacy owner records, stops dead owners, and retains live owners. Changed, invalid, or ambiguous identities are preserved and reported. The `gc` command runs only from a human terminal. Agents stop their own fixtures with `pg-test stop <id>`. Status/stop also find old temporary-directory roots, refusing duplicate IDs. A denied process inspection or loopback bind requires native approval or a trusted terminal.
+Run `stop` when done. After a verified stop, the helper removes the fixture database files, socket, and server log. It keeps only the small lifecycle record. Repeated stop and status calls remain safe. Normal provider sessions do not create a Toolkit fixture owner or run exit cleanup. Garbage collection runs before a start and through `gc`. It stops a running ownerless fixture after two hours, releases its files, and removes stopped metadata older than three days. It protects recent ownerless setups for two hours so concurrent starts do not delete unfinished fixtures. It recognizes legacy owner records, stops dead owners, and retains live owners. Changed, invalid, or ambiguous identities are preserved and reported. The `gc` command runs only from a human terminal. Agents stop their own fixtures with `/Users/<name>/.local/bin/pg-test stop <id>`. Status/stop also find old temporary-directory roots, refusing duplicate IDs. A denied process inspection or loopback bind requires native approval or a trusted terminal.
 
 Failed setup reports the operation, PostgreSQL command, exit status, and signal when available.
 An `initdb` failure includes at most 2048 characters of stderr, with terminal controls removed.

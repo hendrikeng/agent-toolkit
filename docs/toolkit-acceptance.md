@@ -379,9 +379,9 @@ These capabilities require their actual runtime. The shared skill trials do not 
 
 | Capability | Human-controlled trial | Acceptance |
 |---|---|---|
-| PostgreSQL | `pg-test start`, returned URL, `pg-test status <id>`, `pg-test stop <id>` | PG18 fixture identity, least-privileged role, actual stop, and removal of database files, socket, and log. Confirm repeated stop and status. Use only its URL. |
+| PostgreSQL | `/Users/<name>/.local/bin/pg-test start`, returned URL, `/Users/<name>/.local/bin/pg-test status <id>`, `/Users/<name>/.local/bin/pg-test stop <id>` | PG18 fixture identity, least-privileged role, actual stop, and removal of database files, socket, and log. Confirm repeated stop and status. Use only its URL. |
 | PostgreSQL profiles | Separately authorized migration/admin fixtures | Intended role permissions and cleanup, no production target. |
-| Fresh PostgreSQL suite | `pg18-fresh` only in its supported reviewed inventory-suite repository | Actual Docker isolation, bounded inventory, invocation-owned cleanup. Otherwise mark unavailable. |
+| Fresh PostgreSQL suite | `/Users/<name>/.local/bin/pg18-fresh` only in its supported reviewed inventory-suite repository | Actual Docker isolation, bounded inventory, invocation-owned cleanup. Otherwise mark unavailable. |
 
 Safe garbage-collection identity and age behavior have deterministic fixture coverage.
 Do not run `pg-test gc` blindly when unrelated historical fixtures can exist.

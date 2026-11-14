@@ -114,12 +114,11 @@ item_playwright() {
 }
 item_codex() { has codex && probe codex 30 codex login status || skip codex 'not installed'; }
 item_claude() { has claude && probe claude 30 claude --version || skip claude 'not installed'; }
-item_paseo() { has paseo && probe paseo 30 paseo ls --json || skip paseo 'not installed'; }
+item_paseo() { skip paseo 'expected: runs through the escape; agents use the Paseo MCP tools'; }
 item_infisical() { has infisical && probe infisical 30 infisical --version || skip infisical 'not installed'; }
 item_fly() { has fly && probe fly 30 fly auth whoami || skip fly 'not installed'; }
 item_railway() { has railway && probe railway 30 railway whoami || skip railway 'not installed'; }
-# GitHub exits with status 1 after a successful SSH login, so check the greeting.
-item_ssh() { probe ssh 20 bash -c 'ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com 2>&1 | grep "successfully authenticated"'; }
+item_ssh() { skip ssh 'expected: runs through the escape; production hosts ask first'; }
 item_repo_check() {
   [[ ${PROBE_REPO_CHECK:-} ]] || { skip repo-check 'set PROBE_REPO_CHECK to the repository check, for example "pnpm run verify:fast"'; return; }
   probe repo-check 1800 bash -c "$PROBE_REPO_CHECK"

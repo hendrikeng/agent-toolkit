@@ -65,19 +65,17 @@ After an approval-review rejection, stop the rejected action and report the stat
 Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
 Report each denial with its command, target, originating agent, permission mode, and denial type.
 Never change live permission settings or grant access that managed policy forbids.
-With the Claude sandbox on, no escalation exists. Use the helpers and patterns below.
-If none fits, record the exact denial, continue other work, and report the gap at the end.
-Never ask the user to run a command or to turn off the sandbox.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and `/bin/ps` as separate shell calls.
-Write `agent-stop` and other helper paths without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
-Run `pg-test start` as its own call, and pass its URL to scripts. The exclusion does not apply inside a script.
+With the Claude sandbox on, you can retry a blocked command once with `dangerouslyDisableSandbox`. Give the reason.
+Never use this escape for a file that you wrote or changed in this task. Never ask the user to turn off the sandbox.
+Run `/bin/ps`, `agent-stop`, `pg-test`, and `pg18-fresh` by full path as separate whole calls, without quotes. Sandbox exclusions match only a whole call.
+Run `pg-test start` by its full path as its own call, and pass its URL to scripts. The exclusion does not apply inside a script.
 In scripts, use `lsof -t` instead of `ps`. The sandbox blocks the setuid `/bin/ps`.
 Start a long-lived server with the `run_in_background` option of the Bash tool, and stop it with TaskStop.
 Or start the servers and the tests in one call with `trap 'kill $pids' EXIT`.
 Never start a server with `&` or `nohup` and expect to stop it in a later call.
 If a server from an earlier call still runs, run `agent-stop <pid>` or `agent-stop --port <port>` as a separate call.
 Also stop its parent pid, for example of pnpm or turbo. For Docker Compose services, use `docker compose down`.
-Write the `agent-stop` path in full without `~`, for example `/Users/<name>/.local/bin/agent-stop`.
+Write the `agent-stop` path in full, without quotes or `~`, for example `/Users/<name>/.local/bin/agent-stop`. See `%TOOLKIT%/docs/claude-sandbox.md`.
 
 ## Reviews
 

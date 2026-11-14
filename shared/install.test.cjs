@@ -53,10 +53,9 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.equal(fs.readFileSync(path.join(backup, '.codex-work/config.toml'), 'utf8'), original)
   const claudeOnce = fs.readFileSync(claudeConfig, 'utf8')
   const claude = require('jsonc-parser').parse(claudeOnce)
-  assert.equal(claude.sandbox.enabled, true)
-  assert.equal(claude.sandbox.autoAllowBashIfSandboxed, true)
-  assert.equal(claude.sandbox.network.allowLocalBinding, true)
-  assert.equal(claude.sandbox.allowUnsandboxedCommands, false)
+  // Only scripts/apply-claude-sandbox.sh sets sandbox switches; the installer adds reviewer domains.
+  assert.deepEqual(Object.keys(claude.sandbox), ['enabled', 'allowUnsandboxedCommands', 'network'])
+  assert.deepEqual(Object.keys(claude.sandbox.network), ['allowedDomains'])
   assert.deepEqual(claude.sandbox.network.allowedDomains, ['github.com', 'api.openai.com', 'chatgpt.com', 'auth.openai.com', 'api.anthropic.com'])
   assert.deepEqual(claude.permissions.deny, ['Bash(git push *)'])
   assert.equal(claude.model, 'chosen')
@@ -80,6 +79,18 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
 })
 
+test('default setup never creates a Claude sandbox or settings file', t => {
+  const f = fixture(t)
+  // A WebFetch denial without a sandbox object changes nothing, so it does not stop setup.
+  const withoutSandbox = '{"model":"chosen","permissions":{"deny":["WebFetch(domain:api.openai.com)"]}}\n'
+  const claude = f.put('.claude/settings.json', withoutSandbox)
+  install(f.plan({}))
+  assert.equal(fs.readFileSync(claude, 'utf8'), withoutSandbox)
+  const other = path.join(f.home, '.claude-other')
+  install(f.plan({ claudeDir: other }))
+  assert.equal(fs.existsSync(path.join(other, 'settings.json')), false)
+})
+
 test('failed default network installation restores config bytes and permissions', t => {
   const f = fixture(t)
   const original = 'model="chosen"\n[sandbox_workspace_write]\nnetwork_access=false\nwritable_roots=["/chosen"]\n'
@@ -100,7 +111,7 @@ test('failed default network installation restores config bytes and permissions'
 test('an explicit Claude model-domain denial stops default setup before changing either provider', t => {
   const f = fixture(t)
   const config = f.put('.codex/config.toml', 'model="chosen"\n')
-  for (const original of ['{"sandbox":{"network":{"deniedDomains":["*.openai.com"]}}}', '{"permissions":{"deny":["WebFetch(domain:api.openai.com)"]}}', '{"sandbox":{"network":{"deniedDomains":["api.openai.com:443"]}}}', '{"sandbox":{"network":{"deniedDomains":["*:443"]}}}']) {
+  for (const original of ['{"sandbox":{"network":{"deniedDomains":["*.openai.com"]}}}', '{"sandbox":{},"permissions":{"deny":["WebFetch(domain:api.openai.com)"]}}', '{"sandbox":{"network":{"deniedDomains":["api.openai.com:443"]}}}', '{"sandbox":{"network":{"deniedDomains":["*:443"]}}}']) {
     const claude = f.put('.claude/settings.json', original)
     assert.throws(() => f.plan({}), /explicitly denied/)
     assert.equal(fs.readFileSync(config, 'utf8'), 'model="chosen"\n')

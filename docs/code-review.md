@@ -22,7 +22,8 @@ codex exec review (--uncommitted | --base <branch> | --commit <sha>) -m gpt-6.1-
 The Claude reviewer gets only read tools and the listed Git commands. It does not load project settings, hooks, or MCP servers.
 These are tool limits, not an OS sandbox. Git configuration in the repository can still start programs.
 
-In a sandboxed session, a nested reviewer can fail to start. In Codex, request native escalation. In Claude, report the limitation.
+In a sandboxed session, a nested reviewer can fail to start. In Codex, request native escalation.
+In Claude, if the sandbox blocks the reviewer, retry the reviewer command once with `dangerouslyDisableSandbox` and give the reason. In auto mode, the classifier reviews that retry. This is not tested yet.
 Do not exclude `claude -p` or `codex` from the sandbox.
 
 A review takes about 1-4 minutes. Run it in the background or with a long timeout.

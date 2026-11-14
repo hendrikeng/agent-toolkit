@@ -70,7 +70,7 @@ printf -v display_ref '%q' "$merge_ref"
 printf -v display_url '%q' "$remote_url"
 
 printf 'Update Agent Toolkit?\n  checkout: %s\n  branch:   %s\n  upstream: %s %s\n  URL:      %s\n' "$display_repo" "$display_branch" "$display_remote" "$display_ref" "$display_url"
-printf 'This pulls remote code and installs its pinned resources; provider settings and official host skills are preserved. Continue? [y/N] '
+printf 'This pulls remote code and installs its pinned resources. It enables Codex network access with approval review and adds reviewer domains to an existing Claude sandbox allowlist; it backs up each changed config. Official host skills are preserved. Continue? [y/N] '
 read -r answer
 if [[ $answer != "y" && $answer != "Y" ]]; then
   printf 'Update cancelled.\n'

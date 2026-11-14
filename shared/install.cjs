@@ -52,6 +52,8 @@ function codexNetworkConfig(text) {
 
 function claudeReviewNetworkConfig(text) {
   const jsonc = require('jsonc-parser'), settings = parseJsonc(text)
+  // scripts/apply-claude-sandbox.sh alone turns the sandbox on. Without a sandbox object, Claude has no network allowlist to extend.
+  if (typeof settings.sandbox !== 'object' || settings.sandbox === null) return text
   const domains = ['api.openai.com', 'chatgpt.com', 'auth.openai.com', 'api.anthropic.com']
   const denied = [...(settings.sandbox?.network?.deniedDomains ?? []), ...(settings.permissions?.deny ?? []).flatMap(rule => {
     const domain = /^WebFetch\(domain:(.+)\)$/.exec(rule)?.[1]
@@ -64,13 +66,8 @@ function claudeReviewNetworkConfig(text) {
     const match = new RegExp('^' + host.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 'i')
     if (domains.some(domain => match.test(domain))) throw Error(`Claude reviewer domain is explicitly denied by ${pattern}; reconcile it in your trusted terminal.`)
   }
-  for (const [keys, value] of [
-    [['sandbox', 'enabled'], true],
-    [['sandbox', 'autoAllowBashIfSandboxed'], true],
-    [['sandbox', 'network', 'allowLocalBinding'], true],
-    [['sandbox', 'network', 'allowedDomains'], [...new Set([...(settings.sandbox?.network?.allowedDomains ?? []), ...domains])]],
-  ]) text = jsonc.applyEdits(text, jsonc.modify(text, keys, value, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
-  return text
+  const allowed = [...new Set([...(settings.sandbox.network?.allowedDomains ?? []), ...domains])]
+  return jsonc.applyEdits(text, jsonc.modify(text, ['sandbox', 'network', 'allowedDomains'], allowed, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
 }
 
 function treeHash(root) {
@@ -166,7 +163,9 @@ function planInstall(options) {
       [path.join(claudeDir, 'settings.json'), claudeReviewNetworkConfig, '{}\n'],
     ]) {
       if (exists(file)?.isSymbolicLink()) refuse(file)
-      files.set(file, configure(exists(file) ? read(file) : empty))
+      const text = exists(file) ? read(file) : empty, next = configure(text)
+      if (!exists(file) && next === empty) continue
+      files.set(file, next)
       networkConfigPaths.add(file)
     }
   }
@@ -343,6 +342,6 @@ if (require.main === module) {
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
     const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME })
     const backup = install(plan)
-    console.log(`Installed copied resources.${exists(backup) ? ` Backups: ${backup}` : ''}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. Original provider configs were backed up before any change.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
+    console.log(`Installed copied resources.${exists(backup) ? ` Backups: ${backup}` : ''}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; reviewer model domains added to an existing Claude sandbox allowlist. Original provider configs were backed up before any change.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
   } catch (error) { console.error(error.message); process.exitCode = 1 }
 }
