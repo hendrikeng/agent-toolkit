@@ -219,7 +219,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "high",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. Fable costs two times more per token than Opus. Delegates bounded work to Medium Opus Workers with short briefs. Sets native subagents to Opus. Does lookups and small edits directly."
+    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. At API prices, Fable costs two times more per token than Opus. Delegates bounded work to Medium Opus Workers with short briefs. Sets native subagents to Opus. Does lookups and small edits directly."
   },
   {
     "name": "Toolkit High - Codex Planner",
@@ -667,8 +667,10 @@ Compare correctness, corrections, elapsed time, and actual usage on representati
 
 OpenAI documents Medium as Sol's API default.
 Anthropic recommends explicit Medium as the Opus 5.5 calibration starting point.
-Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. The Claude High Orchestrator and Planner use Fable 5.2 at High, because Anthropic names Fable as a planner and orchestrator for other models.
+At API prices, Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. Subscription usage weights are not published.
+The Claude High Orchestrator and Planner use Fable 5.2 at High. Anthropic reports good early-tester results with Fable as a planner and orchestrator for other models.
 All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily. Its notes and the Orchestrator role limit delegation to bounded work, and its workers and subagents use Opus.
+To make Opus the default for native subagents, set `CLAUDE_CODE_SUBAGENT_MODEL` to `claude-opus-5-5` in the `env` block of the Claude `settings.json`.
 Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
 API defaults do not prove effective Paseo launch settings.
 Effort labels do not represent equal reasoning budgets across providers or models.

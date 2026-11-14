@@ -33,7 +33,7 @@
     "thinkingOptionId": "high",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. Fable costs two times more per token than Opus. Delegates bounded work to Medium Opus Workers with short briefs. Sets native subagents to Opus. Does lookups and small edits directly."
+    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. At API prices, Fable costs two times more per token than Opus. Delegates bounded work to Medium Opus Workers with short briefs. Sets native subagents to Opus. Does lookups and small edits directly."
   },
   {
     "name": "Toolkit High - Codex Planner",

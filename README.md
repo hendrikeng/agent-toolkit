@@ -278,7 +278,7 @@ These task-based defaults use your existing subscriptions:
 | Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
 | Toolkit High - Claude Fable Orchestrator | `claude-fable-5-2` | High | Existing non-`plan` mode | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
 | Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
-| Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | Native `plan` mode | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
+| Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | Native `plan` mode | A substantial implementation plan for later approval. For a straightforward plan, use the Med Claude Orchestrator in `plan` mode. |
 | Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation, debugging, and verification after authorization |
 | Toolkit Med - Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
 | Toolkit Med - Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
@@ -309,8 +309,10 @@ Claude's current Opus 5.5 default is Medium. Anthropic recommends explicit Mediu
 High targets harder work where verification and edge cases matter. Effort labels do not represent equal reasoning budgets across models.
 Sonnet 5.5 is an optional Worker choice after task-level comparison, without adding another profile.
 Astra remains an optional task-specific choice rather than the Codex Adviser default.
-Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. The Claude High Orchestrator and Planner use Fable 5.2 at High, because Anthropic names Fable as a planner and orchestrator for other models.
+At API prices, Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. Subscription usage weights are not published.
+The Claude High Orchestrator and Planner use Fable 5.2 at High. Anthropic reports good early-tester results with Fable as a planner and orchestrator for other models.
 All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily. Its notes and the Orchestrator role limit delegation to bounded work, and its workers and subagents use Opus.
+To make Opus the default for native subagents, set `CLAUDE_CODE_SUBAGENT_MODEL` to `claude-opus-5-5` in the `env` block of the Claude `settings.json`.
 Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
 See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config), [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5), and [Fable 5.2 guidance](https://platform.claude.com/docs/en/models/fable-5-2/overview.md).
 
