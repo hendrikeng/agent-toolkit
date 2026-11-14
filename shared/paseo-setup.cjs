@@ -203,7 +203,7 @@ async function main() {
       if (!Array.isArray(models[provider])) throw Error(`Unexpected model discovery response: ${provider}`)
     }
     const installContext = (await terminal.question('Add/update compact Paseo context for default primary orchestration and Toolkit guidance references? [y/N]: ')).trim().toLowerCase() === 'y'
-    const trustChoice = (await terminal.question('Trust all Paseo MCP calls for Codex/Claude? Enables trusted, unsandboxed plugins on this daemon. Shell and other MCP approvals stay unchanged. [Y/n]: ')).trim().toLowerCase()
+    const trustChoice = (await terminal.question('Auto-approve allowlisted Paseo MCP tools for Codex/Claude (discovery, status, workspaces; Claude agent launches in safe modes)? Enables trusted, unsandboxed plugins on this daemon. Terminals, browser, prompts to other agents, shell, and other MCP approvals still prompt. [Y/n]: ')).trim().toLowerCase()
     if (!['', 'y', 'n'].includes(trustChoice)) throw Error('Enter y or n for Paseo tool trust; no changes saved.')
     const trustTools = trustChoice !== 'n'
     const plan = prepareSetup({ config, presets, context, resources, previousPrompt, selections, providers, models, installContext })
