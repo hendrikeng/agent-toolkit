@@ -1,9 +1,9 @@
 # Agent Toolkit
 
 Read repository instructions before work. Preserve unrelated edits and user choices for accounts, providers, models, reasoning, and permissions.
-Answer the user briefly. Keep every technical fact, uncertainty, command, path, number, and required progress update.
-Use normal complete sentences in tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
-`/caveman` stays available on request. Apply Simple English to persisted documentation.
+Load `caveman` for concise replies addressed directly to the human user. Honor requests for normal mode or detailed explanations.
+Use normal English for tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
+Keep technical facts, uncertainty, commands, paths, numbers, and required progress updates. Apply Simple English to persisted documentation.
 For coding tasks, load `ponytail` and use full mode unless the user selects another mode. For test work, load `test-audit`.
 Load the full Python, FastAPI, Fastify, or Vue skill when the task uses that language or framework.
 Use skill descriptions to select other installed skills. Load their full instructions on demand, regardless of the assigned role.

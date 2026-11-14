@@ -5,7 +5,7 @@ One shared skill collection for Codex and Claude Code, in native Paseo or a term
 The Toolkit has three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`.
 It supplies no custom permission engine, provider sandbox, Git wrapper, or executable coding-guidance hook.
 
-Replies to the human user are brief and keep every technical fact. The pinned [Caveman skill](skills/caveman/SKILL.md) is available on request (`/caveman`). Use `normal mode` to stop it.
+Replies addressed directly to the human user use the pinned [Caveman skill](skills/caveman/SKILL.md) by default. Agent communication and tool arguments use normal English. Use `normal mode` to stop it.
 Tool arguments, delegation briefs, agent messages, worker reports, and handoffs always use normal English.
 
 ## Install and start
@@ -80,7 +80,7 @@ The agent reads a full `SKILL.md` only when the task needs it. Instructions guid
 
 | Skill | When to use it |
 |---|---|
-| Caveman | On request only (`/caveman`): terse replies to the human user |
+| Caveman | Always on for replies to the human user; agent communication and tool arguments use normal English |
 | Ponytail | Coding tasks; full mode prefers the smallest correct solution |
 | Test Audit | Writing, changing, reviewing, or auditing tests |
 | Python, FastAPI, Fastify, Vue | Work in that language or framework |

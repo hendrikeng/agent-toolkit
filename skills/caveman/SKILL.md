@@ -1,11 +1,10 @@
 ---
 name: caveman
 description: >
-  Invoke only when the user explicitly requests caveman mode with /caveman,
-  "caveman mode", or "talk like caveman". Terse voice for replies addressed
-  directly to the human user: answer first, fluff gone, every technical fact kept.
-  Excludes tool arguments and agent communication. Stays on until "stop caveman"
-  or "normal mode".
+  Terse voice for replies addressed directly to the human user: answer first,
+  fluff gone, every technical fact kept. Excludes tool arguments and agent communication.
+  Use for /caveman, "caveman mode", "talk like caveman", "be brief", "less
+  tokens". Stays on until "stop caveman" or "normal mode".
 license: Apache-2.0
 ---
 
