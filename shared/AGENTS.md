@@ -1,10 +1,9 @@
 # Agent Toolkit
 
 Read repository instructions before work. Preserve unrelated edits and user choices for accounts, providers, models, reasoning, and permissions.
-Load `caveman` for concise replies addressed directly to the human user. Honor requests for normal mode or detailed explanations.
-Use normal English for tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
-Keep complete sentences, normal spacing, exact identifiers, scope, evidence, and uncertainty in agent communication.
-Keep technical facts, uncertainty, commands, paths, numbers, and required progress updates. Apply Simple English to persisted documentation.
+Answer the user briefly. Keep every technical fact, uncertainty, command, path, number, and required progress update.
+Use normal complete sentences in tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
+`/caveman` stays available on request. Apply Simple English to persisted documentation.
 For coding tasks, load `ponytail` and use full mode unless the user selects another mode. For test work, load `test-audit`.
 Load the full Python, FastAPI, Fastify, or Vue skill when the task uses that language or framework.
 Use skill descriptions to select other installed skills. Load their full instructions on demand, regardless of the assigned role.
@@ -21,12 +20,10 @@ It waits three seconds and does not change the `agent-awake` hold or system slee
 Before service or database tests, inspect the target, credentials, ownership, and cleanup. Stop if these boundaries are unclear.
 Register cleanup immediately after each temporary test directory is created, before fixture setup.
 Remove each temporary directory when its owning test or helper finishes, including failed setup and assertions.
-Use the session's temporary directory by default. Do not use `~/Code/.agent-toolkit-scratch` as a new persistent default.
 Create temporary directories only with `mktemp -d` and a template in `$TMPDIR`. macOS ignores `TMPDIR` without a template.
 Never create or reuse a fixed name in a shared temporary directory.
 Delete only your own exact path, written as `"${d:?}"`: `d=$(mktemp -d "${TMPDIR:?}/tmp.XXXXXX") || exit 1; ...; rm -rf -- "${d:?}"`.
 Never run `rm -rf` on an existing shared name or a computed path, such as `$(dirname "$L")`.
-Never run `pg-test gc`. Stop only your own fixtures with `pg-test stop <id>`.
 Keep requested evidence in an explicit output directory, separate from disposable fixtures.
 Keep repository evidence as text: exact commands, observed outcomes, commit references, and unresolved risks.
 Do not commit screenshots, images, videos, or binary evidence, including embedded or base64-encoded media.
@@ -35,6 +32,7 @@ If retained media is necessary, link an artifact in an existing approved externa
 Do not create storage only for evidence. Product assets and required test fixtures remain allowed.
 For disposable PostgreSQL 18 tests, use `pg-test` with the least-privileged role profile.
 Use only its returned fixture URL, keep credentials out of committed files, and run `pg-test stop <id>` when finished.
+Never run `pg-test gc`. Stop only your own fixtures with `pg-test stop <id>`.
 
 CI runners bill by the minute on every provider. Treat each CI run as a cost.
 If the repository skips CI for draft pull requests, keep a pull request as a draft while you iterate. Mark it ready once, when the work is complete.
@@ -65,7 +63,7 @@ If the active policy and task permit it, request native approval after an execut
 Do not repeat the command under unchanged sandbox conditions or bypass a denial through another tool, path, worker, or mode.
 After an approval-review rejection, stop the rejected action and report the stated reason.
 Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
-Record the command, target, agent, effective permission mode, and denial type. Attribute each denial to its originating agent.
+Report each denial with its command, target, originating agent, permission mode, and denial type.
 Never change live permission settings or grant access that managed policy forbids.
 With the Claude sandbox on, no escalation exists. Use the helpers and patterns below.
 If none fits, record the exact denial, continue other work, and report the gap at the end.
@@ -93,13 +91,7 @@ Review an unchanged bundle once across boundaries. After a review changes code, 
 Never install AI reviews as Git hooks.
 Run the native review as a separate headless process from the repository or worktree root, at medium effort.
 Match the reviewer to the provider family of the requesting agent. Other provider families use Codex.
-Claude: `claude -p "/code-review medium [target]" --model claude-opus-5-5 --effort medium --safe-mode --setting-sources user --permission-mode dontAsk --strict-mcp-config --allowedTools "Read Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git ls-files *)" --disallowedTools "Bash(*--output*) Bash(*--ext-diff*)" < /dev/null`
-Codex: `codex exec review (--uncommitted | --base <branch> | --commit <sha>) -m gpt-6.1-sol --ephemeral -c model_reasoning_effort="medium" -o <file outside the repository>`
-The Claude reviewer gets only read tools and the listed Git commands, without project settings, hooks, or MCP servers.
-These are tool limits, not an OS sandbox. Git config in the repository can still run programs.
-In a sandboxed session, a nested reviewer can fail to start. In Codex, request native escalation. In Claude, report the limitation.
-Do not exclude `claude -p` or `codex` from the sandbox.
-A review takes about 1-4 minutes. Run it in the background or with a long timeout.
+Use the commands and tool limits in `%TOOLKIT%/docs/code-review.md`. Run the review in the background.
 Findings are advice. Verify each finding against the code.
 Fix confirmed correctness, security, and data-loss issues inside the task scope. Report other confirmed issues as follow-ups.
 Skip style, duplication, and performance findings unless they are in scope.

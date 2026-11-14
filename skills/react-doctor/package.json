@@ -1,8 +1,0 @@
-{
-  "name": "agent-toolkit-react-doctor",
-  "private": true,
-  "version": "0.1.0",
-  "dependencies": {
-    "react-doctor": "0.9.13"
-  }
-}

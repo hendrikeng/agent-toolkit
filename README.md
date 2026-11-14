@@ -4,7 +4,7 @@ One shared skill collection for Codex and Claude Code, in native Paseo or a term
 
 The architecture is three parts: task skills in `skills/`, a small shared instruction block in `shared/AGENTS.md`, and host guidance in `shared/hosts/`. Toolkit supplies no custom permission engine, provider sandbox, Git wrapper, runtime mirror, or executable coding-guidance hook.
 
-Replies addressed directly to the human user use the adapted, pinned [Caveman skill](skills/caveman/SKILL.md) across Codex and Claude Code.
+Replies addressed directly to the human user are brief and keep every technical fact. The pinned [Caveman skill](skills/caveman/SKILL.md) is available on request (`/caveman`).
 It removes filler and keeps technical meaning. Use `normal mode` or request more detail when needed.
 Tool arguments, delegation briefs, agent messages, worker reports, and handoffs use normal English with complete sentences and normal spacing.
 This exclusion also applies to worker reports addressed to a coordinator and agent messages visible in the user timeline.
@@ -42,8 +42,7 @@ Existing Claude domain denies stop setup for reconciliation. Models, accounts, f
 Claude `WebFetch(domain:...)` deny rules also stop conflicting setup.
 Existing Codex named permission profiles or other filesystem modes require `--preserve-permissions` or reconciliation from a trusted human terminal.
 The selected provider instructions record authorization for normal review and scoped adviser model requests. Adviser investigations still require task authorization.
-Repeat installs retain this authorization. No persistent provider-config backups are created. Failed deployment restores original configs from memory.
-Other installed Toolkit resources retain the installer's normal backups.
+Repeat installs retain this authorization. Before the installer changes a Claude `settings.json` or Codex `config.toml`, it copies the original file to the install backup folder. An install that does not change a file makes no copy of it. Failed deployment restores the original configs.
 The former `--review-network` option remains accepted, with the same behavior as normal installation.
 
 Add `~/.local/bin` to `PATH` for PostgreSQL helpers. Restart old sessions, then use:
@@ -64,7 +63,7 @@ See the [profile setup and instructions](docs/paseo-profiles.md).
 
 The installer refuses noninteractive invocation. Do not run it to repair an agent session's security boundary. Source edits do not deploy changes. Normal installation configures reviewer networking from a trusted human terminal. The `--preserve-permissions` option leaves provider permissions unchanged. Start fresh sessions after setup. In Paseo, select Codex Auto-review mode to retain automatic approval review.
 
-The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It appends a marked instruction block without replacing human instructions. React Doctor's locked dependencies are installed with `npm ci --ignore-scripts`.
+The installer prepares its locked TOML and JSONC parsers in the checkout with `npm ci --ignore-scripts`. It then copies resources to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to those copies, never to the editable checkout. It copies only Git-tracked files under `skills/`. Untracked local skill folders are not installed. It appends a marked instruction block without replacing human instructions. The block text for review authorization comes from `shared/review-authorization.md`.
 
 Copies include skill-local scripts and PostgreSQL helpers. Installation does not make the checkout read-only.
 Editing a source script cannot change an installed executable until a human installs it again.
@@ -127,7 +126,7 @@ Agents can run the command on request. A macOS Shortcut can run the same command
 
 | Skill | When to use it |
 |---|---|
-| Caveman | Concise replies directly to the human user. Agent communication and tool arguments use normal English. |
+| Caveman | On request only (`/caveman`): terse replies to the human user. Agent communication and tool arguments use normal English. |
 | Ponytail | Coding tasks; full mode prefers the smallest correct solution |
 | Test Audit | Writing, changing, reviewing, or auditing tests |
 | Python, FastAPI, Fastify, Vue | Work in the corresponding language or framework |
@@ -135,11 +134,10 @@ Agents can run the command on request. A macOS Shortcut can run the same command
 | Ponytail Review | Explicit complexity review, or a qualifying publication boundary |
 | Ponytail Audit | Explicit whole-repository complexity audit; findings only |
 | Ponytail Debt | Explicit report of `ponytail:` shortcuts and revisit conditions |
-| Ponytail Help | Requested modes, skill syntax, and update reference |
 | DeepSec | Explicit request only; pinned scanner and bounded AI stages |
 | React Doctor | Explicit request only; pinned deterministic React scan |
 
-Ponytail Audit and Debt are optional maintenance tools. Help explains the modes and native commands.
+Ponytail Audit and Debt are optional maintenance tools.
 The historical `ponytail-gain` scoreboard is intentionally omitted; it does not improve coding, review, or permission behavior.
 
 Automatic reviews occur only when the user requests a commit, push, PR, merge, or ship boundary. Passing tests or finishing an edit never triggers one. First inspect the change and run focused deterministic checks.
@@ -243,7 +241,17 @@ Setup also offers the guarded Codex Adviser migration described in the update in
 Private backups and ownership receipts protect deliberate recovery. This does not enable tool injection or launch workers.
 Setup also offers the included Paseo tool-trust plugin. The default accepts it at the setup save confirmation.
 This enables Paseo's global plugin switch and installs trusted, unsandboxed code through the native CLI.
-The plugin approves Paseo MCP tool calls for Codex and Claude, including discovery, workers, terminals, and browser tools.
+The plugin approves only Paseo MCP tools on a name allowlist, for Codex and Claude:
+- Discovery and status: the `list_*` tools, `get_agent_status`, `get_agent_activity`, `inspect_provider`, `inspect_schedule`, and `schedule_logs`.
+- Worker cleanup: `cancel_agent` and `archive_agent`. Archive is a soft delete.
+- Workspaces: `create_workspace` and `rename_workspace`.
+
+For Claude, it also approves `create_agent`, `update_agent`, and `set_agent_mode` when the call names a safe mode.
+A call without a mode gets a prompt, because the plugin does not know the provider default mode.
+A call that requests `bypassPermissions`, `full-access`, or an unknown mode also gets a prompt.
+Codex requests do not include tool arguments, so these three tools always get a prompt for Codex.
+`send_agent_prompt` keeps its prompt, because it can send work to an agent with full access.
+Terminal tools, including `capture_terminal`, browser tools, schedule changes, `respond_to_permission`, `kill_agent`, and `archive_workspace` keep their prompts.
 It handles Default mode too. Other MCP servers, shell commands, questions, and URL authorization requests keep their existing approvals.
 Provider tool limits and browser enablement still apply. Trust does not authorize work outside the user's task.
 Run `./install.sh`, then `./setup-paseo.sh` from a trusted human terminal to deploy and enable this change.
@@ -368,7 +376,7 @@ Authentication or quota errors stop the affected launch. They do not authorize a
 
 Code reviews use the native reviewer of each provider and Ponytail Review's existing gates.
 A saved Reviewer profile does not configure the native reviewer.
-The review policy in `shared/AGENTS.md` gives the headless commands. Claude reviews pin `claude-opus-5-5` at medium effort, with read-only tools and without project settings or hooks. Codex reviews pin `gpt-6.1-sol` at medium reasoning effort.
+`docs/code-review.md` gives the headless review commands. Claude reviews pin `claude-opus-5-5` at medium effort, with read-only tools and without project settings or hooks. Codex reviews pin `gpt-6.1-sol` at medium reasoning effort.
 Reviewer effort is independent of profile effort. The worker's effort does not select reviewer effort.
 Run the review in the intended native account context. The command does not select a Paseo account alias.
 Codex's `auto-review` permission mode reviews approval requests. A native code review examines a change bundle.
@@ -522,7 +530,15 @@ enabled = false
 
 Keep the hook trust records and native permission configuration. Start fresh sessions after migration. Disabling the plugin stops its hooks in those sessions. It does not disable an OS sandbox.
 
-Replaced resources and instruction/configuration files are backed up under `~/.local/share/agent-toolkit/backups/`. The receipt records owned links, exact instruction blocks, and the copied source snapshot. Modified installed skill/script resources stop replacement; dependency caches are rebuilt from the lockfile. Repeat installation preserves human text outside the block. Installation re-reads configuration after staging and restores replaced files if deployment fails. A crash or an existing lock requires manual inspection, not automatic lock theft. Backups can contain private settings: keep them private. Restore specific files after comparing them; do not blindly restore an entire global configuration.
+Replaced instruction and configuration files are backed up under `~/.local/share/agent-toolkit/backups/`. The installer does not back up `~/.local/share/agent-toolkit/resources/`. It replaces that folder only when the folder matches the receipt, so the old copy holds no user work. The receipt records owned links, exact instruction blocks, and the copied source snapshot. Modified installed skill/script resources stop replacement. Repeat installation preserves human text outside the block. Installation re-reads configuration after staging and restores replaced files if deployment fails. A crash or an existing lock requires manual inspection, not automatic lock theft. Backups can contain private settings: keep them private. Restore specific files after comparing them; do not blindly restore an entire global configuration.
+
+Older installs also copied the full resources folder into each backup. These copies can use many gigabytes. They hold only Toolkit files, not user settings. To find them, run this command from a trusted human terminal:
+
+```sh
+ls -d ~/.local/share/agent-toolkit/backups/*/.local/share/agent-toolkit/resources
+```
+
+Remove each listed folder that you do not need. Keep the other files in each backup folder, because they can hold your original settings.
 
 To update from a trusted human terminal:
 
@@ -573,8 +589,8 @@ Start fresh sessions to verify the updated installed guidance and effective laun
 
 | Resource | Pin |
 |---|---|
-| Ponytail skill family (five skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
-| React Doctor | `0.9.13`, locked skill-local dependencies |
+| Ponytail skill family (four skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
+| React Doctor | `npx react-doctor@0.9.13`, manual only |
 | DeepSec | `npx deepsec@2.3.9`, manual only |
 | Installer configuration parsers | `smol-toml@1.9.0`, `jsonc-parser@3.3.1`, locked in `shared/` |
 
@@ -628,7 +644,7 @@ Automatic skill use by a real model, fresh Codex/Claude skill loading, and a liv
 | `shared/hosts/` | Paseo instructions |
 | `shared/install.cjs` | Human-terminal installation and conservative migration |
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Native profile, compact System Prompt, and optional Paseo tool trust setup |
-| `paseo/tool-trust/` | Native plugin for trusted Paseo MCP approvals in Codex and Claude |
+| `paseo/tool-trust/` | Native plugin that approves allowlisted Paseo MCP tools in Codex and Claude. For Claude, it also approves agent tools that name a safe mode |
 | `shared/postgres/` | Disposable PostgreSQL helpers |
 | `shared/agent-heavy.pl` | Machine-wide limit for heavy local checks |
 | `shared/agent-stop.pl` | Stops background processes of agents, also from the Claude sandbox |

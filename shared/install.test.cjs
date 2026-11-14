@@ -19,20 +19,26 @@ function fixture(t, checkout = repo) {
   }
   return { home, put, plan: (options = {}) => planInstall({ repo: checkout, home, ...options }) }
 }
-const noDownload = (command, args) => {
-  assert.equal(command, 'npm')
-  assert.deepEqual(args.slice(0, 2), ['ci', '--prefix'])
-  assert.ok(args.includes('--ignore-scripts'))
+// A Git checkout copy: the installer reads the tracked skill list from Git.
+function checkout(f) {
+  const directory = path.join(f.home, 'checkout')
+  for (const entry of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md', 'docs/claude-sandbox.md', 'docs/code-review.md']) {
+    fs.cpSync(path.join(repo, entry), path.join(directory, entry), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
+  }
+  const git = (...args) => spawnSync('git', ['-C', directory, ...args], { encoding: 'utf8' })
+  git('init', '-q')
+  return { directory, track: () => assert.equal(git('add', '-A').status, 0) }
 }
 
-test('default reviewer networking updates selected homes, preserves user configuration and creates no config backups', t => {
+test('default reviewer networking updates selected homes, preserves user configuration and backs up each changed config once', t => {
   const f = fixture(t)
   const original = '# Human configuration\nmodel="chosen"\n\n[plugins."user@local"]\nenabled=true\n'
   const config = f.put('.codex-work/config.toml', original)
   const other = f.put('.codex-accounts/other/config.toml', 'model="other"\n')
-  const claudeConfig = f.put('.claude-work/settings.json', '{\n// Human sandbox policy\n"model":"chosen", "sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":["github.com"]}},"permissions":{"deny":["Bash(git push *)"]}\n}\n')
+  const claudeOriginal = '{\n// Human sandbox policy\n"model":"chosen", "sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":["github.com"]}},"permissions":{"deny":["Bash(git push *)"]}\n}\n'
+  const claudeConfig = f.put('.claude-work/settings.json', claudeOriginal)
   const options = { codexHome: path.dirname(config), claudeDir: path.dirname(claudeConfig) }
-  const backup = install(f.plan(options), noDownload)
+  const backup = install(f.plan(options))
   const once = fs.readFileSync(config, 'utf8')
   const parsed = require('smol-toml').parse(once)
   assert.equal(parsed.sandbox_mode, 'workspace-write')
@@ -44,7 +50,7 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.equal(parsed.plugins['user@local'].enabled, true)
   assert.ok(once.includes('# Human configuration'))
   assert.equal(fs.readFileSync(other, 'utf8'), 'model="other"\n')
-  assert.equal(fs.existsSync(path.join(backup, '.codex-work/config.toml')), false)
+  assert.equal(fs.readFileSync(path.join(backup, '.codex-work/config.toml'), 'utf8'), original)
   const claudeOnce = fs.readFileSync(claudeConfig, 'utf8')
   const claude = require('jsonc-parser').parse(claudeOnce)
   assert.equal(claude.sandbox.enabled, true)
@@ -55,7 +61,7 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.deepEqual(claude.permissions.deny, ['Bash(git push *)'])
   assert.equal(claude.model, 'chosen')
   assert.ok(claudeOnce.includes('// Human sandbox policy'))
-  assert.equal(fs.existsSync(path.join(backup, '.claude-work/settings.json')), false)
+  assert.equal(fs.readFileSync(path.join(backup, '.claude-work/settings.json'), 'utf8'), claudeOriginal)
   assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
   assert.match(fs.readFileSync(path.join(path.dirname(claudeConfig), 'CLAUDE.md'), 'utf8'), /normal model requests/)
   for (const prompt of [path.join(path.dirname(config), 'AGENTS.md'), path.join(path.dirname(claudeConfig), 'CLAUDE.md')]) {
@@ -64,15 +70,17 @@ test('default reviewer networking updates selected homes, preserves user configu
     assert.doesNotMatch(content, /AutoReview/)
     assert.doesNotMatch(content, /regardless of the implementation provider/)
   }
-  install(f.plan(options), noDownload)
+  const repeat = install(f.plan(options))
   assert.equal(fs.readFileSync(config, 'utf8'), once)
   assert.equal(fs.readFileSync(claudeConfig, 'utf8'), claudeOnce)
-  install(f.plan({ ...options, reviewNetwork: false }), noDownload)
+  assert.equal(fs.existsSync(path.join(repeat, '.codex-work/config.toml')), false)
+  assert.equal(fs.existsSync(path.join(repeat, '.claude-work/settings.json')), false)
+  install(f.plan({ ...options, reviewNetwork: false }))
   assert.equal(fs.readFileSync(config, 'utf8'), once)
   assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
 })
 
-test('failed default network installation restores config bytes and permissions without a persistent config backup', t => {
+test('failed default network installation restores config bytes and permissions', t => {
   const f = fixture(t)
   const original = 'model="chosen"\n[sandbox_workspace_write]\nnetwork_access=false\nwritable_roots=["/chosen"]\n'
   const config = f.put('.codex/config.toml', original)
@@ -82,7 +90,7 @@ test('failed default network installation restores config bytes and permissions 
   const symlink = fs.symlinkSync
   fs.symlinkSync = () => { throw Error('Fixture deployment failure') }
   try {
-    assert.throws(() => install(f.plan({}), noDownload), /Fixture deployment failure/)
+    assert.throws(() => install(f.plan({})), /Fixture deployment failure/)
     assert.equal(fs.readFileSync(config, 'utf8'), original)
     assert.equal(fs.statSync(config).mode & 0o777, 0o640)
     assert.equal(fs.readFileSync(claude, 'utf8'), claudeOriginal)
@@ -129,7 +137,7 @@ test('permission-preserving install and repeat install preserve configuration, i
   for (const [file, content] of Object.entries(untouched)) f.put(file, content)
   f.put('.codex/AGENTS.md', 'Human Codex instructions\n')
   f.put('.claude/CLAUDE.md', 'Human Claude instructions\n')
-  const backup = install(f.plan({ reviewNetwork: false }), noDownload)
+  const backup = install(f.plan({ reviewNetwork: false }))
   const resources = path.join(f.home, '.local/share/agent-toolkit/resources')
   const installedSkill = path.join(resources, 'skills/ponytail/SKILL.md')
   assert.ok(fs.statSync(installedSkill).isFile())
@@ -143,7 +151,10 @@ test('permission-preserving install and repeat install preserve configuration, i
     assert.ok(!content.includes('codex-yolo'))
   }
   assert.equal(fs.readFileSync(path.join(backup, '.codex/AGENTS.md'), 'utf8'), 'Human Codex instructions\n')
-  install(f.plan({ reviewNetwork: false }), noDownload)
+  const repeat = install(f.plan({ reviewNetwork: false }))
+  // Unchanged resources are verified against the receipt, so the old copy is removed, not backed up.
+  assert.equal(fs.existsSync(path.join(repeat, '.local/share/agent-toolkit/resources')), false)
+  assert.deepEqual(fs.readdirSync(path.join(f.home, '.local/share/agent-toolkit')).filter(name => name.startsWith('.install-')), [])
   for (const [file, content] of Object.entries(untouched)) assert.equal(fs.readFileSync(path.join(f.home, file), 'utf8'), content, file)
   for (const command of ['pg-test', 'pg18-fresh', 'paseo-service', 'agent-heavy', 'agent-stop']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
   assert.equal(fs.readFileSync(path.join(f.home, '.local/bin/pg-test'), 'utf8'), fs.readFileSync(path.join(repo, 'shared/postgres/pg-test.cjs'), 'utf8'))
@@ -161,16 +172,14 @@ for (const provider of [
   { option: 'claudeDir', first: '.claude', second: '.claude-work', prompt: 'CLAUDE.md', directory: 'skills', source: 'skills', entry: 'SKILL.md', active: 'ponytail/SKILL.md' },
 ]) test(`switching ${provider.option} preserves other installed homes and scopes obsolete-link cleanup`, t => {
   const f = fixture(t)
-  const checkout = path.join(f.home, 'checkout')
-  for (const directory of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md', 'docs/claude-sandbox.md']) {
-    fs.cpSync(path.join(repo, directory), path.join(checkout, directory), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
-  }
+  const { directory: checkoutDirectory, track } = checkout(f)
   const obsoleteSource = f.put(`checkout/${provider.source}/retired-fixture/${provider.entry}`, provider.entry === 'SKILL.md' ? '---\nname: retired-fixture\ndescription: Fixture skill\n---\nFixture body\n' : 'export default function () {}\n')
   const first = path.join(f.home, provider.first), second = path.join(f.home, provider.second)
   f.put(`${provider.first}/${provider.prompt}`, 'Human first-home instructions\n')
   f.put(`${provider.second}/${provider.prompt}`, 'Human second-home instructions\n')
-  const options = { repo: checkout, home: f.home }
-  const deploy = directory => install(planInstall({ ...options, [provider.option]: directory }), noDownload)
+  track()
+  const options = { repo: checkoutDirectory, home: f.home }
+  const deploy = directory => install(planInstall({ ...options, [provider.option]: directory }))
   const receipt = () => JSON.parse(fs.readFileSync(path.join(f.home, '.local/share/agent-toolkit/installed.json')))
   deploy(first)
   const originalPrompt = fs.readFileSync(path.join(first, provider.prompt), 'utf8')
@@ -186,6 +195,7 @@ for (const provider of [
   const oldLink = path.join(first, provider.directory, 'retired-fixture')
   const currentLink = path.join(second, provider.directory, 'retired-fixture')
   fs.rmSync(path.dirname(obsoleteSource), { recursive: true })
+  track()
   deploy(second)
   assert.equal(fs.lstatSync(oldLink).isSymbolicLink(), true)
   assert.equal(receipt().links[oldLink], originalLinks.find(([file]) => file === oldLink)[1])
@@ -224,7 +234,7 @@ test('migration retires only proven files with backups and stops before changing
   assert.ok(fs.existsSync(old))
   assert.ok(!fs.existsSync(path.join(f.home, '.local/share/agent-toolkit/resources')))
   fs.writeFileSync(config, '{}') // Explicit trusted reconciliation represented by the fixture owner.
-  const backup = install(f.plan(), noDownload)
+  const backup = install(f.plan())
   assert.equal(fs.existsSync(old), false)
   assert.throws(() => fs.lstatSync(retiredSkill), { code: 'ENOENT' })
   assert.equal(fs.readFileSync(path.join(backup, '.local/bin/autoreview-yolo'), 'utf8'), '#!/bin/sh\nold Toolkit launcher\n')
@@ -242,7 +252,7 @@ test('changed instruction blocks and unrelated symlinks fail without overwriting
   assert.throws(f.plan, /Manual reconciliation/)
   assert.equal(fs.readFileSync(original, 'utf8'), 'user skill')
   fs.unlinkSync(path.join(f.home, '.claude/skills/python'))
-  install(f.plan(), noDownload)
+  install(f.plan())
   const prompt = path.join(f.home, '.codex/AGENTS.md')
   fs.writeFileSync(prompt, fs.readFileSync(prompt, 'utf8').replace('reviews:off', 'user change'))
   assert.throws(f.plan, /Manual reconciliation/)
@@ -281,7 +291,7 @@ test('every Codex account being updated is checked before deployment', t => {
     fs.writeFileSync(config, text)
     assert.doesNotThrow(f.plan)
   }
-  install(f.plan(), noDownload)
+  install(f.plan())
   assert.ok(fs.existsSync(path.join(f.home, '.codex-accounts/work/AGENTS.md')))
 })
 
@@ -289,7 +299,7 @@ test('commented Claude and Paseo settings are checked without changing their byt
   const f = fixture(t)
   const content = '{\n// user comment\n"url":"https://example.test/*keep*/",\n"quoted":"escaped \\" // keep",\n"items":[1, /* keep */],\n"enabledPlugins":{"ponytail@ponytail":false,},\n}\n'
   const configs = ['.claude/settings.json', '.paseo/config.json'].map(file => f.put(file, content))
-  install(f.plan({ reviewNetwork: false }), noDownload)
+  install(f.plan({ reviewNetwork: false }))
   for (const config of configs) assert.equal(fs.readFileSync(config, 'utf8'), content)
   fs.writeFileSync(configs[0], content.replace(':false,', ':true,'))
   assert.throws(f.plan, /Manual reconciliation/)
@@ -299,38 +309,57 @@ test('commented Claude and Paseo settings are checked without changing their byt
   }
 })
 
-test('a deployed executable is a copy; changes made during staging are preserved; failed replacement restores original files', t => {
+test('a deployed executable is a copy; only tracked skills install; edits after planning are preserved; failed replacement restores original files', t => {
   const f = fixture(t)
-  const checkout = path.join(f.home, 'checkout')
-  for (const directory of ['skills', 'shared', 'paseo/tool-trust', 'docs/paseo-worktrees.md', 'docs/claude-sandbox.md']) {
-    fs.cpSync(path.join(repo, directory), path.join(checkout, directory), { recursive: true, filter: file => !['node_modules', '__pycache__', '.git'].includes(path.basename(file)) })
-  }
-  const options = { repo: checkout, home: f.home }
+  const { directory: checkoutDirectory, track } = checkout(f)
+  track()
+  f.put('checkout/skills/untracked-fixture/SKILL.md', 'Untracked local skill\n')
+  const options = { repo: checkoutDirectory, home: f.home }
   const initial = planInstall(options)
-  install(initial, (command, args) => {
-    noDownload(command, args)
-    f.put('.claude/CLAUDE.md', 'Human edit during staging\n')
-  })
-  assert.ok(fs.readFileSync(path.join(f.home, '.claude/CLAUDE.md'), 'utf8').startsWith('Human edit during staging\n'))
+  f.put('.claude/CLAUDE.md', 'Human edit after planning\n')
+  install(initial)
+  assert.ok(fs.readFileSync(path.join(f.home, '.claude/CLAUDE.md'), 'utf8').startsWith('Human edit after planning\n'))
+  assert.equal(fs.existsSync(path.join(f.home, '.local/share/agent-toolkit/resources/skills/untracked-fixture')), false)
+  assert.throws(() => fs.lstatSync(path.join(f.home, '.claude/skills/untracked-fixture')), { code: 'ENOENT' })
+  assert.ok(fs.statSync(path.join(f.home, '.claude/skills/ponytail/SKILL.md')).isFile())
   const executable = path.join(f.home, '.local/bin/pg-test')
   const deployed = fs.readFileSync(executable, 'utf8')
-  fs.appendFileSync(path.join(checkout, 'shared/postgres/pg-test.cjs'), '\n// checkout edit\n')
+  fs.appendFileSync(path.join(checkoutDirectory, 'shared/postgres/pg-test.cjs'), '\n// checkout edit\n')
   assert.equal(fs.readFileSync(executable, 'utf8'), deployed)
-  install(planInstall(options), noDownload)
+  install(planInstall(options))
   const updated = fs.readFileSync(executable, 'utf8')
   assert.notEqual(updated, deployed)
   const receipt = path.join(f.home, '.local/share/agent-toolkit/installed.json')
   const before = fs.readFileSync(receipt, 'utf8')
   const instructions = path.join(f.home, '.claude/CLAUDE.md')
   const previous = fs.readFileSync(instructions, 'utf8')
-  fs.appendFileSync(path.join(checkout, 'shared/AGENTS.md'), '\nUpdated guidance\n')
+  fs.appendFileSync(path.join(checkoutDirectory, 'shared/AGENTS.md'), '\nUpdated guidance\n')
   const temporary = `${instructions}.agent-toolkit-${process.pid}`
   f.put(path.relative(f.home, temporary), 'user file colliding with temporary output')
-  assert.throws(() => install(planInstall(options), noDownload), /EEXIST/)
+  assert.throws(() => install(planInstall(options)), /EEXIST/)
   assert.equal(fs.readFileSync(executable, 'utf8'), updated)
   assert.equal(fs.readFileSync(receipt, 'utf8'), before)
   assert.equal(fs.readFileSync(instructions, 'utf8'), previous)
   assert.equal(fs.readFileSync(temporary, 'utf8'), 'user file colliding with temporary output')
+})
+
+test('a failed cleanup of the old resources warns but keeps the install and later installs working', t => {
+  const f = fixture(t)
+  install(f.plan({ reviewNetwork: false }))
+  const { dataRoot, resources } = f.plan()
+  const locked = path.join(resources, 'shared/hosts')
+  fs.chmodSync(locked, 0o500) // Directory modes are not in the resource hash; this blocks deleting its files.
+  const warn = t.mock.method(console, 'warn', () => {})
+  let previous
+  try {
+    install(f.plan({ reviewNetwork: false }))
+    previous = fs.readdirSync(dataRoot).filter(name => name.endsWith('-previous')).map(name => path.join(dataRoot, name))
+    assert.equal(previous.length, 1)
+    assert.match(warn.mock.calls[0].arguments[0], new RegExp(`Remove ${previous[0]} by hand`))
+    install(f.plan({ reviewNetwork: false }))
+  } finally {
+    for (const directory of [locked, ...(previous ?? []).map(file => path.join(file, 'shared/hosts'))]) fs.chmodSync(directory, 0o700)
+  }
 })
 
 test('external provider homes can be backed up, reinstalled and restored across filesystems', t => {
@@ -345,8 +374,8 @@ test('external provider homes can be backed up, reinstalled and restored across 
   }
   try {
     const options = { claudeDir, }
-    install(f.plan(options), noDownload)
-    install(f.plan(options), noDownload)
+    install(f.plan(options))
+    install(f.plan(options))
     const prompt = path.join(claudeDir, 'CLAUDE.md'), skill = path.join(claudeDir, 'skills/ponytail')
     const before = fs.readFileSync(prompt, 'utf8'), target = fs.readlinkSync(skill)
     const receipt = path.join(f.home, '.local/share/agent-toolkit/installed.json')
@@ -355,7 +384,7 @@ test('external provider homes can be backed up, reinstalled and restored across 
       if (file === skill) throw Error('Fixture replacement failure')
       return symlink(source, file, ...args)
     }
-    assert.throws(() => install(f.plan(options), noDownload), /Fixture replacement failure/)
+    assert.throws(() => install(f.plan(options)), /Fixture replacement failure/)
     assert.equal(fs.readFileSync(prompt, 'utf8'), before)
     assert.equal(fs.readlinkSync(skill), target)
     assert.equal(fs.readFileSync(receipt, 'utf8'), ownership)

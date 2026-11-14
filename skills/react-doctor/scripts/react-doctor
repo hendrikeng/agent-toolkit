@@ -22,6 +22,8 @@ for option in "$@"; do
   esac
 done
 
-skill_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-exec "$skill_dir/node_modules/.bin/react-doctor" . --verbose "$@" \
+# Force the public registry: the scanned repository's .npmrc must not choose where the scanner comes from.
+# Skip dependency install scripts. Scoped registries in that .npmrc still apply; this is a known limit.
+exec npm exec --yes --ignore-scripts --registry=https://registry.npmjs.org/ --package=react-doctor@0.9.13 -- \
+  react-doctor . --verbose "$@" \
   "${scope_args[@]}" --no-telemetry --no-supply-chain

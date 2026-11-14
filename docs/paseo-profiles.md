@@ -91,7 +91,7 @@ Do not repeat the command under unchanged sandbox conditions or bypass the denia
 General publication approval does not lift an explicit no-Git-write-retries restriction.
 Do not change live permissions or grant yourself access.
 
-Record the command, target, agent, effective permission mode, and denial type in the task report.
+Report each denial with its command, target, originating agent, permission mode, and denial type.
 In the reported incident, the diagnostics worker in Default Permissions failed at `git hash-object -w --stdin`.
 The write target was `.git/objects`. The publication worker stopped under the earlier no-Git-write-retries restriction.
 A separate Full Access PostgreSQL worker succeeded. That result does not establish Git publication permission.
@@ -742,7 +742,7 @@ No live acceptance or coding-quality benchmark was performed for this recipe.
 ## Code review remains separate
 
 A saved Reviewer profile is not necessary for Toolkit's change-bundle reviews.
-Each provider runs its native code review as a separate headless process. The review policy in `shared/AGENTS.md` gives the commands.
+Each provider runs its native code review as a separate headless process. `docs/code-review.md` gives the commands.
 Ponytail Review retains its complexity-review gate.
 An Adviser is not a way to bypass the active review policy with an unrequested second-model review.
 

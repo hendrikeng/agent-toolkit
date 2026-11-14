@@ -3,7 +3,6 @@
     "setup": [
       "git submodule update --init --recursive",
       "npm ci --prefix shared --ignore-scripts --no-audit --no-fund",
-      "npm ci --prefix skills/react-doctor --ignore-scripts --no-audit --no-fund",
       "npm ci --prefix paseo/tool-trust --ignore-scripts --no-audit --no-fund"
     ]
   },

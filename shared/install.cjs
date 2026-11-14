@@ -12,6 +12,8 @@ const end = '<!-- /agent-toolkit -->'
 const exists = file => { try { return fs.lstatSync(file) } catch (e) { if (e.code !== 'ENOENT') throw e } }
 const hash = data => createHash('sha256').update(data).digest('hex')
 const read = file => fs.readFileSync(file, 'utf8')
+// Only Git-tracked skill files are installed; untracked local folders stay out.
+const trackedSkillFiles = repo => execFileSync('git', ['-C', repo, '-c', 'core.fsmonitor=false', 'ls-files', '-z', '--', 'skills'], { encoding: 'utf8' }).split('\0').filter(Boolean)
 const refuse = file => { throw Error(`Manual reconciliation required: ${file}. Compare ownership and backups in a trusted human terminal; no installed files changed.`) }
 
 // Configuration parsers read native formats without rewriting user files.
@@ -131,7 +133,7 @@ function planInstall(options) {
       text = read(file)
     }
     let body = read(path.join(repo, 'shared/AGENTS.md')).replaceAll('%TOOLKIT%', resources).trimEnd()
-    if (receipt.reviewNetworkPrompts?.includes(file)) body += '\n\n## Authorized review and adviser model requests\n\nThe user authorizes normal model requests for requested native code reviews and reviews required by the Toolkit publication policy.\nUse the reviewer selected by the provider-matching review policy above.\nSwitching a review to another provider needs explicit user authorization.\nThe user also authorizes scoped advisers to read task-relevant private repository files when their investigations are authorized.\nThis includes sending selected source and context through the chosen provider\'s normal model requests.\nUse the authorized provider and exact account alias. Keep adviser scope and publication limits intact.\nThis does not authorize Cloud tasks, unrelated files, credentials, production data, account changes, or other provider changes.\nDo not add a separate consent question for these authorized model requests. Obey native denials and explicit task-specific restrictions.\n'
+    if (receipt.reviewNetworkPrompts?.includes(file)) body += '\n\n' + read(path.join(repo, 'shared/review-authorization.md'))
     const block = `${begin}\n${body}\n${end}`
     const start = text.indexOf(begin), stop = text.indexOf(end)
     if (start >= 0 || stop >= 0) {
@@ -179,7 +181,7 @@ function planInstall(options) {
     }
   }
   prompt(path.join(claudeDir, 'CLAUDE.md'))
-  for (const name of fs.readdirSync(path.join(repo, 'skills'))) {
+  for (const name of new Set(trackedSkillFiles(repo).map(file => file.split('/')[1]))) {
     link(path.join(home, '.agents/skills', name), path.join(resources, 'skills', name))
     link(path.join(claudeDir, 'skills', name), path.join(resources, 'skills', name))
     for (const directory of codexHomes) ownedLink(path.join(directory, 'skills', name))
@@ -222,7 +224,7 @@ function planInstall(options) {
   return { options, repo, home, dataRoot, resources, receiptPath, receipt, retire, links, files, networkConfigPaths }
 }
 
-function install(plan, run = execFileSync) {
+function install(plan) {
   const { repo, resources, dataRoot, receiptPath } = plan
   fs.mkdirSync(dataRoot, { recursive: true, mode: 0o700 })
   const lock = path.join(dataRoot, 'install.lock')
@@ -230,7 +232,7 @@ function install(plan, run = execFileSync) {
   let stage
   const restored = [], created = []
   const configRollback = []
-  let backup
+  let backup, previousResources
   function writeNew(file, content) {
     const descriptor = fs.openSync(file, 'wx', 0o600)
     created.push(file)
@@ -249,28 +251,44 @@ function install(plan, run = execFileSync) {
     stage = fs.mkdtempSync(path.join(dataRoot, '.install-'))
     backup = path.join(dataRoot, 'backups', path.basename(stage).replace('.install-', `${Date.now()}-`))
     const copy = (source, target) => fs.cpSync(source, target, { recursive: true, filter: file => !['.git', 'node_modules', '__pycache__', '.DS_Store'].includes(path.basename(file)) })
-    for (const directory of ['skills', 'shared/hosts', 'shared/postgres', 'shared/macos', 'paseo/tool-trust']) {
+    for (const file of trackedSkillFiles(repo)) fs.cpSync(path.join(repo, file), path.join(stage, file), { verbatimSymlinks: true })
+    for (const directory of ['shared/hosts', 'shared/postgres', 'shared/macos', 'paseo/tool-trust']) {
       copy(path.join(repo, directory), path.join(stage, directory))
     }
     fs.copyFileSync(path.join(repo, 'shared/AGENTS.md'), path.join(stage, 'shared/AGENTS.md'))
     for (const file of ['shared/paseo-service.cjs', 'shared/agent-heavy.pl', 'shared/agent-stop.pl']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     fs.mkdirSync(path.join(stage, 'docs'), { recursive: true })
-    for (const file of ['docs/paseo-worktrees.md', 'docs/claude-sandbox.md', 'shared/sandbox-probe.sh']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
-    run('npm', ['ci', '--prefix', path.join(stage, 'skills/react-doctor'), '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
+    for (const file of ['docs/paseo-worktrees.md', 'docs/claude-sandbox.md', 'docs/code-review.md', 'shared/sandbox-probe.sh']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     treeHash(stage) // Reject source symlinks before changing an installed resource.
-    // Re-read after staging: preserve edits made while npm ran.
+    // Re-read after staging: preserve edits made since planning.
     plan = planInstall(plan.options)
     const { receipt, files, links, retire } = plan
+    function backupPath(file) {
+      const relative = path.relative(plan.home, file)
+      return path.join(backup, relative.startsWith('..') ? path.join('external', file.slice(1)) : relative)
+    }
+    function writeBackup(file, content) {
+      const destination = backupPath(file)
+      fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 })
+      fs.writeFileSync(destination, content, { flag: 'wx', mode: 0o600 })
+    }
     function move(file) {
       if (!exists(file)) return
       if (plan.networkConfigPaths.has(file)) {
         const original = { file, content: fs.readFileSync(file), mode: fs.statSync(file).mode & 0o777 }
+        writeBackup(file, original.content)
         fs.unlinkSync(file)
         configRollback.push(original)
         return
       }
-      const relative = path.relative(plan.home, file)
-      const destination = path.join(backup, relative.startsWith('..') ? path.join('external', file.slice(1)) : relative)
+      if (file === resources) {
+        // The plan refused changed resources, so the old copy is not user work: keep it only until success.
+        previousResources = `${stage}-previous`
+        fs.renameSync(file, previousResources)
+        restored.push([file, previousResources])
+        return
+      }
+      const destination = backupPath(file)
       fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 })
       transfer(file, destination)
       restored.push([file, destination])
@@ -296,6 +314,9 @@ function install(plan, run = execFileSync) {
     receipt.links = { ...receipt.links, ...Object.fromEntries(links) }
     receipt.resourcesHash = treeHash(resources)
     writeNew(receiptPath, JSON.stringify(receipt, null, 2) + '\n')
+    // Installed and committed: a failed cleanup must not roll back or block later installs.
+    if (previousResources) try { fs.rmSync(previousResources, { recursive: true }) }
+    catch (error) { console.warn(`Warning: could not remove the old resources (${error.message}). Remove ${previousResources} by hand.`) }
     return backup
   } catch (error) {
     try {
@@ -322,6 +343,6 @@ if (require.main === module) {
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
     const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME })
     const backup = install(plan)
-    console.log(`Installed copied resources. Backups: ${backup}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. No persistent config backups created.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
+    console.log(`Installed copied resources.${exists(backup) ? ` Backups: ${backup}` : ''}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude sandbox auto-allow, reviewer model domains and local test networking enabled. Original provider configs were backed up before any change.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
   } catch (error) { console.error(error.message); process.exitCode = 1 }
 }
