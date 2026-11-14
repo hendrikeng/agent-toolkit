@@ -77,6 +77,7 @@ All fourteen shared skills remain available across roles. Load only those requir
 | `python` | In a disposable Python project: `Explain this Python function and propose a bounded correction. Do not edit or install anything.` | Full applicable skill read. Inspect task behavior separately. |
 | `fastapi` | In a disposable FastAPI project: `Inspect one route and its dependencies. Propose a compatible correction without editing or upgrading anything.` | Python and FastAPI reads, with repository version checks. |
 | `fastify` | In a disposable Fastify project: `Inspect one Fastify route and its schema. Recommend the smallest compatible correction. Do not edit or start a server.` | Full Fastify read and relevant rule references. |
+| `react` | In a disposable Next.js project: `Inspect one React component and its hooks. Propose a bounded correction. Do not edit or start a server.` | Full React read and relevant rule files. |
 | `vue` | In a disposable Vue project: `Inspect this Vue component's reactivity and propose a bounded correction. Do not edit or start a server.` | Full Vue read and relevant references. |
 | `ponytail-review` | `/ponytail-review Review the fixture diff. Report findings only.` | Explicit skill read, no edits or automatic publication. Without the slash command, the skill does not load. |
 | `ponytail-audit` | `/ponytail-audit Report only.` | Full skill read and a scoped report, no fixes. Without the slash command, the skill does not load. |

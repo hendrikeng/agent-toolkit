@@ -83,7 +83,7 @@ The agent reads a full `SKILL.md` only when the task needs it. Instructions guid
 | Caveman | Always on for replies to the human user; agent communication and tool arguments use normal English |
 | Ponytail | Coding tasks; full mode prefers the smallest correct solution |
 | Test Audit | Writing, changing, reviewing, or auditing tests |
-| Python, FastAPI, Fastify, Vue | Work in that language or framework |
+| Python, FastAPI, Fastify, Vue, React | Work in that language or framework. React covers Next.js. |
 | Simple English | Automatic for Markdown documentation; explicit checks of other technical text |
 | Ponytail Review | Explicit request only (`/ponytail-review`); quality review of a change |
 | Ponytail Audit | Explicit request only (`/ponytail-audit`); quality audit of the whole repository, findings only |
@@ -328,6 +328,7 @@ Remove the former AutoReview output directory by hand:
 | Resource | Pin |
 |---|---|
 | Ponytail skill family (four skills) | Upstream v5.3.3, revision `7801d061243d7b753bad0e0b3c057cd250b11755`, vendored without hooks |
+| React | [`vercel-labs/agent-skills`](https://github.com/vercel-labs/agent-skills) `react-best-practices` at revision `1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62`, MIT, automatic for React and Next.js work. Local changes are in `skills/react/NOTICE.md`. |
 | React Doctor | `npx react-doctor@0.9.23`, manual only |
 | Security Audit | [`cloudflare/security-audit-skill`](https://github.com/cloudflare/security-audit-skill) revision `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, MIT, manual only |
 | Installer configuration parsers | `smol-toml@1.9.0`, `jsonc-parser@3.3.1`, locked in `shared/` |

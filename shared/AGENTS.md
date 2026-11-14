@@ -5,7 +5,7 @@ Load `caveman` for concise replies addressed directly to the human user. Honor r
 Use normal English for tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
 Keep technical facts, uncertainty, commands, paths, numbers, and required progress updates. Apply Simple English to persisted documentation.
 For coding tasks, load `ponytail` and use full mode unless the user selects another mode. For test work, load `test-audit`.
-Load the full Python, FastAPI, Fastify, or Vue skill when the task uses that language or framework.
+Load the full Python, FastAPI, Fastify, Vue, or React skill when the task uses that language or framework.
 Use skill descriptions to select other installed skills. Load their full instructions on demand, regardless of the assigned role.
 Before creating, editing, reviewing, or auditing Markdown documentation, read the full `simple-english` skill.
 This includes README.md, AGENTS.md, CLAUDE.md, SKILL.md, and Markdown prompt files. Use pragmatic mode unless the user requests strict mode.
