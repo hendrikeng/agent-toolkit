@@ -39,7 +39,7 @@ function fixture(t) {
     commands[name] = path.join(root, name)
     fs.symlinkSync(copy, commands[name])
   }
-  const env = { ...process.env, XDG_STATE_HOME: root }
+  const env = { ...process.env, HOME: root }
   const run = name => execFileSync(commands[name], { env, encoding: 'utf8' })
   const calls = () => { try { return fs.readFileSync(path.join(root, 'launchctl.log'), 'utf8').trimEnd().split('\n') } catch { return [] } }
   return { root, run, calls, env, commands, plist: path.join(root, 'LaunchAgents', `${label}.plist`) }
@@ -122,4 +122,22 @@ test('agent-awake refuses a symlinked plist path', { skip: process.platform !== 
   assert.match(result.stderr, /Refusing a symlink plist/)
   assert.equal(fs.existsSync(target), false)
   assert.ok(!f.calls().some(call => call.startsWith('bootstrap')))
+})
+
+test('the lock lives under HOME, ignores XDG_STATE_HOME, and refuses a symlinked state directory', { skip: process.platform !== 'darwin' }, t => {
+  const f = fixture(t)
+  const xdg = path.join(f.root, 'xdg')
+  const run = env => spawnSync(f.commands['agent-awake'], ['--locked'], { env, encoding: 'utf8' })
+  assert.equal(run({ ...f.env, XDG_STATE_HOME: xdg }).status, 0)
+  assert.ok(fs.existsSync(path.join(f.root, '.local/state/agent-toolkit/caffeinate.lock')))
+  assert.equal(fs.existsSync(xdg), false)
+
+  const target = path.join(f.root, 'target')
+  fs.mkdirSync(target)
+  fs.rmSync(path.join(f.root, '.local/state/agent-toolkit'), { recursive: true })
+  fs.symlinkSync(target, path.join(f.root, '.local/state/agent-toolkit'))
+  const result = run(f.env)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Refusing a symlinked lock path/)
+  assert.deepEqual(fs.readdirSync(target), [])
 })

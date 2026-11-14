@@ -10,20 +10,23 @@ const pty = process.platform === 'darwin' && spawnSync('script', ['-q', '/dev/nu
 const terminal = { skip: process.platform !== 'darwin' ? 'macOS only' : !pty && 'openpty is denied, for example in the Claude sandbox' }
 
 // A copy of the live layout: settings.json is a link to the real file, as in the Paseo homes.
-function fixture(t) {
+// A fake getconf returns darwinTmp: the real macOS temporary directory may contain this fixture, and apply refuses that.
+function fixture(t, { darwinTmp = '/var/folders/zz/agent-toolkit-test/T/', sandbox = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'tmp.')))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), real = path.join(home, '.claude/settings.json'), paseo = path.join(home, '.paseo/claude-x')
+  fs.mkdirSync(path.join(root, 'bin'))
+  fs.writeFileSync(path.join(root, 'bin/getconf'), `#!/bin/sh\nprintf '%s\\n' '${darwinTmp.replace('{home}', home)}'\n`, { mode: 0o755 })
   fs.mkdirSync(path.dirname(real), { recursive: true })
   fs.mkdirSync(paseo, { recursive: true })
   const original = JSON.stringify({
     model: 'fable', env: { KEEP: '1' }, permissions: { deny: ['Bash(git push -f*)'], ask: ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
-      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'make release'] },
+      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'make release'], ...sandbox },
   }, null, 2) + '\n'
   fs.writeFileSync(real, original, { mode: 0o600 })
   fs.symlinkSync(real, path.join(paseo, 'settings.json'))
-  const env = { PATH: process.env.PATH, HOME: home, TMPDIR: root, CLAUDE_CONFIG_DIR: paseo, GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig') }
+  const env = { PATH: `${root}/bin:${process.env.PATH}`, HOME: home, TMPDIR: root, CLAUDE_CONFIG_DIR: paseo, GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig') }
   // script(1) supplies a terminal, as a human terminal does.
   const run = (...args) => spawnSync('script', ['-q', '/dev/null', 'bash', script, '--no-update', ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   // The answer goes through the terminal that script(1) supplies. script(1) sends EOF first for input that is ready at once, so write it after the prompt.
@@ -132,4 +135,26 @@ test('the sandbox write roots for projects are the allowed roots of agent-stop',
   assert.ok(stop, 'agent-stop defines its project roots with qw()')
   assert.deepEqual(projects.sort(), stop[1].split(/\s+/).sort())
   assert.ok(projects.includes('envest'))
+})
+
+test('the sandbox script keeps explicit stricter values and removes old bare-name exclusions', t => {
+  const old = ['pg-test *', 'pg18-fresh', 'agent-stop *', 'agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']
+  const f = fixture(t, { sandbox: { allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false, excludedCommands: ['make release', ...old] } })
+  const settings = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
+  assert.equal(settings.sandbox.allowUnsandboxedCommands, false)
+  assert.equal(settings.sandbox.autoAllowBashIfSandboxed, false)
+  assert.ok(!settings.sandbox.excludedCommands.some(command => old.includes(command)))
+  assert.ok(settings.sandbox.excludedCommands.includes('make release'))
+  assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/pg-test *`))
+  const preview = spawnSync('bash', [script, '--dry-run', '--no-update'], { env: f.env, encoding: 'utf8' })
+  assert.equal(preview.status, 0, preview.stderr)
+  assert.match(preview.stdout, /Keeping the existing sandbox\.allowUnsandboxedCommands = false\./)
+})
+
+test('the sandbox script refuses a settings file inside a sandbox write root', t => {
+  const f = fixture(t, { darwinTmp: '{home}' })
+  const preview = spawnSync('bash', [script, '--dry-run', '--no-update'], { env: f.env, encoding: 'utf8' })
+  assert.equal(preview.status, 1)
+  assert.match(preview.stderr, /Refusing .*settings\.json: it is inside the sandbox write root/)
+  assert.equal(fs.readFileSync(f.real, 'utf8'), f.original)
 })

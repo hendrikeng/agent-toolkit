@@ -96,7 +96,9 @@ function planInstall(options) {
   const resources = path.join(dataRoot, 'resources')
   const receiptPath = path.join(dataRoot, 'installed.json')
   if (exists(receiptPath)?.isSymbolicLink()) refuse(receiptPath)
-  const receipt = exists(receiptPath) ? JSON.parse(read(receiptPath)) : { links: {}, prompts: {} }
+  const receipt = exists(receiptPath) ? JSON.parse(read(receiptPath)) : {}
+  receipt.links ??= {}
+  receipt.prompts ??= {}
   if (options.reviewNetwork) receipt.reviewNetworkPrompts = [...new Set([...(receipt.reviewNetworkPrompts ?? []), path.join(codexHome, 'AGENTS.md'), path.join(claudeDir, 'CLAUDE.md')])]
   if (exists(resources) && (!receipt.resourcesHash || treeHash(resources) !== receipt.resourcesHash)) refuse(resources)
   const retire = new Set(), links = new Map(), files = new Map()
@@ -306,7 +308,7 @@ module.exports = { planInstall, install }
 if (require.main === module) {
   try {
     const args = process.argv.slice(2)
-    if ((args.length && (args.length !== 1 || !['--review-network', '--preserve-permissions'].includes(args[0]))) || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Run ./install.sh [--preserve-permissions] from a trusted human terminal.')
+    if ((args.length && (args.length !== 1 || args[0] !== '--preserve-permissions')) || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Run ./install.sh [--preserve-permissions] from a trusted human terminal.')
     if (Number(process.versions.node.split('.')[0]) !== 24) throw Error('Node.js 24 is required.')
     const home = os.homedir(), repo = path.resolve(__dirname, '..')
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })

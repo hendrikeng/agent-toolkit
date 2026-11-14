@@ -8,7 +8,8 @@ domain=gui/$(id -u)
 agents_dir=$HOME/Library/LaunchAgents
 launchctl=/bin/launchctl
 plist=$agents_dir/$label.plist
-state_dir=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-toolkit
+# A fixed path: the caller controls XDG_STATE_HOME, and this script runs outside the sandbox.
+state_dir=$HOME/.local/state/agent-toolkit
 lock_file=$state_dir/caffeinate.lock
 
 # launchctl print exits 113 only when the service does not exist. Any other failure leaves the state unknown.
@@ -38,9 +39,13 @@ if [[ ${1:-} == --status ]]; then
 fi
 
 mkdir -p "$state_dir"
-if [[ ${1:-} != --locked ]]; then
-  exec /usr/bin/lockf -k -t 5 "$lock_file" "$0" --locked
+if [[ -L $state_dir || -L $lock_file ]]; then
+  echo "Refusing a symlinked lock path: $lock_file" >&2
+  exit 1
 fi
+# Lock an open descriptor: no flag or re-exec can skip the lock. It holds until this script exits.
+exec 9>>"$lock_file"
+/usr/bin/lockf -t 5 9
 
 stopped=
 case ${0##*/} in

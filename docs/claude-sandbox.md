@@ -64,6 +64,8 @@ Start fresh sessions after each change.
 All Paseo Claude homes link their `settings.json` to `~/.claude/settings.json`. The script changes the real file.
 Merge the keys into the existing file.
 The script removes the `capture.mjs` entry from `excludedCommands`. An agent can change that file in its working directory and then run it outside the sandbox.
+The script also removes the bare-name entries that earlier versions wrote, for example `pg-test *` and `agent-awake`. A bare name matches any binary with that name on `PATH`. The full-path entries replace them.
+If `settings.json` resolves to a path inside a root in `allowWrite`, the script stops and changes nothing. The sandbox must not be able to change its own settings.
 If the capture script must run outside the sandbox, install a copy outside writable workspaces and exclude only that path.
 The script keeps other entries that you added.
 
@@ -140,7 +142,7 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | `allowWrite` for `~/.fly` and `~/Library/Caches/pnpm`, `allowUnixSockets` for `~/.fly/fly-agent.sock` | `fly` writes its configuration and talks to its local agent through this socket. `pnpm dlx` writes its cache in `~/Library/Caches/pnpm`. These entries need probe verification. `fly deploy` can also need WireGuard, which the sandbox can block. |
 | `allowWrite` for the macOS temporary directory | macOS `mktemp -d` without a template ignores `TMPDIR` and uses `getconf DARWIN_USER_TEMP_DIR`. Repository scripts use it. The script reads the path on your Mac. |
 | `allowUnsandboxedCommands: true` | A blocked command can be retried once outside the sandbox with `dangerouslyDisableSandbox`. The normal permission flow reviews the retry. In auto mode, the classifier reviews it. With `false`, each blocked command failed. See [The escape](#the-escape). |
-| `autoAllowBashIfSandboxed: true` | Sandboxed commands run without a prompt. The script sets it explicitly, because its default can change in newer Claude Code versions. |
+| `autoAllowBashIfSandboxed: true` | Sandboxed commands run without a prompt. If the key is absent, the script sets it, because its default can change in newer Claude Code versions. |
 | `denyRead` for `~/.ssh` (absolute path) | Sandboxed commands cannot read SSH keys. Git uses HTTPS through the Git rule, so it does not need them. `ssh` runs outside the sandbox through the escape, so it still reads its keys. |
 | `pg-test *`, `pg18-fresh` by full path | PostgreSQL cannot create shared memory inside the sandbox. Both are trusted helpers in `~/.local/bin`, and the sandbox cannot change them. Exclusions match the call text, so a full path matches only the installed helper and not another `pg-test` on `PATH`. Call them by their full path. |
 | `allowUnixSockets` for the OrbStack socket | Docker works in the sandbox, also when a script such as the `tracn-api` database scripts calls it, and in chained commands. Tested with `docker info`, `docker compose version`, and Docker from Node. The Docker daemon has full host access. The Neo4j lane in `pcvc` uses Docker Compose. |

@@ -152,16 +152,14 @@ function ownerIsRunning(root, owner) {
  return processStarted(root, owner.pid) === owner.started
 }
 function stop(root, state, major) {
- if (!identity(root, state, major)) return
- let stopError
- try {
-  run(state.bin, 'pg_ctl', ['-D', path.join(root, 'data'), '-w', '-t', '30', '-m', 'fast', 'stop'], root)
- } catch (error) {
-  stopError = error
- }
+ const running = identity(root, state, major)
+ if (!running) return
+ // Signal the verified PID. pg_ctl would read postmaster.pid again from this agent-writable directory.
+ // SIGINT is the PostgreSQL fast shutdown, the same as pg_ctl -m fast. ESRCH means it already stopped.
+ try { process.kill(running.pid, 'SIGINT') } catch (error) { if (error.code !== 'ESRCH') throw error }
  const deadline = Date.now() + 30_000
  while (identity(root, state, major)) {
-  if (Date.now() >= deadline) throw stopError ?? Error('PostgreSQL did not stop. Preserve its files.')
+  if (Date.now() >= deadline) throw Error('PostgreSQL did not stop. Preserve its files.')
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
  }
 }
@@ -192,7 +190,8 @@ function releaseStoppedFiles(root, state, candidates) {
  if (hasData) fs.rmSync(data, { recursive: true })
  if (hasLog) fs.unlinkSync(log)
 }
-function garbageCollect(candidates) {
+// automatic: the cleanup before a start. It never stops a running ownerless cluster; only a human gc does that.
+function garbageCollect(candidates, automatic = false) {
  const summary = { status: 'complete', checked: 0, stopped: [], deleted: [], preserved: [] }
  for (const candidate of candidates) {
   if (!fs.existsSync(candidate)) continue
@@ -220,6 +219,7 @@ function garbageCollect(candidates) {
     if (running) {
      let reclaim = state.owner ? !ownerIsRunning(root, state.owner) : false
      if (!state.owner) {
+      if (automatic) continue
       if (!/^\d+$/.test(running.started)) throw Error('Postmaster start time is invalid.')
       reclaim = Date.now() - Number(running.started) * 1000 > 2 * 60 * 60 * 1000
      }
@@ -281,7 +281,8 @@ async function main(args) {
   const running = identity(root, state, major)
   return { id, status: !running ? 'stopped' : state.ready ? 'running' : 'incomplete', path: root, files: !running && !fs.existsSync(path.join(root, 'data')) ? 'metadata only' : 'retained' }
  }
- garbageCollect(roots)
+ // Only the caller's own fixture root. pg-test gc checks every root and runs only from a human terminal.
+ garbageCollect([fixtures], true)
  const bin = binaries(major)
  const owner = sessionOwner(fixtures)
  const root = fs.mkdtempSync(path.join(fixtures, `pg${major}-`))

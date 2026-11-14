@@ -375,3 +375,11 @@ test('external provider homes can be backed up, reinstalled and restored across 
     assert.equal(fs.existsSync(path.join(f.home, '.local/share/agent-toolkit/install.lock')), false)
   } finally { fs.renameSync = rename; fs.symlinkSync = symlink }
 })
+
+test('a receipt without links or prompts installs as an empty receipt', t => {
+  const f = fixture(t)
+  f.put('.local/share/agent-toolkit/installed.json', '{}')
+  install(f.plan({ reviewNetwork: false }))
+  const receipt = JSON.parse(fs.readFileSync(path.join(f.home, '.local/share/agent-toolkit/installed.json'), 'utf8'))
+  assert.ok(Object.keys(receipt.prompts).includes(path.join(f.home, '.claude/CLAUDE.md')))
+})

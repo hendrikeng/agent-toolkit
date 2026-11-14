@@ -62,9 +62,10 @@ merge() {
     | .sandbox = (.sandbox // {})
     | .sandbox.enabled = true
     | .sandbox.failIfUnavailable = true
-    | .sandbox.autoAllowBashIfSandboxed = true
     # A blocked command can be retried once outside the sandbox. Normal permissions, in auto mode the classifier, review the retry.
-    | .sandbox.allowUnsandboxedCommands = true
+    # Set these two only when absent: an explicit stricter user value stays.
+    | .sandbox |= (if has("autoAllowBashIfSandboxed") then . else .autoAllowBashIfSandboxed = true end)
+    | .sandbox |= (if has("allowUnsandboxedCommands") then . else .allowUnsandboxedCommands = true end)
     | .sandbox.network.allowLocalBinding = true
     # Docker works in the sandbox, also from scripts. The Docker daemon has full host access.
     # Fly talks to its local agent through a socket. Needs probe verification.
@@ -88,7 +89,9 @@ merge() {
         $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung", $home + "/Code/envest"]
         + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
-    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select(contains("capture.mjs") | not)))
+    # Earlier versions wrote bare names, which match any binary with that name on PATH. The full-path forms below replace them.
+    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or IN("pg-test *", "pg18-fresh",
+        "agent-stop *", "agent-awake", "agent-sleep", "paseo-awake", "paseo-sleep")) | not)))
     | .sandbox.excludedCommands |= append([
         # PostgreSQL cannot create shared memory in the sandbox. Absolute paths: a bare name matches any pg-test on PATH.
         $home + "/.local/bin/pg-test *", $home + "/.local/bin/pg18-fresh",
@@ -105,6 +108,20 @@ merge() {
   ' "$1"
 }
 
+# Refuse a settings file that the sandbox can write: an agent could then change its own sandbox.
+check_location() {
+  local root
+  while IFS= read -r root; do
+    case $root in '~/'*) root=$home/${root#'~/'} ;; //*) root=${root#/} ;; esac
+    root=$(realpath "$root" 2>/dev/null || printf '%s' "$root")
+    if [[ $settings == "${root%/}"/* ]]; then
+      echo "Refusing $settings: it is inside the sandbox write root $root." >&2; exit 1
+    fi
+  done < <(jq -r '.sandbox.filesystem.allowWrite[]' "$1")
+  jq -r '.sandbox | to_entries[] | select((.key == "autoAllowBashIfSandboxed" or .key == "allowUnsandboxedCommands") and .value != true)
+    | "Keeping the existing sandbox.\(.key) = \(.value | tojson)."' "$settings"
+}
+
 # --emit prints the merged settings for a one-off test that skips the live user file:
 #   claude -p --setting-sources project,local --settings "$(scripts/apply-claude-sandbox.sh --emit)"
 if [[ $mode == emit ]]; then merge "$settings"; exit; fi
@@ -113,6 +130,7 @@ trap 'rm -rf -- "${work:?}"' EXIT
 
 if [[ $mode == dry-run ]]; then
   merge "$settings" > "$work/settings.json" || { echo "Cannot parse $settings as JSON" >&2; exit 1; }
+  check_location "$work/settings.json"
   diff -u "$settings" "$work/settings.json" || true
   has_git_rule || echo "Would set: git config --global $git_key $git_value"
   [[ $update == 0 ]] || echo "Would run: $repo/update.sh"
@@ -133,12 +151,14 @@ if [[ $mode == off ]]; then
 fi
 
 # Fail on invalid JSON before anything changes.
-merge "$settings" > /dev/null || { echo "Cannot parse $settings as JSON" >&2; exit 1; }
+merge "$settings" > "$work/settings.json" || { echo "Cannot parse $settings as JSON" >&2; exit 1; }
+check_location "$work/settings.json"
 cp -p "$settings" "$backup"
 echo "Backup: $backup"
 if [[ $update == 1 ]]; then "$repo/update.sh"; fi
 # update.sh can change settings.json, so merge the current file.
 merge "$settings" > "$work/settings.json"
+check_location "$work/settings.json"
 diff -u "$backup" "$work/settings.json" || true
 cat "$work/settings.json" > "$settings"
 if ! has_git_rule; then

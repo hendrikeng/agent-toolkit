@@ -67,16 +67,19 @@ function fixture(major = '18') {
    fs.writeFileSync(path.join(data, 'postmaster.pid'), `${nextPid}\n${data}\n1700000000\n${port}\n`)
   }
   if (program === 'pg_ctl' && args.at(-1) === 'reload' && ownerDiesOnReload) owners.delete(owner.pid)
-  if (program === 'pg_ctl' && args.at(-1) === 'stop') {
-   const pid = Number(fs.readFileSync(path.join(data, 'postmaster.pid'), 'utf8').split('\n')[0])
-   processes.delete(pid)
-   fs.renameSync(path.join(data, 'postmaster.pid'), path.join(data, 'stopped.pid'))
-   if (stopRace) throw Error('concurrent stop completed first')
-  }
   return ''
  }
+ // A fast shutdown removes the process and its PID file. stopRace: another stop completed first.
+ const kill = (pid, signal) => {
+  calls.push({ file: 'kill', args: [signal, pid] })
+  const data = processes.get(pid)
+  if (!data) throw Object.assign(Error('kill ESRCH'), { code: 'ESRCH' })
+  processes.delete(pid)
+  fs.renameSync(path.join(data, 'postmaster.pid'), path.join(data, 'stopped.pid'))
+  if (stopRace) throw Object.assign(Error('kill ESRCH'), { code: 'ESRCH' })
+ }
  const module = { exports: {} }
- const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {} }
+ const mockProcess = { env: { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }, argv: [], on: () => {}, kill }
  const mockOs = { ...os, tmpdir: () => shortTmp, userInfo: () => ({ homedir: home }), platform: () => 'darwin' }
  // Port allocation is an OS boundary; fixture PostgreSQL processes are simulated too.
  let nextPort = 24000
@@ -133,14 +136,16 @@ test('default PG18 fixture lifecycle isolates bootstrap credentials, releases st
  assert.equal((await f.main(['status', started.id])).status, 'running')
  fs.writeFileSync(path.join(started.path, 'postgres.log'), 'fixture server log')
  f.foreign = true
- const stops = () => f.calls.filter(call => call.args.at(-1) === 'stop').length
+ const stops = () => f.calls.filter(call => call.file === 'kill').length
  await assert.rejects(f.main(['stop', started.id]), /outside this test cluster/)
  assert.equal(stops(), 0)
  f.foreign = false
+ const pid = Number(fs.readFileSync(path.join(started.path, 'data/postmaster.pid'), 'utf8').split('\n')[0])
  f.stopRace = true
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
  assert.equal(stops(), 1)
+ assert.deepEqual(f.calls.find(call => call.file === 'kill').args, ['SIGINT', pid], 'stop signals the verified PID, not pg_ctl')
  assert.equal(fs.existsSync(path.join(started.path, 'data')), false)
  assert.deepEqual(fs.readdirSync(started.path), ['pg-test.json'])
  assert.equal(fs.existsSync(JSON.parse(record).socket), false)
@@ -256,7 +261,22 @@ test('garbage collection reaps dead-owner fixtures before the next start', async
  assert.deepEqual(Array.from(cleanup.stopped, item => item.id), [current.id])
  assert.equal((await f.main(['status', current.id])).status, 'stopped')
  for (const root of [abandoned.path, partial, current.path]) assert.deepEqual(fs.readdirSync(root), ['pg-test.json'])
- assert.equal(f.calls.filter(call => call.args.at(-1) === 'stop').length, 2)
+ assert.equal(f.calls.filter(call => call.file === 'kill').length, 2)
+})
+
+test('a start cleans only its own fixture root and never stops a running ownerless cluster', async () => {
+ const f = fixture()
+ const owned = record => Object.assign(JSON.parse(fs.readFileSync(path.join(record.path, 'pg-test.json'), 'utf8')), { owner: { ...f.owner, pid: 9999 } })
+ const elsewhere = f.moveToLegacy(await f.main(['start']))
+ fs.writeFileSync(path.join(elsewhere.path, 'pg-test.json'), JSON.stringify(owned(elsewhere)))
+ f.managed = false
+ const ownerless = await f.main(['start'])
+ const next = await f.main(['start'])
+ assert.equal((await f.main(['status', elsewhere.id])).status, 'running', 'a dead owner in another root waits for a human gc')
+ assert.equal((await f.main(['status', ownerless.id])).status, 'running', 'an old ownerless cluster waits for a human gc')
+ // The simulated postmasters started in 2023, so a human gc reclaims the ownerless clusters too.
+ const summary = await f.main(['gc'])
+ assert.deepEqual(Array.from(summary.stopped, item => item.id).sort(), [elsewhere.id, ownerless.id, next.id].sort())
 })
 
 test('a fixture stops itself when its managed session exits during startup', async () => {
@@ -382,7 +402,7 @@ test('PG18 lifecycle binds the resource ID to both the binary record and cluster
  fs.writeFileSync(versionPath, '17\n')
  await assert.rejects(f.main(['status', started.id]), /Not a PostgreSQL 18 test cluster/)
  await assert.rejects(f.main(['stop', started.id]), /Not a PostgreSQL 18 test cluster/)
- assert.equal(f.calls.filter(call => call.args.at(-1) === 'stop').length, 0)
+ assert.equal(f.calls.filter(call => call.file === 'kill').length, 0)
  fs.writeFileSync(versionPath, '18\n')
  assert.equal((await f.main(['stop', started.id])).status, 'stopped')
 })

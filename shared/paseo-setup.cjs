@@ -171,9 +171,9 @@ async function main() {
       if (!Array.isArray(models[provider])) throw Error(`Unexpected model discovery response: ${provider}`)
     }
     const installContext = (await terminal.question('Add/update compact Paseo context for default primary orchestration and Toolkit guidance references? [y/N]: ')).trim().toLowerCase() === 'y'
-    const trustChoice = (await terminal.question('Auto-approve allowlisted Paseo MCP tools for Codex/Claude (discovery, status, workspaces; Claude agent launches in safe modes)? Enables trusted, unsandboxed plugins on this daemon. Terminals, browser, prompts to other agents, shell, and other MCP approvals still prompt. [Y/n]: ')).trim().toLowerCase()
+    const trustChoice = (await terminal.question('Auto-approve allowlisted Paseo MCP tools for Codex/Claude (discovery, status, workspaces; Claude agent launches in safe modes)? Enables trusted, unsandboxed plugins on this daemon. Terminals, browser, prompts to other agents, shell, and other MCP approvals still prompt. [y/N]: ')).trim().toLowerCase()
     if (!['', 'y', 'n'].includes(trustChoice)) throw Error('Enter y or n for Paseo tool trust; no changes saved.')
-    const trustTools = trustChoice !== 'n'
+    const trustTools = trustChoice === 'y'
     const plan = prepareSetup({ config, presets, context, resources, previousPrompt, selections, providers, models, installContext })
     console.log(`Add: ${plan.added.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'}\n${trustTools ? 'Enable plugins and install Paseo MCP tool trust.' : 'Leave plugin trust unchanged.'} Provider modes and tool-injection settings stay unchanged.`)
     if ((await terminal.question(`Save these changes through the native Paseo CLI? [y/N]: `)).trim().toLowerCase() !== 'y') { console.log('Cancelled. No changes saved.'); return }
