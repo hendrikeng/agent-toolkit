@@ -213,13 +213,13 @@ Keep Planner planning controls as specified.
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit High - Claude Orchestrator",
+    "name": "Toolkit High - Claude Fable Orchestrator",
     "provider": "claude",
-    "model": "claude-opus-5-5",
+    "model": "claude-fable-5-2",
     "thinkingOptionId": "high",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Fable costs more per token than Opus. Delegate bounded implementation to Medium Workers with compact briefs. Keep scope, integration judgment, and verification. Do lookups and small edits directly. Do not start an agent for work smaller than its brief. Put the actual assignment and authorization in the task prompt."
   },
   {
     "name": "Toolkit High - Codex Planner",
@@ -231,9 +231,9 @@ Keep Planner planning controls as specified.
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving Implement for a planning-only assignment."
   },
   {
-    "name": "Toolkit High - Claude Planner",
+    "name": "Toolkit High - Claude Fable Planner",
     "provider": "claude",
-    "model": "claude-opus-5-5",
+    "model": "claude-fable-5-2",
     "thinkingOptionId": "high",
     "modeId": "plan",
     "featureValues": { "fast_mode": false },
@@ -411,7 +411,7 @@ Customized profiles remain human choices. Use native Paseo settings for delibera
 See the [trusted-terminal update commands](../README.md#migration-backups-and-update) for the permission-preserving installation alternative.
 Start fresh sessions to verify the installed guidance and effective launch settings.
 
-Setup adds up to five missing profiles for each selected provider family.
+Setup adds up to six missing profiles for each selected provider family.
 Use the native editor to create only individual presets or select modes outside setup's offered choices.
 The setup choices are Codex `auto` and `auto-review`, and Claude `default`, `acceptEdits`, and `auto`.
 Claude Planner uses native `plan` mode.
@@ -654,8 +654,10 @@ For a straightforward plan, select Medium before launch.
 
 High also fits difficult debugging, migrations, concurrency, security-sensitive work, and difficult cross-repository integration.
 It is not reserved for the Planner, and it does not require a failed Medium attempt first.
-Select effort for the task. `Toolkit High - Claude Orchestrator` and `Toolkit High - Codex Orchestrator` are the only effort variants, because a human selects the primary profile by hand.
+Select effort for the task. `Toolkit High - Codex Orchestrator` is the only effort variant, because a human selects the primary profile by hand.
+`Toolkit High - Claude Fable Orchestrator` and `Toolkit High - Claude Fable Planner` use Fable 5.2 instead of Opus 5.5.
 Each profile name starts with its saved effort: `Toolkit Med - <provider> <role>` or `Toolkit High - <provider> <role>`. The role stays the final word.
+A model name, such as `Fable`, comes before the role only when the model is not the default for its provider.
 A High Orchestrator does not raise worker effort. To use High workers, ask for them in the task. The Orchestrator sets worker effort at launch.
 
 Higher effort does not inherently cause overengineering.
@@ -665,6 +667,9 @@ Compare correctness, corrections, elapsed time, and actual usage on representati
 
 OpenAI documents Medium as Sol's API default.
 Anthropic recommends explicit Medium as the Opus 5.5 calibration starting point.
+Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. The Claude High Orchestrator and Planner use Fable 5.2 at High, because Anthropic names Fable as a planner and orchestrator for other models.
+All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily, so its notes limit delegation to bounded work with compact briefs.
+Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
 API defaults do not prove effective Paseo launch settings.
 Effort labels do not represent equal reasoning budgets across providers or models.
 Extra High, Max, and Ultra Code are not routine defaults in this recipe.
@@ -747,11 +752,11 @@ Use the helper in the intended native account context:
 | Engine | Explicit helper settings |
 |---|---|
 | Codex | `--engine codex --model gpt-6.1-sol --thinking high` |
-| Claude | `--engine claude --model claude-opus-5-5 --thinking high` |
+| Claude | `--engine claude --model claude-opus-5-5 --thinking medium` |
 
 These settings do not select a Paseo account alias.
 Reviewer effort is independent of worker effort.
-Medium is an optional adjustment for a deliberately lightweight explicit review.
+Codex reviews use High. Claude reviews use Medium, the Opus 5.5 default. For a very risky change, select High for one Claude review.
 The explicit Claude model pins Opus 5.5 independently of future default changes.
 
 Codex **Auto-review** evaluates approval requests.

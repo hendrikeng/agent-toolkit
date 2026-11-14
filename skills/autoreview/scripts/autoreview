@@ -353,6 +353,7 @@ AMP_THINKING_VALUES = frozenset({"none", "low", "medium", "high", "xhigh", "max"
 DEFAULT_THINKING_BY_ENGINE = {
     "amp": "high",
     "codex": "high",
+    "claude": "medium",
 }
 THINKING_LEVELS_BY_ENGINE = {
     "amp": set(AMP_THINKING_VALUES),
@@ -6675,7 +6676,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         action="append",
-        help="Model override or engine=model. Repeatable. Defaults: codex=gpt-6.1-sol at high thinking with an access-only gpt-5.6-sol retry, claude=claude-opus-5-5, amp=openai/gpt-6.1-sol.",
+        help="Model override or engine=model. Repeatable. Defaults: codex=gpt-6.1-sol at high thinking with an access-only gpt-5.6-sol retry, claude=claude-opus-5-5 at medium effort, amp=openai/gpt-6.1-sol.",
     )
     parser.add_argument("--thinking", action="append", help="Thinking/effort override or engine=level. Repeatable. Codex: none, minimal, low, medium, high, xhigh, max; gpt-6-astra and gpt-6.1-sol require low through max. Claude: low, medium, high, xhigh, max. Amp: none, low, medium, high, xhigh, max. Kimi: off, on.")
     parser.add_argument(

@@ -16,6 +16,7 @@ If no profile fits, use provider discovery. Do not substitute another account af
 If the selected profile has no model, discover one for that exact provider before launch.
 Use the saved effort as the starting point. Honor an explicit human effort choice.
 Prefer Medium for routine coordination, implementation, and advice. Select High for substantial planning, hard debugging, security, migrations, concurrency, or difficult integration.
+Fable profiles cost more per token than Opus. Use them for substantial planning and hard coordination, not routine work.
 For a task-specific effort adjustment, explain the reason before launch. Use native settings, without adding another profile.
 Give workers an assigned role, scope, edit ownership, constraints, shared coding/review guidance, and acceptance criteria.
 Pass the active review policy, publication authorization, and delegation limits explicitly. Do not assume inherited conversation context.

@@ -27,13 +27,13 @@
     "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
   },
   {
-    "name": "Toolkit High - Claude Orchestrator",
+    "name": "Toolkit High - Claude Fable Orchestrator",
     "provider": "claude",
-    "model": "claude-opus-5-5",
+    "model": "claude-fable-5-2",
     "thinkingOptionId": "high",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Fable costs more per token than Opus. Delegate bounded implementation to Medium Workers with compact briefs. Keep scope, integration judgment, and verification. Do lookups and small edits directly. Do not start an agent for work smaller than its brief. Put the actual assignment and authorization in the task prompt."
   },
   {
     "name": "Toolkit High - Codex Planner",
@@ -45,9 +45,9 @@
     "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving Implement for a planning-only assignment."
   },
   {
-    "name": "Toolkit High - Claude Planner",
+    "name": "Toolkit High - Claude Fable Planner",
     "provider": "claude",
-    "model": "claude-opus-5-5",
+    "model": "claude-fable-5-2",
     "thinkingOptionId": "high",
     "modeId": "plan",
     "featureValues": { "fast_mode": false },

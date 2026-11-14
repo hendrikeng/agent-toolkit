@@ -255,7 +255,7 @@ Run `./install.sh`, then `./setup-paseo.sh` from a trusted human terminal to dep
 Verify `agent-toolkit-paseo-tool-trust` has `running` status with `paseo plugin ls`.
 Disable this trust with `paseo plugin disable agent-toolkit-paseo-tool-trust`.
 See [Paseo permission hooks](https://paseo.sh/docs/plugins/reference.md#lifecycle-hooks) and [tool configuration](https://paseo.sh/docs/mcp.md).
-Setup adds up to five missing presets per selected provider family. Use the native editor to create only individual presets.
+Setup adds up to six missing presets per selected provider family. Use the native editor to create only individual presets.
 The [canonical presets](shared/hosts/paseo-profiles.json) supply new profile values.
 The compact [context block](shared/hosts/paseo-context.md) points fresh sessions to installed [role guidance](shared/hosts/paseo-roles.md).
 The actual task prompt still supplies the assigned role and task brief.
@@ -276,9 +276,9 @@ These task-based defaults use your existing subscriptions:
 | Toolkit Med - Codex Orchestrator | `gpt-6.1-sol` | Medium | `plan_mode: false` | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
 | Toolkit High - Codex Orchestrator | `gpt-6.1-sol` | High | `plan_mode: false` | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
 | Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session: own task scope, delegation, integration, handoffs, and cleanup |
-| Toolkit High - Claude Orchestrator | `claude-opus-5-5` | High | Existing non-`plan` mode | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
+| Toolkit High - Claude Fable Orchestrator | `claude-fable-5-2` | High | Existing non-`plan` mode | Primary session for hard work: difficult integration, migrations, concurrency, or security-sensitive changes |
 | Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
-| Toolkit High - Claude Planner | `claude-opus-5-5` | High | Native `plan` mode | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
+| Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | Native `plan` mode | A substantial implementation plan for later approval. Use Medium for straightforward plans. |
 | Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation, debugging, and verification after authorization |
 | Toolkit Med - Claude Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Bounded implementation, debugging, and verification after authorization |
 | Toolkit Med - Codex UI Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Frontend components, responsive layouts, accessibility, styling, and visual verification |
@@ -298,7 +298,7 @@ High also fits ambiguous architecture, difficult integration, security-sensitive
 A small change can still need High. Select it before a difficult assignment rather than waiting for a failed attempt.
 Low is an optional adjustment for mechanical work with reliable checks and close supervision. It is not the saved Worker default.
 Adjust effort for the assignment through native controls. Honor an explicit human effort choice and explain any proposed adjustment.
-Keep the same profiles. For hard primary work, select `Toolkit High - Claude Orchestrator` or `Toolkit High - Codex Orchestrator`. No other effort variants are required.
+Keep the same profiles. For hard primary work, select `Toolkit High - Claude Fable Orchestrator` or `Toolkit High - Codex Orchestrator`. No other effort variants are required.
 
 These defaults are provisional, not measured optima. Higher effort can increase latency and usage without a useful improvement on routine tasks.
 Higher effort does not inherently cause overengineering. Scope, Ponytail guidance, and verification remain separate controls.
@@ -309,7 +309,10 @@ Claude's current Opus 5.5 default is Medium. Anthropic recommends explicit Mediu
 High targets harder work where verification and edge cases matter. Effort labels do not represent equal reasoning budgets across models.
 Sonnet 5.5 is an optional Worker choice after task-level comparison, without adding another profile.
 Astra remains an optional task-specific choice rather than the Codex Adviser default.
-See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config) and [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5).
+Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. The Claude High Orchestrator and Planner use Fable 5.2 at High, because Anthropic names Fable as a planner and orchestrator for other models.
+All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily, so its notes limit delegation to bounded work with compact briefs.
+Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
+See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config), [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5), and [Fable 5.2 guidance](https://platform.claude.com/docs/en/models/fable-5-2/overview.md).
 
 Use `./setup-paseo.sh` for automatic setup. The remaining steps describe the manual alternative:
 Create the profiles through Settings → your daemon host → Agents → Agent profiles → New profile.
@@ -376,11 +379,11 @@ Pass the selected engine's options to the helper:
 | Reviewer engine | Helper options |
 |---|---|
 | Codex | `--engine codex --model gpt-6.1-sol --thinking high` |
-| Claude | `--engine claude --model claude-opus-5-5 --thinking high` |
+| Claude | `--engine claude --model claude-opus-5-5 --thinking medium` |
 
 These options retain the existing helper's isolation and report flow.
-Reviewer effort is independent of profile effort. Keep High for risk-gated reviews and substantive explicit reviews.
-For a deliberately lightweight explicit review, Medium is an optional helper adjustment. The worker's effort does not select reviewer effort.
+Reviewer effort is independent of profile effort. Codex reviews use High. Claude reviews use Medium, the Opus 5.5 default.
+For a very risky change, select High for one Claude review. The worker's effort does not select reviewer effort.
 They do not select a Paseo account alias. Run the helper in the intended native account context.
 The explicit Claude model pins Opus 5.5 independently of future default changes.
 Codex's `auto-review` permission mode reviews approval requests. Toolkit's AutoReview reviews a change bundle.

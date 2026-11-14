@@ -55,7 +55,7 @@ function input(config = {}) {
     ],
     models: {
       'codex-work': [{ id: 'gpt-6.1-sol', thinkingOptionIds: ['medium', 'high'] }, { id: 'gpt-6-astra', thinkingOptionIds: ['medium', 'high'] }],
-      'claude-work': [{ id: 'claude-opus-5-5', thinkingOptionIds: ['medium', 'high'] }],
+      'claude-work': [{ id: 'claude-opus-5-5', thinkingOptionIds: ['medium', 'high'] }, { id: 'claude-fable-5-2', thinkingOptionIds: ['medium', 'high'] }],
     },
   }
 }
@@ -112,11 +112,13 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   const adviser = plan.profiles.find(p => p.name === 'Toolkit Med - Codex Adviser')
   assert.equal(adviser.model, 'gpt-6.1-sol')
   assert.equal(adviser.thinkingOptionId, 'medium')
-  const high = plan.profiles.find(p => p.name === 'Toolkit High - Claude Orchestrator')
-  assert.equal(high.id, 'toolkit-high-claude-orchestrator')
+  const high = plan.profiles.find(p => p.name === 'Toolkit High - Claude Fable Orchestrator')
+  assert.equal(high.id, 'toolkit-high-claude-fable-orchestrator')
+  assert.equal(high.model, 'claude-fable-5-2')
   assert.equal(high.thinkingOptionId, 'high')
   assert.equal(high.modeId, 'acceptEdits')
-  const planner = plan.profiles.find(p => p.name === 'Toolkit High - Claude Planner')
+  const planner = plan.profiles.find(p => p.name === 'Toolkit High - Claude Fable Planner')
+  assert.equal(planner.model, 'claude-fable-5-2')
   assert.equal(planner.modeId, 'plan')
   assert.equal(planner.thinkingOptionId, 'high')
   assert.equal(plan.profiles.find(p => p.name === 'Toolkit Med - Claude UI Worker').featureValues.fast_mode, false)
@@ -174,11 +176,10 @@ test('setup renames released profiles once and keeps changed choices under their
     { ...worker, name: 'Toolkit Med - Claude Worker' },
     customEffort,
     otherAccount,
-    { ...high, name: 'Toolkit High - Claude Orchestrator' },
+    high,
   ])
   assert.deepEqual(plan.renamed, [
     'Toolkit Claude Orchestrator -> Toolkit Med - Claude Orchestrator',
-    'Toolkit Claude HIGH Orchestrator -> Toolkit High - Claude Orchestrator',
     'Toolkit Claude Worker -> Toolkit Med - Claude Worker',
   ])
   const names = plan.profiles.map(p => p.name)

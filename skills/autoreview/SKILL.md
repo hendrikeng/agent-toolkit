@@ -172,7 +172,7 @@ only for an account-access failure when no model override is selected.
 Explicit CLI and environment model choices disable that retry. Honor explicit engine and model choices. Do not
 switch because a review is slow. Use Claude fallback only under the policy above.
 
-The Claude engine defaults to Opus 5.5 (`claude-opus-5-5`). Explicit model settings
+The Claude engine defaults to Opus 5.5 (`claude-opus-5-5`), medium effort. Explicit model and effort settings
 still take precedence. This default does not change which engine the review policy selects.
 
 Use `--model` and `--thinking` for one review. Use `AUTOREVIEW_CODEX_MODEL` and
