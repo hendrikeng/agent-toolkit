@@ -166,7 +166,8 @@ The retry runs outside the sandbox only after the permission flow approves it:
 - An ask rule, for example a production server rule, prompts in each mode.
 
 The agent rules in `shared/AGENTS.md` add two limits. The agent gives the reason for each escape.
-The agent never uses the escape for a file that it wrote or changed in the same task, because the sandbox exists to contain that code.
+The escape is allowed for the repository's own test, build, browser-test (for example Playwright Chromium), database, and Docker commands, also when they run changed code.
+Chromium cannot start inside the macOS sandbox: it registers a Mach service (`bootstrap_check_in`), and the sandbox profile of Claude Code allows no Mach registration. `sandbox.network.allowMachLookup` only adds lookups, so it does not help. Agents run browser tests with the escape from the start. A test on 2026-11-14 in auto mode: the classifier approved the escape, and Chromium started with no prompt. The agent does not write a new script only to run it outside the sandbox. In auto mode, the classifier reviews each escape.
 Typical escape cases are `ssh` to a staging server, a remote database connection, Docker, `pg-test`, and a nested reviewer.
 
 ## Agent rules for helpers and processes

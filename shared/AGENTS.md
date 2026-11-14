@@ -65,7 +65,9 @@ Obey explicit task prohibitions until the user lifts them. General publication a
 Report each denial with its command, target, originating agent, permission mode, and denial type.
 Never change live permission settings or grant access that managed policy forbids.
 If the Claude sandbox blocks a command, retry it once with `dangerouslyDisableSandbox` and give the reason. Never ask the user to turn off the sandbox.
-Never use this escape for a file that you wrote or changed in this task. For helpers and background processes, see `%TOOLKIT%/docs/claude-sandbox.md`.
+The escape is allowed for the repository's own test, build, browser-test, database, and Docker commands, also when they run code you changed.
+Run Playwright and other Chromium browser tests with the escape from the start: Chromium cannot start inside the macOS sandbox.
+Do not write a new script only to run it outside the sandbox. For helpers and background processes, see `%TOOLKIT%/docs/claude-sandbox.md`.
 
 ## Reviews
 
