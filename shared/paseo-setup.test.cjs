@@ -139,6 +139,18 @@ test('setup fills the catalog, preserves existing choices, backs up original byt
   assert.deepEqual(repeat.profiles[0], existing)
 })
 
+test('setup refreshes Toolkit notes only on a profile whose model and effort still match the preset', () => {
+  const worker = presets.find(p => p.name === 'Toolkit Med - Claude Worker')
+  const stale = { ...worker, id: 'w', provider: 'claude-work', modeId: 'auto', notes: 'Old notes' }
+  const changed = { ...presets.find(p => p.name === 'Toolkit Med - Claude Adviser'), id: 'a', provider: 'claude-work', modeId: 'auto', thinkingOptionId: 'high', notes: 'Old notes' }
+  const config = configuration()
+  config.daemon.agentProfiles = [stale, changed]
+  const plan = prepareSetup({ ...input(config), installContext: false })
+  assert.deepEqual(plan.updated, ['Toolkit Med - Claude Worker'])
+  assert.deepEqual(plan.profiles[0], { ...stale, notes: worker.notes })
+  assert.deepEqual(plan.profiles[1], changed)
+})
+
 test('unsupported choices and ambiguous ownership refuse before mutation; an omitted family is skipped', () => {
   const base = input(configuration())
   for (const mutate of [

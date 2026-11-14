@@ -33,12 +33,17 @@ function prepareSetup({ config, presets, context, resources, previousPrompt, sel
   const profiles = config.daemon?.agentProfiles ?? []
   if (!Array.isArray(profiles) || profiles.some(p => !p || typeof p.id !== 'string' || typeof p.name !== 'string')) throw Error('Invalid existing profile list.')
   if (new Set(profiles.map(p => p.id)).size !== profiles.length) throw Error('Duplicate existing profile IDs require reconciliation.')
-  const next = [...profiles], added = [], preserved = []
+  const next = [...profiles], added = [], preserved = [], updated = []
   for (const preset of presets) {
     const matches = profiles.filter(p => p.name === preset.name)
     if (matches.length > 1) throw Error(`Ambiguous profile name: ${preset.name}`)
     if (matches.length) {
-      preserved.push(preset.name)
+      // Notes are Toolkit text. Refresh them only when the model and effort still match the preset; other changes stay human choices.
+      const existing = matches[0]
+      if (existing.model === preset.model && existing.thinkingOptionId === preset.thinkingOptionId && existing.notes !== preset.notes) {
+        next[next.indexOf(existing)] = { ...existing, notes: preset.notes }
+        updated.push(preset.name)
+      } else preserved.push(preset.name)
       continue
     }
     const family = preset.provider, selection = selections[family]
@@ -59,7 +64,7 @@ function prepareSetup({ config, presets, context, resources, previousPrompt, sel
   }
   const text = config.daemon?.appendSystemPrompt ?? ''
   if (typeof text !== 'string') throw Error('Invalid existing System Prompt.')
-  if (!installContext) return { profiles: next, prompt: text, block: null, added, preserved }
+  if (!installContext) return { profiles: next, prompt: text, block: null, added, preserved, updated }
   const block = `${begin}\n${context.replaceAll('%TOOLKIT%', resources).trimEnd()}\n${end}`
   const start = text.indexOf(begin), stop = text.indexOf(end)
   let prompt
@@ -67,7 +72,7 @@ function prepareSetup({ config, presets, context, resources, previousPrompt, sel
     if (start < 0 || stop < start || text.indexOf(begin, start + begin.length) >= 0 || text.indexOf(end, stop + end.length) >= 0 || text.slice(start, stop + end.length) !== previousPrompt) throw Error('Changed or unowned Toolkit System Prompt block requires reconciliation.')
     prompt = text.slice(0, start) + block + text.slice(stop + end.length)
   } else prompt = text + (text ? '\n\n' : '') + block + '\n'
-  return { profiles: next, prompt, block, added, preserved }
+  return { profiles: next, prompt, block, added, preserved, updated }
 }
 
 function applySetup({ paseoHome, dataRoot, original, plan }, run = native) {
@@ -175,7 +180,7 @@ async function main() {
     if (!['', 'y', 'n'].includes(trustChoice)) throw Error('Enter y or n for Paseo tool trust; no changes saved.')
     const trustTools = trustChoice === 'y'
     const plan = prepareSetup({ config, presets, context, resources, previousPrompt, selections, providers, models, installContext })
-    console.log(`Add: ${plan.added.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'}\n${trustTools ? 'Enable plugins and install Paseo MCP tool trust.' : 'Leave plugin trust unchanged.'} Provider modes and tool-injection settings stay unchanged.`)
+    console.log(`Add: ${plan.added.join(', ') || 'none'}\nUpdate notes: ${plan.updated.join(', ') || 'none'}\nPreserve existing: ${plan.preserved.join(', ') || 'none'}\n${installContext ? 'Add/update only the owned, compact Paseo context in System Prompt.' : 'Leave the System Prompt unchanged.'}\n${trustTools ? 'Enable plugins and install Paseo MCP tool trust.' : 'Leave plugin trust unchanged.'} Provider modes and tool-injection settings stay unchanged.`)
     if ((await terminal.question(`Save these changes through the native Paseo CLI? [y/N]: `)).trim().toLowerCase() !== 'y') { console.log('Cancelled. No changes saved.'); return }
     const result = applySetup({ paseoHome, dataRoot, original, plan })
     if (trustTools) installToolTrust({ paseoHome, resources })
