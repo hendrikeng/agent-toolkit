@@ -96,18 +96,8 @@ function fixture(major = '18') {
   processes.set(Number(lines[0]), lines[1])
   return moved
  }
- function existingCluster() {
-  const id = `pg${major}-ABC123`, root = path.join(legacy, id), data = path.join(root, 'data')
-  fs.mkdirSync(data, { recursive: true })
-  const state = { version: 1, bin, port: 24680, ready: true, pid: ++nextPid, started: '1700000000' }
-  fs.writeFileSync(path.join(root, 'pg-test.json'), JSON.stringify(state))
-  fs.writeFileSync(path.join(data, 'PG_VERSION'), `${major}\n`)
-  fs.writeFileSync(path.join(data, 'postmaster.pid'), `${state.pid}\n${data}\n${state.started}\n${state.port}\n`)
-  processes.set(state.pid, data)
-  return { id, path: root }
- }
  return {
-  main: module.exports.main, calls, home, legacy, owner, scratch, shortTmp, darwinTmp, moveToLegacy, existingCluster,
+  main: module.exports.main, calls, home, legacy, owner, scratch, shortTmp, darwinTmp, moveToLegacy,
   set managed(value) { if (value) Object.assign(mockProcess.env, { AGENT_TOOLKIT_SESSION_ID: owner.session, AGENT_TOOLKIT_SESSION_PID: String(owner.pid) }); else { delete mockProcess.env.AGENT_TOOLKIT_SESSION_ID; delete mockProcess.env.AGENT_TOOLKIT_SESSION_PID } },
   set missing(value) { missing = value },
   set failureError(value) { failureError = value },
@@ -247,30 +237,8 @@ test('PG18 setup reports bounded initdb diagnostics but never bootstrap SQL or c
  await bootstrap.main(['stop', fs.readdirSync(bootstrap.scratch)[0]])
 })
 
-test('existing PG17 fixtures remain manageable without creating new PG17 clusters', async () => {
- const f = fixture('17')
- const existing = f.existingCluster()
- assert.equal((await f.main(['status', existing.id])).status, 'running')
- f.missing = true
- const blocked = await f.main(['gc'])
- assert.equal(blocked.preserved.some(item => item.id === existing.id), true)
- assert.equal(fs.existsSync(existing.path), true)
- assert.equal(f.calls.filter(call => call.args.at(-1) === 'stop').length, 0)
- f.missing = false
- assert.equal((await f.main(['stop', existing.id])).status, 'stopped')
- assert.equal((await f.main(['status', existing.id])).status, 'stopped')
- const record = path.join(existing.path, 'pg-test.json')
- const old = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
- fs.utimesSync(record, old, old)
- const cleanup = await f.main(['gc'])
- assert.deepEqual(Array.from(cleanup.deleted, item => item.id), [existing.id])
- assert.equal(fs.existsSync(existing.path), false)
- assert.equal(f.calls.some(call => path.basename(call.file) === 'initdb'), false)
-})
-
-test('garbage collection recognizes legacy owners and reaps dead-owner fixtures before the next start', async () => {
+test('garbage collection reaps dead-owner fixtures before the next start', async () => {
  const f = fixture()
- fs.mkdirSync(path.join(f.scratch, 'pg17-ABC123'), { recursive: true })
  const abandoned = await f.main(['start'])
  const abandonedRecord = path.join(abandoned.path, 'pg-test.json')
  const state = JSON.parse(fs.readFileSync(abandonedRecord, 'utf8'))

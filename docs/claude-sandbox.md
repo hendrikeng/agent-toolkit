@@ -23,7 +23,7 @@ cd ~/Code/wewereyoung/agent-toolkit && git pull --ff-only && scripts/apply-claud
 ```
 
 The script backs up `settings.json` with a timestamp and runs `./update.sh`.
-It merges the settings below with `jq` and keeps all other settings. It also removes old entries that it or earlier versions generated, and sets the Git rule.
+It merges the settings below with `jq`, keeps all other settings, and sets the Git rule.
 Then it shows the difference. Use `--dry-run` to see the difference without a change.
 
 The installer (`./install.sh` and `./update.sh`) never turns the sandbox on. It only adds the reviewer model domains to `sandbox.network.allowedDomains`, and only if a `sandbox` object already exists. This script is the only tool that turns the sandbox on.
@@ -65,7 +65,7 @@ All Paseo Claude homes link their `settings.json` to `~/.claude/settings.json`. 
 Merge the keys into the existing file.
 The script removes the `capture.mjs` entry from `excludedCommands`. An agent can change that file in its working directory and then run it outside the sandbox.
 If the capture script must run outside the sandbox, install a copy outside writable workspaces and exclude only that path.
-The script also removes `paseo *`, the bare `pg-test *` and `pg18-fresh` entries, and the `ssh`, `scp`, and `rsync` server entries that earlier versions generated. It keeps entries that you added.
+The script keeps other entries that you added.
 
 ```jsonc
 {
@@ -133,7 +133,7 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | Setting | Reason |
 |---|---|
 | `SSL_CERT_FILE` | `gh` failed with `x509: OSStatus -26276`. Go tools verify certificates through `trustd`, which the sandbox blocks. With the system certificate file, `gh` and `infisical` work inside the sandbox. This is narrower than `enableWeakerNetworkIsolation` or an excluded command. |
-| No `CLAUDE_CODE_TMPDIR` | In the `env` settings, this value changes `TMPDIR` but not the sandbox write rule. The sandbox still allows only `/tmp/claude-501`, so every temporary file failed, including shell heredocs. Claude also failed to write its `cwd-…` file after each call, so commands reported false exit codes. The script removes any value. |
+| No `CLAUDE_CODE_TMPDIR` | In the `env` settings, this value changes `TMPDIR` but not the sandbox write rule. The sandbox still allows only `/tmp/claude-501`, so every temporary file failed, including shell heredocs. Claude also failed to write its `cwd-…` file after each call, so commands reported false exit codes. Do not set it. |
 | Git `insteadOf` | On macOS, Git over SSH cannot pass the sandbox proxy. Git over HTTPS worked for fetch and push, including private repositories. |
 | `allowWrite` | npm and uv failed to write their caches in `~/.npm` and `~/.cache/uv`. pnpm moved its store into `$TMPDIR`, which loses the shared store. Only the store is writable, not the global `pnpm` commands. |
 | `allowWrite` for `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest` | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. The envest worktrees use `~/Code/envest/envest-app/.git`, and the envest backups are also in `~/Code/envest`. `agent-stop` uses the same project roots. A test fails if the two lists are different. |
@@ -144,9 +144,9 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | `denyRead` for `~/.ssh` (absolute path) | Sandboxed commands cannot read SSH keys. Git uses HTTPS through the Git rule, so it does not need them. `ssh` runs outside the sandbox through the escape, so it still reads its keys. |
 | `pg-test *`, `pg18-fresh` by full path | PostgreSQL cannot create shared memory inside the sandbox. Both are trusted helpers in `~/.local/bin`, and the sandbox cannot change them. Exclusions match the call text, so a full path matches only the installed helper and not another `pg-test` on `PATH`. Call them by their full path. |
 | `allowUnixSockets` for the OrbStack socket | Docker works in the sandbox, also when a script such as the `tracn-api` database scripts calls it, and in chained commands. Tested with `docker info`, `docker compose version`, and Docker from Node. The Docker daemon has full host access. The Neo4j lane in `pcvc` uses Docker Compose. |
-| No `ssh`, `scp`, or `rsync` exclusions | Plain `ssh` cannot pass the sandbox proxy. Earlier versions excluded these commands for each server. Options such as `ssh -o ProxyCommand`, `scp -S`, and `rsync -e` run any local program, so each entry was a full escape without review. Now these commands go through the escape. |
+| No `ssh`, `scp`, or `rsync` exclusions | Plain `ssh` cannot pass the sandbox proxy. Do not exclude these commands for a server. Options such as `ssh -o ProxyCommand`, `scp -S`, and `rsync -e` run any local program, so each entry is a full escape without review. These commands go through the escape. |
 | `permissions.ask` for production servers | The script reads the server list from `SANDBOX_SSH_SERVERS` (default: Porta Mundi, Bonzani, `wfw-prod@wfw.ch`, `wfw-staging@wfw.ch`). `SANDBOX_SSH_STAGING` lists the staging servers (default: `wfw-staging@wfw.ch`). Each other server is production and gets ask rules for `ssh`, `scp`, and `rsync`. The script only adds ask rules. It never removes an ask rule, so remove a rule for an old server by hand. A `*` in a rule matches any text, so options before the host also match. Staging uses the classifier-reviewed escape. |
-| No `paseo *` | The Paseo CLI can start agents and terminals in any permission mode, so the exclusion was a full escape. Agents use the Paseo MCP tools. A human can use the CLI in a terminal. |
+| No `paseo *` | The Paseo CLI can start agents and terminals in any permission mode, so an exclusion is a full escape. Agents use the Paseo MCP tools. A human can use the CLI in a terminal. |
 | `/bin/ps *` | `/bin/ps` is setuid, so the sandbox blocks it. `ps` only reads process data and cannot run code. The exclusion applies only to a whole call, so scripts must use `lsof -t` instead. |
 | `agent-stop` path | The sandbox blocks signals to processes that an earlier call started. Without this entry, agents cannot stop their own background test servers. See [Stop background processes](#stop-background-processes). |
 | `agent-awake`, `agent-sleep`, `paseo-awake`, `paseo-sleep` paths | The sandbox blocks writes to `~/Library/LaunchAgents` and `launchctl bootstrap`. These commands run no arguments. They only manage the one fixed LaunchAgent `com.agent-toolkit.awake`. The entries have no `*`, so only the plain command runs outside the sandbox. `agent-awake --status` works in the sandbox. |

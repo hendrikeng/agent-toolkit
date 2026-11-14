@@ -202,7 +202,7 @@ function garbageCollect(candidates) {
    continue
   }
   let ids
-  try { ids = fs.readdirSync(fixtures).filter(name => /^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(name)) } catch (error) {
+  try { ids = fs.readdirSync(fixtures).filter(name => /^pg18-[A-Za-z0-9]{6}$/.test(name)) } catch (error) {
    summary.preserved.push({ path: fixtures, error: error.message })
    continue
   }
@@ -264,7 +264,7 @@ async function main(args) {
  const [action, id] = args
  const starting = action === 'start' || action === 'start-admin' || action === 'start-migration'
  const collecting = action === 'gc'
- if (!['start', 'start-admin', 'start-migration', 'status', 'stop', 'gc'].includes(action) || (starting || collecting ? args.length !== 1 : args.length !== 2 || !/^pg(?:17|18)-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration | pg-test status <id> | pg-test stop <id> | pg-test gc. New clusters use PostgreSQL 18. No raw commands, paths, SQL or server options.')
+ if (!['start', 'start-admin', 'start-migration', 'status', 'stop', 'gc'].includes(action) || (starting || collecting ? args.length !== 1 : args.length !== 2 || !/^pg18-[A-Za-z0-9]{6}$/.test(id))) throw Error('Usage: pg-test start|start-admin|start-migration | pg-test status <id> | pg-test stop <id> | pg-test gc. New clusters use PostgreSQL 18. No raw commands, paths, SQL or server options.')
  const fixtures = fixtureRoot()
  const roots = fixtureRoots(fixtures)
  if (collecting) return garbageCollect(roots)

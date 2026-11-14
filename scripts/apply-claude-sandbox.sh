@@ -59,9 +59,6 @@ merge() {
     # Append missing items and keep the existing order.
     def append($items): reduce $items[] as $item (. // []; if index([$item]) then . else . + [$item] end);
     .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
-    # An earlier version set CLAUDE_CODE_TMPDIR. The sandbox does not move its write rule there, so every
-    # temporary file and the cwd file of each call fail. Remove any value.
-    | del(.env.CLAUDE_CODE_TMPDIR)
     | .sandbox = (.sandbox // {})
     | .sandbox.enabled = true
     | .sandbox.failIfUnavailable = true
@@ -91,11 +88,7 @@ merge() {
         $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung", $home + "/Code/envest"]
         + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
-    # The Docker socket replaces the earlier docker exclusion. AutoReview was retired, so its helper exclusions are removed.
-    # ssh, scp, and rsync server entries that earlier versions generated are removed.
-    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or . == "docker *" or . == $home + "/.claude/skills/autoreview/scripts/autoreview *" or . == $home + "/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *" or . == $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *"
-        or . == "paseo *" or . == "pg-test *" or . == "pg18-fresh"
-        or test("^ssh [^ ]+@[^ ]+ \\*$") or test("^(scp|rsync) \\* [^ ]+@[^ ]+:\\*$")) | not)))
+    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select(contains("capture.mjs") | not)))
     | .sandbox.excludedCommands |= append([
         # PostgreSQL cannot create shared memory in the sandbox. Absolute paths: a bare name matches any pg-test on PATH.
         $home + "/.local/bin/pg-test *", $home + "/.local/bin/pg18-fresh",

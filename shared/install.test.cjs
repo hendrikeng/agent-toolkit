@@ -3,7 +3,6 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
-const { createHash } = require('node:crypto')
 const { spawnSync } = require('node:child_process')
 const { planInstall, install } = require('./install.cjs')
 const repo = path.resolve(__dirname, '..')
@@ -159,7 +158,6 @@ test('permission-preserving install and repeat install preserve configuration, i
     assert.equal(content.split('<!-- agent-toolkit -->').length, 2)
     assert.ok(content.includes('reviews:off'))
     assert.ok(content.includes('hosts/paseo.md'))
-    assert.ok(!content.includes('codex-yolo'))
   }
   assert.equal(fs.readFileSync(path.join(backup, '.codex/AGENTS.md'), 'utf8'), 'Human Codex instructions\n')
   const repeat = install(f.plan({ reviewNetwork: false }))
@@ -228,31 +226,6 @@ for (const provider of [
   assert.equal(fs.readlinkSync(firstLink), userTarget)
   assert.equal(receipt().links[firstLink], ownedTarget)
   assert.throws(() => deploy(first), /Manual reconciliation/)
-})
-
-test('migration retires only proven files with backups and stops before changing ambiguous settings or resources', t => {
-  const f = fixture(t)
-  const old = f.put('.local/bin/autoreview-yolo', '#!/bin/sh\nold Toolkit launcher\n')
-  const marker = `${old}.agent-toolkit.sha256`
-  fs.writeFileSync(marker, createHash('sha256').update(fs.readFileSync(old)).digest('hex') + '\n')
-  f.put('.local/libexec/agent-toolkit/resources/user-note.txt', 'Keep ambiguous old snapshot')
-  const unrelated = f.put('.local/bin/user-command', 'keep')
-  const retiredSkill = path.join(f.home, '.claude/skills/autoreview')
-  fs.mkdirSync(path.dirname(retiredSkill), { recursive: true })
-  fs.symlinkSync(path.join(repo, 'codex/skills/autoreview'), retiredSkill)
-  const config = f.put('.claude/settings.json', '{"enabledPlugins":{"ponytail@ponytail":true}}')
-  assert.throws(f.plan, /Manual reconciliation/)
-  assert.ok(fs.existsSync(old))
-  assert.ok(!fs.existsSync(path.join(f.home, '.local/share/agent-toolkit/resources')))
-  fs.writeFileSync(config, '{}') // Explicit trusted reconciliation represented by the fixture owner.
-  const backup = install(f.plan())
-  assert.equal(fs.existsSync(old), false)
-  assert.throws(() => fs.lstatSync(retiredSkill), { code: 'ENOENT' })
-  assert.equal(fs.readFileSync(path.join(backup, '.local/bin/autoreview-yolo'), 'utf8'), '#!/bin/sh\nold Toolkit launcher\n')
-  assert.equal(fs.readFileSync(unrelated, 'utf8'), 'keep')
-  assert.equal(fs.readFileSync(path.join(f.home, '.local/libexec/agent-toolkit/resources/user-note.txt'), 'utf8'), 'Keep ambiguous old snapshot')
-  f.put('.local/bin/codex-yolo', 'unverified')
-  assert.throws(f.plan, /Manual reconciliation/)
 })
 
 test('changed instruction blocks and unrelated symlinks fail without overwriting the user', t => {

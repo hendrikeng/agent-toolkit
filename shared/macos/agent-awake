@@ -9,7 +9,6 @@ agents_dir=$HOME/Library/LaunchAgents
 launchctl=/bin/launchctl
 plist=$agents_dir/$label.plist
 state_dir=${XDG_STATE_HOME:-"$HOME/.local/state"}/agent-toolkit
-pid_file=$state_dir/caffeinate.pid
 lock_file=$state_dir/caffeinate.lock
 
 # launchctl print exits 113 only when the service does not exist. Any other failure leaves the state unknown.
@@ -43,25 +42,7 @@ if [[ ${1:-} != --locked ]]; then
   exec /usr/bin/lockf -k -t 5 "$lock_file" "$0" --locked
 fi
 
-# Migration: stop the caffeinate process that earlier versions started and tracked in the PID file.
 stopped=
-if [[ -L $pid_file ]]; then
-  echo "Refusing a symlink PID file: $pid_file" >&2
-  exit 1
-elif [[ -f $pid_file ]]; then
-  pid= started=
-  { IFS= read -r pid || true; IFS= read -r started || true; } < "$pid_file"
-  # Keep the PID file if ps cannot run (for example in the Claude sandbox), so a later run can stop the process.
-  /bin/ps -p $$ >/dev/null 2>&1 || { echo "Cannot run /bin/ps; kept $pid_file." >&2; exit 1; }
-  if [[ $pid =~ ^[1-9][0-9]*$ && $pid != 1 && -n $started ]] &&
-    [[ $(/bin/ps -p "$pid" -o lstart= 2>/dev/null) == "$started" ]] &&
-    [[ $(/bin/ps -p "$pid" -o uid= 2>/dev/null | tr -d ' ') == "$(id -u)" ]] &&
-    [[ $(/bin/ps -p "$pid" -o command= 2>/dev/null) == '/usr/bin/caffeinate -i' ]]; then
-    kill "$pid" 2>/dev/null && stopped=1
-  fi
-  rm -f "$pid_file"
-fi
-
 case ${0##*/} in
   agent-awake|paseo-awake)
     if loaded; then

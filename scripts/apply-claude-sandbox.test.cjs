@@ -17,9 +17,9 @@ function fixture(t) {
   fs.mkdirSync(path.dirname(real), { recursive: true })
   fs.mkdirSync(paseo, { recursive: true })
   const original = JSON.stringify({
-    model: 'fable', env: { CLAUDE_CODE_TMPDIR: `${home}/.agent-tmp` }, permissions: { deny: ['Bash(git push -f*)'], ask: ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)'] }, skipDangerousModePermissionPrompt: true,
+    model: 'fable', env: { KEEP: '1' }, permissions: { deny: ['Bash(git push -f*)'], ask: ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
-      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'docker *', 'make release', 'paseo *', 'pg-test *', 'pg18-fresh', 'ssh old@prod.example *', 'scp * old@prod.example:*', `${home}/.claude/skills/autoreview/scripts/autoreview *`, '/opt/tools/autoreview/scripts/autoreview *'] },
+      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'make release'] },
   }, null, 2) + '\n'
   fs.writeFileSync(real, original, { mode: 0o600 })
   fs.symlinkSync(real, path.join(paseo, 'settings.json'))
@@ -52,7 +52,7 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.deepEqual(settings.permissions.ask, ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)', ...['agawulum@sl90.web.hostpoint.ch', 'bonzanib@sl662.web.hostpoint.ch', 'wfw-prod@wfw.ch']
     .flatMap(server => ['ssh', 'scp', 'rsync'].map(command => `Bash(${command} *${server}*)`))])
   assert.equal(settings.skipDangerousModePermissionPrompt, true)
-  assert.deepEqual(settings.env, { SSL_CERT_FILE: '/etc/ssl/cert.pem' }, 'the earlier CLAUDE_CODE_TMPDIR value is removed')
+  assert.deepEqual(settings.env, { KEEP: '1', SSL_CERT_FILE: '/etc/ssl/cert.pem' })
   assert.equal(settings.sandbox.enabled, true)
   assert.equal(settings.sandbox.allowUnsandboxedCommands, true)
   assert.equal(settings.sandbox.autoAllowBashIfSandboxed, true)
@@ -63,9 +63,7 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Code/paseo-worktrees`), 'orchestrators write in worker worktrees')
   assert.ok(settings.sandbox.filesystem.allowWrite.some(dir => dir.startsWith('/var/folders/')), 'plain mktemp -d uses the macOS temporary directory')
   assert.ok(!settings.sandbox.excludedCommands.some(command => command.includes('capture.mjs')))
-  assert.deepEqual(settings.sandbox.excludedCommands.filter(command => !command.startsWith(`${f.home}/.local/bin/`)), ['make release', '/opt/tools/autoreview/scripts/autoreview *', '/bin/ps *'],
-    'docker, paseo, bare helper names, and server entries go; user entries stay')
-  assert.deepEqual(settings.sandbox.excludedCommands.filter(command => command.includes('autoreview')), ['/opt/tools/autoreview/scripts/autoreview *'], 'only the former Toolkit AutoReview exclusions are removed')
+  assert.deepEqual(settings.sandbox.excludedCommands.filter(command => !command.startsWith(`${f.home}/.local/bin/`)), ['make release', '/bin/ps *'], 'user entries stay')
   assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/pg-test *`))
   assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/agent-stop *`), 'agents stop their own background processes')
   for (const name of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
@@ -134,14 +132,4 @@ test('the sandbox write roots for projects are the allowed roots of agent-stop',
   assert.ok(stop, 'agent-stop defines its project roots with qw()')
   assert.deepEqual(projects.sort(), stop[1].split(/\s+/).sort())
   assert.ok(projects.includes('envest'))
-})
-
-test('the sandbox script removes any CLAUDE_CODE_TMPDIR value and the docker exclusion from earlier versions', { skip: process.platform !== 'darwin' }, t => {
-  const f = fixture(t)
-  // The live file had a value with a trailing slash, which an exact match missed.
-  fs.writeFileSync(f.real, JSON.stringify({ env: { CLAUDE_CODE_TMPDIR: `${f.home}/.agent-tmp/`, KEEP: '1' }, sandbox: { excludedCommands: ['docker *', 'make release'] } }))
-  const settings = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
-  assert.deepEqual(settings.env, { KEEP: '1', SSL_CERT_FILE: '/etc/ssl/cert.pem' })
-  assert.ok(!settings.sandbox.excludedCommands.includes('docker *'))
-  assert.ok(settings.sandbox.excludedCommands.includes('make release'))
 })

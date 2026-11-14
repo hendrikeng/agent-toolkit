@@ -348,7 +348,7 @@ The mutable API field is `agentProfiles`, while the persisted file nests it unde
 The CLI avoids another dependency for this one-time administrative setup.
 
 The profile array is a whole-list replacement, not an entry-by-entry merge.
-Setup preserves existing matching profiles, except the confirmed Codex Adviser effort migration described below.
+Setup preserves existing profiles with matching names.
 It also preserves unrelated profiles.
 It stops on duplicate names, ID collisions, or unsupported selections.
 When context installation is selected, a changed or unowned context block also stops setup.
@@ -356,7 +356,7 @@ Existing profiles that differ from the recipe remain human choices, not automati
 
 Setup backs up the exact original configuration in a private directory under `~/.local/share/agent-toolkit/backups/paseo-*`.
 An ownership receipt lives under `~/.local/share/agent-toolkit/paseo-<home-hash>.json`.
-Repeated setup adds missing profiles and offers the guarded Adviser migration. Context updates require a separate selection and an unchanged, owned block.
+Repeated setup adds missing profiles. Context updates require a separate selection and an unchanged, owned block.
 The receipt owns only the context block. It does not prove profile ownership.
 Selected tool trust reloads or enables an existing plugin from the installed Toolkit path. A conflicting source requires manual reconciliation.
 The native CLI can reformat its configuration. The backup retains the original bytes.
@@ -386,29 +386,11 @@ After the installed resources are current, run this command from the checkout in
 ./setup-paseo.sh
 ```
 
-Select the existing Codex account alias. Enter `-` to skip an unrelated provider family.
-For profile-only migration, decline context refresh and enter `n` for tool trust.
-Review the Adviser candidate, then confirm the save only if High was the Toolkit default.
-If High is your deliberate choice, cancel or rerun setup with Codex skipped.
+Select the existing account aliases. Enter `-` to skip an unrelated provider family.
+For a profile-only update, decline context refresh and enter `n` for tool trust.
 Keep the profile editor idle during setup.
-
-Setup renames a profile with a former name, such as `Toolkit Claude Worker`, to its current name, such as `Toolkit Med - Claude Worker`.
-The profile must use the selected account, and its model and effort must match the preset. Setup shows each rename before the save confirmation.
-The rename keeps the ID, mode, features, notes, and other settings. A changed account, model, or effort keeps the former name.
-
-Setup offers High → Medium only for an exact legacy Toolkit Codex Adviser match on the selected account.
-The recognized ID is `toolkit-codex-adviser`, with model `gpt-6.1-sol`, original notes, and mode `auto` or `auto-review`.
-Features must be exactly `{plan_mode:false}` or `{plan_mode:false,fast_mode:false}`.
-Missing `fast_mode` stays missing. Explicit false stays false. Only Thinking and the name change.
-The account, ID, model, mode, features, notes, and unrelated settings remain intact. Setup also applies the current name.
-Extra fields or changed values prevent migration. An omitted family or different selected account also prevents migration.
-Setup validates Medium support on the exact account before offering the change.
-
-Historical Sol/High presets appear in commits `7f58ade` and `0f0d570`. The omitted-fast variant supports older saved records.
-Neither a matching name nor the context receipt proves profile ownership. The save confirmation explicitly names High → Medium.
-A private backup retains the original configuration. Repeated setup leaves Medium unchanged.
-Customized profiles remain human choices. Use native Paseo settings for deliberate changes outside this migration.
-See the [trusted-terminal update commands](../README.md#migration-backups-and-update) for the permission-preserving installation alternative.
+Setup does not change existing profiles. Use native Paseo settings for deliberate changes.
+See the [trusted-terminal update commands](../README.md#backups-and-update) for the permission-preserving installation alternative.
 Start fresh sessions to verify the installed guidance and effective launch settings.
 
 Setup adds up to six missing profiles for each selected provider family.

@@ -147,7 +147,6 @@ It also offers:
 
 - A default-off System Prompt context (`daemon.appendSystemPrompt`). It points to the [role guidance](shared/hosts/paseo-roles.md) and makes primary sessions Orchestrator by default. Without it, name the role in the first prompt.
 - The [Paseo tool trust](#paseo-tool-trust) plugin, accepted by default.
-- The guarded Codex Adviser High → Medium migration. See [profile updates](docs/paseo-profiles.md#updates-and-customization).
 
 Create only the profiles that you use. In Paseo, select Codex Auto-review mode to keep automatic approval review.
 
@@ -241,7 +240,7 @@ pg-test stop <id>
 pg-test gc
 ```
 
-All start modes create PostgreSQL 18 fixtures with IDs `pg18-…`. Homebrew PostgreSQL 18 must be installed. The helper never installs a server or targets an existing database. Old `pg17-…` fixtures stay manageable while their binaries exist.
+All start modes create PostgreSQL 18 fixtures with IDs `pg18-…`. Homebrew PostgreSQL 18 must be installed. The helper never installs a server or targets an existing database.
 
 | Profile | Fixture role permissions |
 |---|---|
@@ -260,7 +259,7 @@ It installs dependencies in a networked container, then runs the source read-onl
 
 `paseo-service` records cross-workspace service pairs and resolves current ports when the consumer starts. See [service pairs](docs/paseo-worktrees.md#pair-services-across-repositories).
 
-## Migration, backups, and update
+## Backups and update
 
 To update from a trusted human terminal:
 
@@ -318,9 +317,7 @@ Remove each listed folder that you do not need. Keep the other files in each bac
 
 ### Remove AutoReview leftovers
 
-The installer removes the retired AutoReview skill links in `~/.agents`, `~/.claude`, and the Codex homes.
-For other Paseo homes, run `ls -l ~/.paseo/zerosub/homes/*/skills/autoreview` and remove only links to `~/.local/share/agent-toolkit/resources/skills/autoreview`.
-After `./install.sh`, remove the former output directory by hand:
+Remove the former AutoReview output directory by hand:
 
 1. Run `ls -ld ~/.claude/autoreview-out ~/.paseo/zerosub/homes/*/autoreview-out`.
 2. Remove each Paseo home link that points to `~/.claude/autoreview-out`. Then remove `~/.claude/autoreview-out`.
@@ -343,7 +340,7 @@ Other vendored skills keep their revisions and licenses beside the skill. Change
 ./verify.sh
 ```
 
-Fixture checks cover installation, preservation of settings and accounts, Paseo setup, migration refusal, backups, and PostgreSQL lifecycle. They substitute downloads, PostgreSQL processes, and Paseo persistence.
+Fixture checks cover installation, preservation of settings and accounts, Paseo setup, refusal of unclear ownership, backups, and PostgreSQL lifecycle. They substitute downloads, PostgreSQL processes, and Paseo persistence.
 They do not prove a provider security boundary, model adherence, a live review, live Paseo CLI support, or real Docker and PostgreSQL startup. Use [Toolkit acceptance](docs/toolkit-acceptance.md) in fresh sessions for these.
 `~/Code/.agent-toolkit-scratch` is a legacy location that some project scripts still use.
 
@@ -353,7 +350,7 @@ They do not prove a provider security boundary, model adherence, a live review, 
 |---|---|
 | `skills/` | Shared skill collection |
 | `shared/AGENTS.md`, `shared/hosts/` | Startup guidance and Paseo instructions |
-| `shared/install.cjs` | Installation and migration |
+| `shared/install.cjs` | Installation |
 | `setup-paseo.sh`, `shared/paseo-setup.cjs` | Paseo profile, System Prompt, and tool trust setup |
 | `paseo/tool-trust/` | Paseo tool trust plugin |
 | `shared/postgres/` | PostgreSQL helpers |

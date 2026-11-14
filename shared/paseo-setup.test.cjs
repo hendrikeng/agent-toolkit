@@ -96,7 +96,7 @@ function writer(file, writes) {
 
 test('setup fills the catalog, preserves existing choices, backs up original bytes, and repeats without writes', t => {
   const f = fixture(t), config = configuration()
-  const existing = { id: 'human-ui', name: 'Toolkit Codex UI Worker', provider: 'another-account', model: 'human-choice', featureValues: { fast_mode: true }, notes: 'Human specialty' }
+  const existing = { id: 'human-ui', name: 'Toolkit Med - Codex UI Worker', provider: 'another-account', model: 'human-choice', featureValues: { fast_mode: true }, notes: 'Human specialty' }
   const unrelated = { id: 'user-profile', name: 'My preset', provider: 'user-provider', featureValues: { custom: false } }
   config.daemon.agentProfiles = [existing, unrelated]
   const original = '// Human configuration comment\n' + JSON.stringify(config, null, 2).replace(/\n}$/, ',\n}')
@@ -146,7 +146,7 @@ test('unsupported choices and ambiguous ownership refuse before mutation; an omi
     v => { v.models['codex-work'][0].thinkingOptionIds = ['low'] },
     v => { v.config.agents.providers['codex-work'].extends = 'claude' },
     v => { v.selections.codex.modeId = 'full-access' },
-    v => { v.config.daemon.agentProfiles = [{ id: 'a', name: 'Toolkit Codex Worker' }, { id: 'b', name: 'Toolkit Codex Worker' }] },
+    v => { v.config.daemon.agentProfiles = [{ id: 'a', name: 'Toolkit Med - Codex Worker' }, { id: 'b', name: 'Toolkit Med - Codex Worker' }] },
     v => { v.config.daemon.agentProfiles = [{ id: 'toolkit-med-codex-worker', name: 'Unrelated preset' }] },
     v => { v.config.daemon.appendSystemPrompt = '<!-- agent-toolkit-paseo-context -->\nUser edit\n<!-- /agent-toolkit-paseo-context -->' },
   ]) {
@@ -159,109 +159,6 @@ test('unsupported choices and ambiguous ownership refuse before mutation; an omi
   const plan = prepareSetup(oneFamily)
   assert.equal(plan.profiles.length, 6)
   assert.ok(plan.profiles.every(p => p.provider === 'codex-work'))
-})
-
-test('setup renames released profiles once and keeps changed choices under their former names', t => {
-  const f = fixture(t), config = configuration()
-  const released = name => ({ id: name.toLowerCase().replaceAll(' ', '-'), name, model: 'claude-opus-5-5', thinkingOptionId: 'medium', provider: 'claude-work', modeId: 'default', notes: 'Human notes' })
-  const orchestrator = released('Toolkit Claude Orchestrator')
-  const worker = released('Toolkit Claude Worker')
-  const customEffort = { ...released('Toolkit Claude Adviser'), thinkingOptionId: 'high' }
-  const otherAccount = { ...released('Toolkit Claude UI Worker'), provider: 'claude-other' }
-  const high = { ...released('Toolkit Claude HIGH Orchestrator'), thinkingOptionId: 'high' }
-  config.daemon.agentProfiles = [orchestrator, worker, customEffort, otherAccount, high]
-  const plan = prepareSetup({ ...input(config), installContext: false })
-  assert.deepEqual(plan.profiles.slice(0, 5), [
-    { ...orchestrator, name: 'Toolkit Med - Claude Orchestrator' },
-    { ...worker, name: 'Toolkit Med - Claude Worker' },
-    customEffort,
-    otherAccount,
-    high,
-  ])
-  assert.deepEqual(plan.renamed, [
-    'Toolkit Claude Orchestrator -> Toolkit Med - Claude Orchestrator',
-    'Toolkit Claude Worker -> Toolkit Med - Claude Worker',
-  ])
-  const names = plan.profiles.map(p => p.name)
-  assert.equal(new Set(names).size, names.length)
-  assert.ok(!names.includes('Toolkit Med - Claude Adviser'))
-  assert.ok(!names.includes('Toolkit Med - Claude UI Worker'))
-  const repeat = prepareSetup({ ...input({ ...config, daemon: { ...config.daemon, agentProfiles: plan.profiles } }), installContext: false })
-  assert.deepEqual(repeat.renamed, [])
-  assert.deepEqual(repeat.added, [])
-  assert.deepEqual(repeat.profiles, plan.profiles)
-
-  // A plan with renames but no additions must still reach the saved configuration.
-  const renameOnly = { ...plan, profiles: plan.profiles.slice(0, 5), added: [] }
-  const original = JSON.stringify(config)
-  fs.writeFileSync(f.file, original)
-  const writes = []
-  applySetup({ ...f, original, plan: renameOnly }, writer(f.file, writes))
-  assert.deepEqual(writes, ['agentProfiles'])
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.file, 'utf8')).daemon.agentProfiles, renameOnly.profiles)
-})
-
-test('setup migrates only reviewed legacy Adviser candidates, preserves bytes in backup, and repeats without writes', t => {
-  const f = fixture(t)
-  for (const modeId of ['auto', 'auto-review']) {
-    for (const featureValues of [{ plan_mode: false }, { plan_mode: false, fast_mode: false }]) {
-      const config = configuration()
-      const legacy = {
-        id: 'toolkit-codex-adviser', name: 'Toolkit Codex Adviser', provider: 'codex-work',
-        model: 'gpt-6.1-sol', thinkingOptionId: 'high', modeId, featureValues,
-        notes: 'Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish.',
-      }
-      config.daemon.agentProfiles = [legacy]
-      const value = { ...input(config), presets: [presets.find(p => p.name === 'Toolkit Med - Codex Adviser')], installContext: false }
-      const original = '// Keep original bytes\n' + JSON.stringify(config)
-      fs.writeFileSync(f.file, original)
-      const plan = prepareSetup(value), writes = []
-      const migrated = { ...legacy, name: 'Toolkit Med - Codex Adviser', thinkingOptionId: 'medium' }
-      assert.deepEqual(plan.profiles, [migrated])
-      assert.deepEqual(plan.updated, [legacy.name])
-      assert.deepEqual(plan.renamed, ['Toolkit Codex Adviser -> Toolkit Med - Codex Adviser'])
-      const result = applySetup({ ...f, original, plan }, writer(f.file, writes))
-      assert.deepEqual(writes, ['agentProfiles'])
-      assert.deepEqual(result.updated, [legacy.name])
-      assert.equal(fs.readFileSync(path.join(result.backup, 'config.json'), 'utf8'), original)
-      const current = JSON.parse(fs.readFileSync(f.file, 'utf8'))
-      assert.deepEqual(current, { ...config, daemon: { ...config.daemon, agentProfiles: [migrated] } })
-      const repeat = prepareSetup({ ...value, config: current })
-      assert.deepEqual(repeat.updated, [])
-      assert.equal(applySetup({ ...f, original: fs.readFileSync(f.file, 'utf8'), plan: repeat }, () => assert.fail('Repeat must not write')).backup, null)
-
-      // Each negative control reaches the matching-name path, not another refusal.
-      for (const mutate of [
-        p => { p.id = 'human-id' }, p => { p.model = 'gpt-6-astra' },
-        p => { p.thinkingOptionId = 'medium' }, p => { p.notes += ' Human choice.' },
-        p => { p.modeId = 'full-access' }, p => { p.provider = 'codex-other' },
-        p => { delete p.featureValues.plan_mode }, p => { p.featureValues.plan_mode = true },
-        p => { p.featureValues.fast_mode = true }, p => { p.featureValues.extra = false },
-        p => { p.extra = 'Human choice' },
-      ]) {
-        const custom = structuredClone(legacy)
-        mutate(custom)
-        const kept = prepareSetup({ ...value, config: { ...config, daemon: { ...config.daemon, agentProfiles: [custom] } } })
-        assert.deepEqual(kept.updated, [])
-        // A human Medium choice is no legacy candidate, but it matches the current preset.
-        assert.deepEqual(kept.profiles, [custom.thinkingOptionId === 'medium' && custom.provider === legacy.provider && custom.model === legacy.model ? { ...custom, name: migrated.name } : custom])
-      }
-      const skipped = prepareSetup({ ...value, selections: {} })
-      assert.deepEqual(skipped.profiles, [legacy])
-      assert.deepEqual(skipped.updated, [])
-      const otherAlias = prepareSetup({ ...value, selections: { codex: { provider: 'codex-other', modeId: 'auto-review' } } })
-      assert.deepEqual(otherAlias.profiles, [legacy])
-      for (const mutate of [
-        v => { v.models['codex-work'][0].thinkingOptionIds = ['high'] },
-        v => { v.config.agents.providers['codex-work'].extends = 'claude' },
-        v => { v.providers[0].status = 'unavailable' },
-      ]) {
-        const unsupported = structuredClone(value)
-        mutate(unsupported)
-        assert.throws(() => prepareSetup(unsupported), /Cannot validate/)
-      }
-    }
-  }
 })
 
 test('profile-only setup preserves all prompt bytes and creates no context receipt; skipping both families is a no-op', t => {

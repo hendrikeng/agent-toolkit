@@ -99,26 +99,19 @@ function planInstall(options) {
   const receipt = exists(receiptPath) ? JSON.parse(read(receiptPath)) : { links: {}, prompts: {} }
   if (options.reviewNetwork) receipt.reviewNetworkPrompts = [...new Set([...(receipt.reviewNetworkPrompts ?? []), path.join(codexHome, 'AGENTS.md'), path.join(claudeDir, 'CLAUDE.md')])]
   if (exists(resources) && (!receipt.resourcesHash || treeHash(resources) !== receipt.resourcesHash)) refuse(resources)
-  const legacy = path.join(home, '.local/libexec/agent-toolkit')
   const retire = new Set(), links = new Map(), files = new Map()
   const accountHomes = exists(path.join(home, '.codex-accounts')) ? fs.readdirSync(path.join(home, '.codex-accounts'), { withFileTypes: true }).filter(e => e.isDirectory()).map(e => path.join(home, '.codex-accounts', e.name)) : []
   const codexHomes = new Set([codexHome, ...accountHomes])
-  function ownedLink(file, oldSources = []) {
+  function ownedLink(file) {
     const stat = exists(file)
     if (!stat || retire.has(file)) return
     if (!stat.isSymbolicLink()) refuse(file)
     const target = path.resolve(path.dirname(file), fs.readlinkSync(file))
-    if (target !== receipt.links[file] && !oldSources.includes(target)) refuse(file)
+    if (target !== receipt.links[file]) refuse(file)
     retire.add(file)
   }
-  function marked(file) {
-    const stat = exists(file), marker = `${file}.agent-toolkit.sha256`
-    if (!stat && !exists(marker)) return
-    if (!stat?.isFile() || stat.isSymbolicLink() || !exists(marker)?.isFile() || exists(marker).isSymbolicLink() || hash(fs.readFileSync(file)) !== read(marker).trim()) refuse(file)
-    retire.add(file); retire.add(marker)
-  }
-  function link(file, target, oldSources = []) {
-    ownedLink(file, oldSources)
+  function link(file, target) {
+    ownedLink(file)
     links.set(file, target)
   }
   function prompt(file) {
@@ -137,16 +130,12 @@ function planInstall(options) {
       const previous = receipt.prompts[file]
       if (!previous || text.slice(start, stop + end.length) !== previous || text.indexOf(begin, start + begin.length) >= 0 || text.indexOf(end, stop + end.length) >= 0) refuse(file)
       text = text.slice(0, start) + block + text.slice(stop + end.length)
-    } else {
-      if (text.includes('# Agent Toolkit defaults')) refuse(file)
-      text += `${text && !text.endsWith('\n') ? '\n' : ''}${text ? '\n' : ''}${block}\n`
-    }
+    } else text += `${text && !text.endsWith('\n') ? '\n' : ''}${text ? '\n' : ''}${block}\n`
     files.set(file, text)
     receipt.prompts[file] = block
   }
 
-  // No ownership receipt exists for old global permission/plugin edits. Never infer
-  // ownership from a generic native setting such as sandbox.enabled or approval_policy.
+  // An active ponytail plugin would duplicate the installed ponytail skill.
   for (const file of [path.join(claudeDir, 'settings.json'), ...Array.from(codexHomes, directory => path.join(directory, 'config.toml')), path.join(paseoHome, 'config.json')]) {
     if (!exists(file)) continue
     const text = read(file)
@@ -154,7 +143,7 @@ function planInstall(options) {
     const activePonytail = file.endsWith('.toml')
       ? ponytail !== undefined && ponytail.enabled !== false
       : parseJsonc(text).enabledPlugins?.['ponytail@ponytail'] === true
-    if (activePonytail || /agent-toolkit:paseo|# Agent Toolkit defaults|permissions\.agent_toolkit|agent-toolkit-development|agent-safety\.rules/.test(text)) refuse(file)
+    if (activePonytail) refuse(file)
   }
   const networkConfigPaths = new Set()
   if (options.reviewNetwork) {
@@ -173,36 +162,17 @@ function planInstall(options) {
   for (const directory of codexHomes) {
     if (exists(path.join(directory, 'AGENTS.override.md'))) refuse(path.join(directory, 'AGENTS.override.md'))
     prompt(path.join(directory, 'AGENTS.md'))
-    for (const name of ['agent-safety.rules', 'agent-toolkit-development.rules']) {
-      const file = path.join(directory, 'rules', name)
-      if (exists(file)?.isSymbolicLink()) ownedLink(file, [path.join(home, '.codex/rules', name)])
-      else marked(file)
-    }
   }
   prompt(path.join(claudeDir, 'CLAUDE.md'))
   for (const name of new Set(trackedSkillFiles(repo).map(file => file.split('/')[1]))) {
     link(path.join(home, '.agents/skills', name), path.join(resources, 'skills', name))
     link(path.join(claudeDir, 'skills', name), path.join(resources, 'skills', name))
-    for (const directory of codexHomes) ownedLink(path.join(directory, 'skills', name))
   }
-  // AutoReview is retired. The receipt sweep removes current links; this removes pre-resources links only and leaves any other autoreview entry alone.
-  const autoreviewSources = [path.join(repo, 'codex/skills/autoreview'), path.join(legacy, 'resources/codex/skills/autoreview')]
-  for (const directory of [path.join(home, '.agents'), claudeDir, ...codexHomes]) {
-    const file = path.join(directory, 'skills/autoreview')
-    if (exists(file)?.isSymbolicLink() && autoreviewSources.includes(path.resolve(path.dirname(file), fs.readlinkSync(file)))) retire.add(file)
-  }
-  for (const name of ['codex-yolo', 'claude-yolo', 'autoreview-yolo', 'pg18-fresh-yolo', 'repo-delete']) marked(path.join(home, '.local/bin', name))
-  for (const name of ['autoreview', 'development-policy.cjs', 'development.rules', 'pg18-fresh-yolo', 'repository-trust.cjs', 'git', 'open', 'pg-test', 'package.json', 'package-lock.json']) marked(path.join(legacy, name))
   for (const [command, filename] of [['pg-test', 'shared/postgres/pg-test.cjs'], ['pg18-fresh', 'shared/postgres/pg18-fresh.cjs'], ['paseo-service', 'shared/paseo-service.cjs'], ['agent-heavy', 'shared/agent-heavy.pl'], ['agent-stop', 'shared/agent-stop.pl']]) {
-    const file = path.join(home, '.local/bin', command)
-    if (exists(file)?.isFile()) marked(file)
-    link(file, path.join(resources, filename), [])
+    link(path.join(home, '.local/bin', command), path.join(resources, filename))
   }
   if (process.platform === 'darwin') for (const command of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep', 'agent-display-off']) {
-    const file = path.join(home, '.local/bin', command)
-    if (exists(file)?.isFile()) marked(file)
-    const script = command === 'agent-display-off' ? command : 'agent-awake'
-    link(file, path.join(resources, 'shared/macos', script), script === 'agent-awake' ? [path.join(home, '.local/bin/agent-awake')] : [])
+    link(path.join(home, '.local/bin', command), path.join(resources, 'shared/macos', command === 'agent-display-off' ? command : 'agent-awake'))
   }
   // Retire obsolete discovery links only in the folders this installation updates.
   const linkDirectories = new Set([
