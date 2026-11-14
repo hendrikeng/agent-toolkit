@@ -134,7 +134,7 @@ Agents can run the command on request. A macOS Shortcut can run the same command
 | Ponytail Review | Explicit complexity review, or a qualifying publication boundary |
 | Ponytail Audit | Explicit whole-repository complexity audit; findings only |
 | Ponytail Debt | Explicit report of `ponytail:` shortcuts and revisit conditions |
-| DeepSec | Explicit request only; pinned scanner and bounded AI stages |
+| Security Audit | Explicit request only (`/security-audit`); Cloudflare's security guidance; a full repository audit runs only on an explicit audit request |
 | React Doctor | Explicit request only; pinned deterministic React scan |
 
 Ponytail Audit and Debt are optional maintenance tools.
@@ -181,11 +181,11 @@ Earlier task-specific transmission blocks remain binding until the user explicit
 For explicit manual skills:
 
 ```text
-Claude: /deepsec plan
-Codex:  $deepsec plan
+Claude: /react-doctor changed
+Codex:  $react-doctor changed
 ```
 
-Use the same syntax with `react-doctor changed`. DeepSec AI stages can incur substantial charges and run agents with shell access. Read its skill and obtain the requested scope and cost approval.
+Use the same syntax with `security-audit`. A full Security Audit starts many agents and can cost much. Read its skill and agree on the scope and budget with the user first. See the Security section of [docs/code-review.md](docs/code-review.md).
 
 Codex CLI account selection is independent:
 
@@ -591,7 +591,7 @@ Start fresh sessions to verify the updated installed guidance and effective laun
 |---|---|
 | Ponytail skill family (four skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
 | React Doctor | `npx react-doctor@0.9.13`, manual only |
-| DeepSec | `npx deepsec@2.3.9`, manual only |
+| Security Audit | [`cloudflare/security-audit-skill`](https://github.com/cloudflare/security-audit-skill) revision `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, MIT, manual only |
 | Installer configuration parsers | `smol-toml@1.9.0`, `jsonc-parser@3.3.1`, locked in `shared/` |
 
 Python, framework, writing, and Test Audit guidance is vendored; revisions and licenses are kept beside the skill where supplied. Change pins deliberately in source, check, then reinstall.

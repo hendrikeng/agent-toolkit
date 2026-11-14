@@ -317,12 +317,12 @@ All fourteen shared skills remain available across roles. Load only those requir
 | `ponytail-review` | `Review the fixture diff for unnecessary complexity. Report findings only.` | Explicit skill read, no edits or automatic publication. |
 | `ponytail-audit` | `Run Ponytail Audit on this disposable repository. Report only.` | Full skill read and a scoped report, no fixes. |
 | `ponytail-debt` | `Report the Ponytail Debt in this disposable repository.` | Real `debt.cjs` marker, no configuration change. |
-| `deepsec` | `Load DeepSec and run only its read-only plan command. Do not scaffold, install, scan, or invoke AI.` | Installed wrapper's local plan, no AI charges or dependency download. |
+| `security-audit` | `/security-audit Explain your two operating modes. Do not start an audit or write files.` | Full manual skill read in guidance mode. No agents, output directory, or target execution. |
 | `react-doctor` | `Load React Doctor and explain its pinned changed-scan command. Do not run or install anything.` | Full manual skill read. A real scan needs a separately authorized React fixture. |
 
 Use existing disposable framework projects; do not add framework dependencies just to produce discovery evidence.
 Framework detection and body reads do not prove the correctness of every framework recommendation.
-Unrequested DeepSec and React Doctor must remain idle during ordinary work.
+Unrequested Security Audit and React Doctor must remain idle during ordinary work.
 An explicit native code review still works with `reviews:off`. Native approval review is a separate mechanism.
 
 ### Publication review gates

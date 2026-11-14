@@ -10,7 +10,7 @@ Use skill descriptions to select other installed skills. Load their full instruc
 Before creating, editing, reviewing, or auditing Markdown documentation, read the full `simple-english` skill.
 This includes README.md, AGENTS.md, CLAUDE.md, SKILL.md, and Markdown prompt files. Use pragmatic mode unless the user requests strict mode.
 Apply it to prose. Preserve code blocks, inline code, commands, identifiers, paths, and quoted output.
-DeepSec and React Doctor are explicit-request only. Full skills load on demand. Instructions do not grant permissions.
+Security Audit and React Doctor are explicit-request only. Full skills load on demand. Instructions do not grant permissions.
 Ponytail Audit, Debt, and Help run on explicit requests. They do not trigger automatic reviews or change the active mode.
 Use blockquotes only for quotations or an explicit user request.
 
@@ -97,6 +97,8 @@ Fix confirmed correctness, security, and data-loss issues inside the task scope.
 Skip style, duplication, and performance findings unless they are in scope.
 If the native reviewer is unavailable or fails, report it. Do not switch provider without explicit user authorization.
 Do not retry after permission denials, approval-review rejections, or explicit task prohibitions.
+Before a push, run the secret scan in `%TOOLKIT%/docs/code-review.md` on the outgoing commits. Report hits without secret values.
+Full-repository security audits, `/security-review`, and `/code-review ultra` run only on explicit user request. See `%TOOLKIT%/docs/code-review.md`.
 
 ## Host operations
 

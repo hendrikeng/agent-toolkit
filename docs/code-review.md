@@ -26,3 +26,21 @@ In a sandboxed session, a nested reviewer can fail to start. In Codex, request n
 Do not exclude `claude -p` or `codex` from the sandbox.
 
 A review takes about 1-4 minutes. Run it in the background or with a long timeout.
+
+## Security
+
+Before a push, scan the outgoing commits for secrets:
+
+```sh
+trufflehog git file://. --since-commit <upstream> --no-verification --no-update --fail
+```
+
+Use the upstream branch, for example `origin/main`, as `<upstream>`. If the branch has no upstream, use the merge base with the default branch. If `trufflehog` is not installed, report that and continue.
+
+Always keep `--no-verification`. Without it, trufflehog sends each found credential to its provider API to test it. `--no-update` stops the update check. `--fail` exits with code 183 when it finds results. Report hits, but never repeat secret values.
+
+The tools below run only on explicit user request:
+
+- `/security-review` reviews the pending changes. It fits web and API repositories (SQL injection, XSS, authentication). Its rules treat environment variables and CLI flags as trusted and skip shell command injection. Thus it misses threats in helpers and CLIs, such as the ones in this Toolkit. Source: [claude-code-security-review](https://github.com/anthropics/claude-code-security-review).
+- `/code-review ultra` is a multi-agent review in the cloud. The user starts it. A few runs are free, then each run costs about $5-25. Use it for large, high-risk changes. Source: [ultrareview](https://code.claude.com/docs/en/ultrareview.md).
+- `/security-audit` (the vendored Cloudflare skill) is for periodic audits of a whole repository. Run a secret scan first. Per Cloudflare, one run finds only about half of the issues that repeated runs find. Its full audit writes to `~/security-audit-skill/<repo>/run-<N>`, outside the repository. It runs target code only in an OS sandbox without network. Otherwise it marks leads `needs_validation`. A sandboxed Claude session cannot write that output directory unless the sandbox allows it. Source: [Build your own vulnerability harness](https://blog.cloudflare.com/build-your-own-vulnerability-harness).
