@@ -70,8 +70,8 @@ Never change live permission settings or grant access that managed policy forbid
 With the Claude sandbox on, no escalation exists. Use the helpers and patterns below.
 If none fits, record the exact denial, continue other work, and report the gap at the end.
 Never ask the user to run a command or to turn off the sandbox.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, and the AutoReview helper as separate shell calls.
-Write the helper path without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, and `/bin/ps` as separate shell calls.
+Write `agent-stop` and other helper paths without quotes. Sandbox exclusions match only a whole call. See `%TOOLKIT%/docs/claude-sandbox.md`.
 Run `pg-test start` as its own call, and pass its URL to scripts. The exclusion does not apply inside a script.
 In scripts, use `lsof -t` instead of `ps`. The sandbox blocks the setuid `/bin/ps`.
 Start a long-lived server with the `run_in_background` option of the Bash tool, and stop it with TaskStop.
@@ -86,20 +86,25 @@ Write the `agent-stop` path in full without `~`, for example `/Users/<name>/.loc
 Do not run AI reviews merely because edits or tests are complete.
 At a user-requested commit, push, PR, merge, or ship boundary, inspect the bundle and run focused deterministic checks.
 Run `ponytail-review` only for a new dependency, abstraction, layer, configurable surface, or 150 changed non-test, non-doc lines.
-Run `autoreview` only for authentication, security, secrets, money, persisted data, schemas, migrations, concurrency, public APIs,
-installation, upgrades, release machinery, or 200 changed non-test, non-doc lines.
+Run a native code review only for authentication, security, secrets, money, persisted data, schemas, migrations, concurrency,
+public APIs, installation, upgrades, release machinery, or 200 changed non-test, non-doc lines.
 Explicit review requests run. `reviews:off` disables automatic reviews until `reviews:auto`; explicit reviews remain available.
-Review an unchanged bundle once across boundaries. Verify advisory findings and keep fixes in scope.
-After a review changes code, rerun affected checks and that review. Never install AI reviews as Git hooks.
-Use `scripts/autoreview` beside its skill. The helper owns reviewer isolation. Never bypass an isolation or permission denial.
-Match AutoReview to the provider family of the agent requesting the review, not the worker that wrote the code.
-Claude agents use `--engine claude`. Codex agents use `--engine codex`.
-An explicit user choice takes precedence. Other provider families retain Codex as the default reviewer.
-Always pass the selected engine explicitly. Preserve its intended native account context.
-If the selected Codex engine is unavailable or cannot complete the review, use Claude as the authorized fallback.
-If the selected Claude engine is unavailable, report that limitation. Use Codex only with explicit user authorization.
-Do not use fallback after permission denials, approval-review rejections, isolation failures, or explicit task prohibitions.
-A completed review with findings is not a reviewer failure.
+Review an unchanged bundle once across boundaries. After a review changes code, rerun affected checks and that review.
+Never install AI reviews as Git hooks.
+Run the native review as a separate headless process from the repository or worktree root, at medium effort.
+Match the reviewer to the provider family of the requesting agent. Other provider families use Codex.
+Claude: `claude -p "/code-review medium [target]" --model claude-opus-5-5 --effort medium --safe-mode --setting-sources user --permission-mode dontAsk --strict-mcp-config --allowedTools "Read Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git ls-files *)" --disallowedTools "Bash(*--output*) Bash(*--ext-diff*)" < /dev/null`
+Codex: `codex exec review (--uncommitted | --base <branch> | --commit <sha>) -m gpt-6.1-sol --ephemeral -c model_reasoning_effort="medium" -o <file outside the repository>`
+The Claude reviewer gets only read tools and the listed Git commands, without project settings, hooks, or MCP servers.
+These are tool limits, not an OS sandbox. Git config in the repository can still run programs.
+In a sandboxed session, a nested reviewer can fail to start. In Codex, request native escalation. In Claude, report the limitation.
+Do not exclude `claude -p` or `codex` from the sandbox.
+A review takes about 1-4 minutes. Run it in the background or with a long timeout.
+Findings are advice. Verify each finding against the code.
+Fix confirmed correctness, security, and data-loss issues inside the task scope. Report other confirmed issues as follow-ups.
+Skip style, duplication, and performance findings unless they are in scope.
+If the native reviewer is unavailable or fails, report it. Do not switch provider without explicit user authorization.
+Do not retry after permission denials, approval-review rejections, or explicit task prohibitions.
 
 ## Host operations
 

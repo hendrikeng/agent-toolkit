@@ -25,7 +25,7 @@ UI Worker specializes Worker for frontend implementation, accessibility, respons
 Use the provider's discovered planning control for a proposed implementation plan.
 Do not approve a planning-only worker's Implement action merely to collect its report.
 An analysis-only assignment does not establish an OS-enforced read-only boundary.
-Use the existing AutoReview helper for change-bundle reviews. Paseo profiles do not replace its reviewer isolation or settings.
+Use the native code review from the review policy for change-bundle reviews. Paseo profiles do not configure the reviewer.
 Before launching an editing worker, identify the repository that owns its assigned files.
 Choose the worker's workspace from that repository, not from the coordinator's current location.
 For cross-repository tasks, split edit ownership by repository and launch each worker in its repository's workspace.

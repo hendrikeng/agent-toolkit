@@ -71,9 +71,6 @@ If the capture script must run outside the sandbox, install a copy outside writa
       "pg-test *",
       "pg18-fresh",
       "paseo *",
-      "/Users/hendrik/.claude/skills/autoreview/scripts/autoreview *",
-      "/Users/hendrik/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
-      "/Users/hendrik/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
       "/Users/hendrik/.local/bin/agent-stop *",
       "/Users/hendrik/.local/bin/agent-awake", "/Users/hendrik/.local/bin/agent-sleep",
       "/Users/hendrik/.local/bin/paseo-awake", "/Users/hendrik/.local/bin/paseo-sleep",
@@ -112,11 +109,10 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | `/bin/ps *` | `/bin/ps` is setuid, so the sandbox blocks it. `ps` only reads process data and cannot run code. The exclusion applies only to a whole call, so scripts must use `lsof -t` instead. |
 | `agent-stop` path | The sandbox blocks signals to processes that an earlier call started. Without this entry, agents cannot stop their own background test servers. See [Stop background processes](#stop-background-processes). |
 | `agent-awake`, `agent-sleep`, `paseo-awake`, `paseo-sleep` paths | The sandbox blocks writes to `~/Library/LaunchAgents` and `launchctl bootstrap`. These commands run no arguments. They only manage the one fixed LaunchAgent `com.agent-toolkit.awake`. The entries have no `*`, so only the plain command runs outside the sandbox. `agent-awake --status` works in the sandbox. |
-| AutoReview paths | Codex runs its tool commands in its own Seatbelt sandbox. A nested sandbox fails with `sandbox_apply: Operation not permitted`. The helper owns its reviewer isolation. |
 | `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. In auto mode, which Paseo uses, the sandbox refuses a host outside this list without a prompt. A missing host fails the command. |
 
 An excluded command runs outside the sandbox only if the whole shell call matches.
-Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, `agent-stop`, `agent-awake`, `agent-sleep`, and the AutoReview helper as separate calls. Write the helper paths without quotes.
+Run `pg-test`, `paseo`, `ssh`, `scp`, `rsync`, `/bin/ps`, `agent-stop`, `agent-awake`, and `agent-sleep` as separate calls. Write the helper paths without quotes.
 
 ## Stop background processes
 
@@ -164,11 +160,10 @@ Run it in a sandboxed Claude session, with the repository under test as the work
 ```sh
 bash ~/.local/share/agent-toolkit/resources/shared/sandbox-probe.sh
 PROBE_REPO_CHECK='pnpm run verify:fast' bash ~/.local/share/agent-toolkit/resources/shared/sandbox-probe.sh repo_check
-PROBE_AUTOREVIEW=<installed-autoreview-skill>/scripts/autoreview bash ~/.local/share/agent-toolkit/resources/shared/sandbox-probe.sh autoreview
 ```
 
 A script cannot test excluded commands, because the exclusion applies only to a whole tool call.
-Test `pg-test start`, `docker info`, `paseo ls`, `/bin/ps -o pid= -p 1`, and an AutoReview run as separate tool calls.
+Test `pg-test start`, `docker info`, `paseo ls`, and `/bin/ps -o pid= -p 1` as separate tool calls.
 
 The `kill_across` item needs a process from an earlier call. Run `perl -e 'sleep 600' & echo $!` in one call. Claude Code blocks a call that starts with `sleep`.
 Then run the probe in a second call with `PROBE_KILL_PID=<pid>`. The probe tries to stop it, which shows whether `agent-stop` is necessary.
@@ -198,17 +193,16 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 | Docker | FAIL: socket permission denied | PASS with `allowUnixSockets` |
 | Playwright Chromium (`@playwright/test` in `tracn-web`) | FAIL: browser closed at launch | PASS with `--single-process` (repository change, see below) |
 | `codex login status`, `claude --version` | PASS | PASS |
-| AutoReview, Claude engine | PASS | PASS |
-| AutoReview, Codex engine | FAIL: temporary directory under `/tmp` | Excluded command |
 | Paseo CLI | FAIL: `os.uptime()` `EPERM` | Excluded command |
 | `infisical --version`, `railway whoami` | PASS | PASS |
 | Plain `ssh` | FAIL: host name not resolved | Not supported |
-| Toolkit `./verify.sh` | FAIL: 4 AutoReview helper tests refuse `/tmp` | FAIL. Run Toolkit checks from a human terminal. Real AutoReview runs are excluded commands. |
+| Toolkit `./verify.sh` | FAIL on 2026-11-03: 4 helper tests of the former AutoReview skill refused `/tmp`. Those tests are removed. Not measured again. | Not measured again |
 | 22 HTTPS hosts (GitHub, registries, Infisical, Railway, Neon, Neo4j Aura, Redis Cloud, Stripe, Ubicloud, Anthropic, OpenAI, Cloudflare, TRACN) | PASS | PASS |
 | Node `fetch`, Python HTTPS | PASS | PASS |
 | Database connection to Neon (Postgres protocol) | PASS with the sandbox network open | FAIL: `getaddrinfo ENOTFOUND` |
 
 The `allowWrite` entries and the excluded commands were not tested in a session with these settings.
+Toolkit removed the AutoReview skill on 2026-11-14, with its probe item, its helper tests, and its excluded commands. The table shows the 2026-11-03 results without the AutoReview rows.
 Run the probe and the separate excluded-command calls in a fresh session after you apply them.
 
 ## Limits
@@ -218,6 +212,7 @@ Run the probe and the separate excluded-command calls in a fresh session after y
 - **Remote database connections do not work in the sandbox.** Only HTTPS passes the sandbox proxy. Database drivers for Neon, Neo4j Aura, and Redis cannot resolve the host, in every permission mode. For a small task, run the command from a human terminal. For a longer database task, run `scripts/apply-claude-sandbox.sh --undo`, and then `scripts/apply-claude-sandbox.sh --no-update` when the task is complete.
 - **Playwright** needs `--single-process` in the Chromium launch arguments when a sandboxed Claude session runs it. Change `tracn-web/playwright.config.ts`, in the `use` block: `launchOptions: { args: process.env.CLAUDECODE ? ['--single-process'] : [] }`. The Paseo browser tools run outside the sandbox and need no change.
 - **The server exclusions can run local code.** Options such as `ssh -o ProxyCommand`, `scp -S`, and `rsync -e` run a local program outside the sandbox. This is accepted, because these agents already control the servers. The sandbox here protects against accidental deletes, not against an agent that tries to escape.
+- **A Codex native review can fail in a sandboxed Claude session.** Codex runs its tool commands in its own Seatbelt sandbox, and a nested sandbox fails with `sandbox_apply: Operation not permitted`. A nested Claude reviewer (`claude -p`) can fail in the same way. This is not tested. Do not exclude `codex *` or `claude -p *`, because that lets an agent run any prompt outside the sandbox.
 - **Excluded commands run with full access.** The Docker daemon can mount any host path. Do not add patterns for interpreters, package scripts, or files in the working directory, because an agent can change them.
 - **The Write and Edit tools** are outside the sandbox. They cannot delete directories.
 - **The working directory, including the repository root and `.git`, stays writable.**
@@ -242,7 +237,7 @@ Acceptance for the plugin:
 
 - Two fresh agents report different `TMPDIR` values.
 - Agent A cannot create or delete a file in the root of agent B. Expect `Operation not permitted`.
-- `pg-test start` and `stop`, the probe, and AutoReview pass in both agents.
+- `pg-test start` and `stop`, the probe, and a native code review pass in both agents.
 - After the agent is archived, its directory no longer exists. The directories of other agents remain.
 
 Codex sandbox behavior with `exclude_slash_tmp` and a TMPDIR for each agent is not tested yet.

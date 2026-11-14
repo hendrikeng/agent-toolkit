@@ -114,13 +114,6 @@ item_playwright() {
 }
 item_codex() { has codex && probe codex 30 codex login status || skip codex 'not installed'; }
 item_claude() { has claude && probe claude 30 claude --version || skip claude 'not installed'; }
-item_autoreview() {
-  local helper=${PROBE_AUTOREVIEW:-}
-  [[ $helper ]] || { skip autoreview 'set PROBE_AUTOREVIEW=<helper path> to run a real one-commit review'; return; }
-  for engine in codex claude; do
-    probe "autoreview-$engine" 900 "$helper" --engine "$engine" --mode commit --commit HEAD --output "$work/review-$engine.md"
-  done
-}
 item_paseo() { has paseo && probe paseo 30 paseo ls --json || skip paseo 'not installed'; }
 item_infisical() { has infisical && probe infisical 30 infisical --version || skip infisical 'not installed'; }
 item_fly() { has fly && probe fly 30 fly auth whoami || skip fly 'not installed'; }
@@ -145,7 +138,7 @@ item_hosts() {
 }
 
 items=("$@")
-[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm pnpm_dlx uv pip localhost ps nice openpty kill_across lsof pg_test docker playwright codex claude autoreview paseo infisical fly railway ssh repo_check hosts)
+[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm pnpm_dlx uv pip localhost ps nice openpty kill_across lsof pg_test docker playwright codex claude paseo infisical fly railway ssh repo_check hosts)
 for item in "${items[@]}"; do "item_${item//-/_}"; done
 printf '%s failure(s)\n' "$failures"
 (( failures == 0 ))

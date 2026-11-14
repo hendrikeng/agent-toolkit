@@ -309,12 +309,12 @@ All fourteen shared skills remain available across roles. Load only those requir
 | `ponytail` | Automatic coding trial above | Full body from the installed copy. |
 | `test-audit` | Automatic test trial above | Full body and authoring gate. |
 | `simple-english` | Automatic documentation trial above | Full body and pragmatic prose rules. |
+| `caveman` | `Use caveman mode. What does this repository do?` | Terse reply that keeps every technical fact. |
 | `python` | In a disposable Python project: `Explain this Python function and propose a bounded correction. Do not edit or install anything.` | Full applicable skill read. Inspect task behavior separately. |
 | `fastapi` | In a disposable FastAPI project: `Inspect one route and its dependencies. Propose a compatible correction without editing or upgrading anything.` | Python and FastAPI reads, with repository version checks. |
 | `fastify` | In a disposable Fastify project: `Inspect one Fastify route and its schema. Recommend the smallest compatible correction. Do not edit or start a server.` | Full Fastify read and relevant rule references. |
 | `vue` | In a disposable Vue project: `Inspect this Vue component's reactivity and propose a bounded correction. Do not edit or start a server.` | Full Vue read and relevant references. |
 | `ponytail-review` | `Review the fixture diff for unnecessary complexity. Report findings only.` | Explicit skill read, no edits or automatic publication. |
-| `autoreview` | `Explicitly review this disposable repository's local diff with the installed Codex AutoReview skill and helper. Use gpt-6.1-sol at high effort. Keep normal permissions. Do not edit, commit, or push.` | Isolated helper invocation and validated report. A denial leaves this trial unverified. |
 | `ponytail-audit` | `Run Ponytail Audit on this disposable repository. Report only.` | Full skill read and a scoped report, no fixes. |
 | `ponytail-debt` | `Report the Ponytail Debt in this disposable repository.` | Real `debt.cjs` marker, no configuration change. |
 | `ponytail-help` | `Show Ponytail Help.` | Current native syntax, modes, and update guidance. |
@@ -324,11 +324,11 @@ All fourteen shared skills remain available across roles. Load only those requir
 Use existing disposable framework projects; do not add framework dependencies just to produce discovery evidence.
 Framework detection and body reads do not prove the correctness of every framework recommendation.
 Unrequested DeepSec and React Doctor must remain idle during ordinary work.
-An explicit AutoReview still works with `reviews:off`; native approval review is a separate mechanism.
+An explicit native code review still works with `reviews:off`. Native approval review is a separate mechanism.
 
 ### Publication review gates
 
-Use two identical disposable repositories with a prepared installation-code change that qualifies for the AutoReview risk gate.
+Use two identical disposable repositories with a prepared installation-code change that qualifies for the native code review risk gate.
 Use a deterministic regression and a complexity change that also qualifies for Ponytail Review if you need to verify both gates.
 Run these as separate fresh sessions, with only the disposable local commit authorized:
 
@@ -344,10 +344,10 @@ Run the same focused deterministic checks. Do not start automatic Toolkit review
 Do not push, change live settings, broaden permissions, or edit unrelated files.
 ```
 
-Verify that the enabled trial invokes the applicable installed review skills and helper before the local commit.
+Verify that the enabled trial runs the native headless review from the review policy, and Ponytail Review if it applies, before the local commit.
 Verify that the disabled trial runs deterministic checks and commits without an automatic Toolkit review.
-Then explicitly request AutoReview under `reviews:off` on a fresh matching fixture.
-That explicit request must still use the helper and normal approval. A denial leaves invocation unverified.
+Then explicitly request a code review under `reviews:off` on a fresh matching fixture.
+That explicit request must still use the native headless review and normal approval. A denial leaves invocation unverified.
 No real repository publication is part of these trials.
 
 ### Paseo profiles and host operations

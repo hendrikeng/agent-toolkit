@@ -19,7 +19,7 @@ function fixture(t) {
   const original = JSON.stringify({
     model: 'fable', env: { CLAUDE_CODE_TMPDIR: `${home}/.agent-tmp` }, permissions: { deny: ['Bash(git push -f*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
-      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'docker *', 'make release'] },
+      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'docker *', 'make release', `${home}/.claude/skills/autoreview/scripts/autoreview *`, '/opt/tools/autoreview/scripts/autoreview *'] },
   }, null, 2) + '\n'
   fs.writeFileSync(real, original, { mode: 0o600 })
   fs.symlinkSync(real, path.join(paseo, 'settings.json'))
@@ -57,6 +57,7 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.ok(settings.sandbox.filesystem.allowWrite.some(dir => dir.startsWith('/var/folders/')), 'plain mktemp -d uses the macOS temporary directory')
   assert.ok(!settings.sandbox.excludedCommands.some(command => command.includes('capture.mjs')))
   assert.ok(settings.sandbox.excludedCommands.includes('make release'))
+  assert.deepEqual(settings.sandbox.excludedCommands.filter(command => command.includes('autoreview')), ['/opt/tools/autoreview/scripts/autoreview *'], 'only the former Toolkit AutoReview exclusions are removed')
   assert.ok(settings.sandbox.excludedCommands.includes('pg-test *'))
   assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/agent-stop *`), 'agents stop their own background processes')
   for (const name of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {

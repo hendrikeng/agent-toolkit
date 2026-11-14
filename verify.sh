@@ -13,5 +13,4 @@ done
 perl -c shared/agent-heavy.pl
 perl -T -c shared/agent-stop.pl
 NO_COLOR=1 FORCE_COLOR=0 node --test scripts/apply-claude-sandbox.test.cjs shared/install.test.cjs shared/paseo-setup.test.cjs shared/paseo-service.test.cjs shared/agent-heavy.test.cjs shared/agent-stop.test.cjs shared/macos/agent-awake.test.cjs shared/postgres/*.test.cjs
-python3 skills/autoreview/scripts/autoreview_test.py
-printf 'Toolkit checks passed. Fresh CLI/model behavior and live reviewer invocation still require human acceptance.\n'
+printf 'Toolkit checks passed. Fresh CLI/model behavior and live native reviews still require human acceptance.\n'

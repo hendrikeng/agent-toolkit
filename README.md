@@ -136,7 +136,6 @@ Agents can run the command on request. A macOS Shortcut can run the same command
 | Ponytail Audit | Explicit whole-repository complexity audit; findings only |
 | Ponytail Debt | Explicit report of `ponytail:` shortcuts and revisit conditions |
 | Ponytail Help | Requested modes, skill syntax, and update reference |
-| AutoReview | Explicit independent review, or a qualifying publication boundary |
 | DeepSec | Explicit request only; pinned scanner and bounded AI stages |
 | React Doctor | Explicit request only; pinned deterministic React scan |
 
@@ -146,35 +145,31 @@ The historical `ponytail-gain` scoreboard is intentionally omitted; it does not 
 Automatic reviews occur only when the user requests a commit, push, PR, merge, or ship boundary. Passing tests or finishing an edit never triggers one. First inspect the change and run focused deterministic checks.
 
 - Ponytail Review applies to a new dependency, abstraction, layer, configurable surface, or at least 150 changed non-test, non-documentation lines.
-- AutoReview applies to authentication, security, secrets, money, persisted data, schemas, migrations, concurrency, public APIs, installation, upgrades, release machinery, or at least 200 changed non-test, non-documentation lines.
+- A native code review applies to authentication, security, secrets, money, persisted data, schemas, migrations, concurrency, public APIs, installation, upgrades, release machinery, or at least 200 changed non-test, non-documentation lines.
 - Review an unchanged bundle once across boundaries. Verify advisory findings. After an accepted review fix, rerun affected checks and that review.
 - `reviews:off` disables automatic reviews; `reviews:auto` restores the gates. Explicit reviews remain available. There are no Git review hooks.
 
-AutoReview uses its existing skill-local script on every host:
+Each provider runs its native review as a separate headless process from the repository or worktree root, at medium effort.
+The reviewer matches the provider family of the agent that requests the review. Other provider families use Codex.
 
-```sh
-"<installed-autoreview-skill>/scripts/autoreview" --engine codex --mode local
-```
+The exact commands are in the Reviews section of [shared/AGENTS.md](shared/AGENTS.md). Claude uses `/code-review medium` with read-only tools. Codex uses `codex exec review` with `gpt-6.1-sol` at medium reasoning.
+A review takes about 1-4 minutes. Run it in the background or with a long timeout.
 
-Claude agents use `--engine claude` with Opus 5.5. Codex agents use `--engine codex` with Sol 6.1.
-Select the engine from the agent requesting the review, not the worker that wrote the code.
-An explicit user choice takes precedence. Other provider families retain Codex as the default reviewer.
-Always pass the selected engine explicitly. The standalone helper retains Codex as its default.
-If the selected Codex engine is unavailable, use Claude with the same Git target.
-If the selected Claude engine is unavailable, report that limitation. Switching to Codex needs explicit user authorization.
-Never use fallback to bypass permission denials, approval-review rejections, isolation failures, or task prohibitions.
-The helper does not switch engines automatically. A completed review with findings does not trigger fallback.
+Findings are advice. Verify each finding against the code.
+Fix confirmed correctness, security, and data-loss problems inside the task scope. Report other confirmed problems as follow-ups.
+Skip style, duplication, and performance findings unless they are in the task scope.
+If the native reviewer is unavailable or fails, report it. A switch to another provider needs explicit user authorization.
+Do not retry after permission denials, approval-review rejections, or explicit task prohibitions.
 
-Read the skill first and choose the Git target explicitly when needed. The helper owns reviewer isolation, collection, structured reports, and output paths. There is no `autoreview-yolo`. Permission denials use native approval or a trusted human terminal; never disable permissions for a review. The helper does not scan for secrets before sending a review bundle to a provider. Its isolated reviewer can have stricter settings than the ordinary coding session.
+Toolkit replaced its former AutoReview skill with these native reviews on 2026-11-14.
+In a benchmark of 5 past commits with 14 known bugs, Claude Code `/code-review medium` found 8 bugs. AutoReview found 1 at medium effort and 0 at high effort.
 
-The Codex engine runs local `codex exec`, rather than a Codex Cloud task. Its remote model receives the selected source and review context through normal Codex inference. Local execution does not mean offline inference.
+Codex's automatic approval reviewer is separate from code review. It can reject network access even when the user requested code review. Toolkit instructions do not override native permissions. See [Codex automatic approval review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
 
-Codex's automatic approval reviewer is separate from Toolkit AutoReview. It can reject network access even when the user requested code review. Toolkit instructions do not override native permissions. See [Codex automatic approval review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
-
-For recurring reviews, a human can place this explicit standing authorization in the applicable repository instructions:
+For recurring reviews, a human can put this explicit standing authorization in the applicable repository instructions:
 
 ```text
-For explicitly requested reviews and Toolkit's required publication reviews, I authorize the local AutoReview helper to send the selected review source and context through the selected engine's normal model requests. Claude agents use Claude, and Codex agents use Codex. Explicit reviewer choices take precedence. If the selected Codex engine is unavailable or cannot complete the review, I authorize Claude as the fallback. Switching a Claude agent's review to Codex needs my explicit authorization. This does not authorize permission or isolation bypasses, Cloud tasks, other providers, account changes, unrelated files, credentials, or production data.
+For explicitly requested reviews and Toolkit's required publication reviews, I authorize the native reviewer of the requesting agent's provider to send the selected review source and context through its normal model requests. Claude agents use Claude, and Codex agents use Codex. Explicit reviewer choices take precedence. A switch to another provider needs my explicit authorization. This does not authorize permission bypasses, Cloud tasks, other providers, account changes, unrelated files, credentials, or production data.
 ```
 
 This wording clarifies authorization. It does not guarantee approval or grant network access.
@@ -289,7 +284,7 @@ These task-based defaults use your existing subscriptions:
 These profiles are launch presets. Select them for the tasks that need their roles.
 The Orchestrator can complete ordinary changes directly. Delegation needs useful scopes, explicit ownership, and sufficient task context.
 The Planner adds a repeatable native planning workflow. The Adviser returns a judgment through an analysis-only task prompt.
-Code review remains a separate role through AutoReview's existing helper and Ponytail Review.
+Code review remains a separate role through native code reviews and Ponytail Review.
 
 Medium is the routine default for coordination, bounded implementation, simple planning, and advice.
 Codex Adviser defaults to Sol with Medium effort for bounded second opinions.
@@ -371,24 +366,12 @@ Absent optional settings stay absent, and explicit `false` feature values must r
 Saved changes affect future profile selections. They do not update running agents.
 Authentication or quota errors stop the affected launch. They do not authorize another account or paid API fallback.
 
-Code reviews remain with AutoReview's existing skill-local helper and Ponytail Review's existing gates.
-A saved Reviewer profile does not replace the helper's isolation or configure its reviewer model.
-For an explicit review, read the AutoReview skill first.
-Match the engine to the agent requesting the review: Claude uses Claude, and Codex uses Codex.
-Honor explicit reviewer choices and the skill's fallback rules.
-Pass the selected engine's options to the helper:
-
-| Reviewer engine | Helper options |
-|---|---|
-| Codex | `--engine codex --model gpt-6.1-sol --thinking high` |
-| Claude | `--engine claude --model claude-opus-5-5 --thinking medium` |
-
-These options retain the existing helper's isolation and report flow.
-Reviewer effort is independent of profile effort. Codex reviews use High. Claude reviews use Medium, the Opus 5.5 default.
-For a very risky change, select High for one Claude review. The worker's effort does not select reviewer effort.
-They do not select a Paseo account alias. Run the helper in the intended native account context.
-The explicit Claude model pins Opus 5.5 independently of future default changes.
-Codex's `auto-review` permission mode reviews approval requests. Toolkit's AutoReview reviews a change bundle.
+Code reviews use the native reviewer of each provider and Ponytail Review's existing gates.
+A saved Reviewer profile does not configure the native reviewer.
+The review policy in `shared/AGENTS.md` gives the headless commands. Claude reviews pin `claude-opus-5-5` at medium effort, with read-only tools and without project settings or hooks. Codex reviews pin `gpt-6.1-sol` at medium reasoning effort.
+Reviewer effort is independent of profile effort. The worker's effort does not select reviewer effort.
+Run the review in the intended native account context. The command does not select a Paseo account alias.
+Codex's `auto-review` permission mode reviews approval requests. A native code review examines a change bundle.
 Neither changes the other's policy, and `reviews:off` never changes native permissions.
 See [Codex approval review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
 
@@ -507,6 +490,13 @@ The following steps are the alternative migration route, which retains historica
 4. Run `./install.sh`. Only exact marked legacy files and recognized Toolkit symlink targets are retired. Modified or unmarked files stop installation. The installer leaves unmanifested legacy resource snapshots intact for manual inspection.
 5. Restart normal providers and verify behavior before removing any remaining historical data.
 
+The installer removes the retired AutoReview skill links in `~/.agents`, `~/.claude`, and the Codex homes. Paseo homes that link `skills` to `~/.claude/skills` are covered. For other Paseo homes, run `ls -l ~/.paseo/zerosub/homes/*/skills/autoreview` and remove only links to `~/.local/share/agent-toolkit/resources/skills/autoreview`.
+It does not remove the former AutoReview output directory. After `./install.sh`, remove it by hand:
+
+1. Run `ls -ld ~/.claude/autoreview-out ~/.paseo/zerosub/homes/*/autoreview-out`.
+2. Remove each Paseo home link that points to `~/.claude/autoreview-out`. Then remove `~/.claude/autoreview-out`.
+3. Keep all other entries.
+
 ### Resolving an active Ponytail registration
 
 The reconciliation error names the exact configuration that blocks installation. No new Toolkit files deploy until preflight succeeds. Disabling an old plugin alone does not install the replacement skill or startup block.
@@ -584,7 +574,6 @@ Start fresh sessions to verify the updated installed guidance and effective laun
 | Resource | Pin |
 |---|---|
 | Ponytail skill family (five skills) | Upstream v4.9.0, revision `0a4dd63ad4541f4f655c4108a295916f3c1d8fda`, vendored without hooks |
-| AutoReview | `711711b86294673feced9d1cb636b539daf3c218`; adaptations in its NOTICE |
 | React Doctor | `0.9.13`, locked skill-local dependencies |
 | DeepSec | `npx deepsec@2.3.9`, manual only |
 | Installer configuration parsers | `smol-toml@1.9.0`, `jsonc-parser@3.3.1`, locked in `shared/` |
@@ -597,7 +586,7 @@ Python, framework, writing, and Test Audit guidance is vendored; revisions and l
 ./verify.sh
 ```
 
-Checks cover installation and repetition, configuration/account preservation, Paseo preservation, migration refusal, backups and recovery, source/install separation, PostgreSQL role/lifecycle behavior, and AutoReview's deterministic helper contract. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
+Checks cover installation and repetition, configuration/account preservation, Paseo preservation, migration refusal, backups and recovery, source/install separation, and PostgreSQL role/lifecycle behavior. External downloads and PostgreSQL processes are substituted in fixture tests. These tests do not prove a provider's security boundary, model adherence, a live reviewer run, or actual Docker/PostgreSQL startup.
 
 Tests must remove their temporary directories after the owning test or helper finishes, including failure paths.
 They must register cleanup before fixture setup. Requested evidence uses an explicit output directory.
@@ -621,7 +610,7 @@ The coordinator must inspect the exact provider and selected settings before lau
 3. Resolve the Ponytail skill link. Its body must come from `~/.local/share/agent-toolkit/resources/skills/ponytail/SKILL.md`. A link to the old `~/.local/libexec/agent-toolkit` snapshot is not the rebuilt installation.
 4. Start a fresh native Paseo session in a disposable repository for each provider you use. Explicitly load Ponytail and Test Audit with the syntax in the table. Inspect the skill expansion or file-read event for the full copied body.
 5. Exercise small coding, test, and Markdown documentation tasks without explicit skill requests. Verify full Ponytail, Test Audit, and Simple English reads respectively. A skill listing or the model's unsupported claim is insufficient.
-6. Explicitly request a small AutoReview through its skill-local script. Verify the isolated reviewer and report through normal approval. A permission denial leaves this check unverified.
+6. Explicitly request a small native code review with the headless command from the review policy. Verify that findings come back. A permission denial leaves this check unverified.
 7. For host operations, verify that Paseo guidance and official Paseo skills load.
 8. After optional Paseo setup, inspect `list_profiles` on the selected daemon. Verify effective models, thinking, modes, and features. Inspect actual context and role-guidance reads in fresh sessions.
 

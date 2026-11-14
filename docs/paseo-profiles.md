@@ -742,27 +742,18 @@ No live acceptance or coding-quality benchmark was performed for this recipe.
 ## Code review remains separate
 
 A saved Reviewer profile is not necessary for Toolkit's change-bundle reviews.
-AutoReview's existing skill-local helper owns reviewer isolation, collection, and reports.
+Each provider runs its native code review as a separate headless process. The review policy in `shared/AGENTS.md` gives the commands.
 Ponytail Review retains its complexity-review gate.
 An Adviser is not a way to bypass the active review policy with an unrequested second-model review.
 
-For an explicit or qualifying review, read the applicable skill first.
-Match AutoReview to the agent requesting the review: Claude uses Claude, and Codex uses Codex.
+Match the reviewer to the agent requesting the review: Claude uses Claude, and Codex uses Codex.
 The worker's provider does not select the reviewer. Explicit user choices take precedence.
-Use the helper in the intended native account context:
-
-| Engine | Explicit helper settings |
-|---|---|
-| Codex | `--engine codex --model gpt-6.1-sol --thinking high` |
-| Claude | `--engine claude --model claude-opus-5-5 --thinking medium` |
-
-These settings do not select a Paseo account alias.
-Reviewer effort is independent of worker effort.
-Codex reviews use High. Claude reviews use Medium, the Opus 5.5 default. For a very risky change, select High for one Claude review.
-The explicit Claude model pins Opus 5.5 independently of future default changes.
+Run the review in the intended native account context. The command does not select a Paseo account alias.
+Both reviewers use medium effort. Reviewer effort is independent of worker effort.
+The Claude command pins `claude-opus-5-5` independently of future default changes.
 
 Codex **Auto-review** evaluates approval requests.
-Toolkit **AutoReview** evaluates a change bundle.
+A native code review evaluates a change bundle.
 `reviews:off` disables automatic Toolkit reviews, not native approval handling.
 Neither review system configures the other.
 

@@ -131,7 +131,7 @@ function planInstall(options) {
       text = read(file)
     }
     let body = read(path.join(repo, 'shared/AGENTS.md')).replaceAll('%TOOLKIT%', resources).trimEnd()
-    if (receipt.reviewNetworkPrompts?.includes(file)) body += '\n\n## Authorized review and adviser model requests\n\nThe user authorizes normal model requests for requested AutoReview runs and reviews required by the Toolkit publication policy.\nUse the reviewer engine selected by the provider-matching AutoReview policy above.\nIf the selected Codex engine is unavailable or cannot complete the review, the user authorizes the helper\'s Claude engine as the fallback.\nA Claude agent needs explicit user authorization before switching its review to Codex.\nThis does not authorize fallback after permission denials, approval-review rejections, isolation failures, or explicit task prohibitions.\nThe user also authorizes scoped advisers to read task-relevant private repository files when their investigations are authorized.\nThis includes sending selected source and context through the chosen provider\'s normal model requests.\nUse the authorized provider and exact account alias. Keep adviser scope and publication limits intact.\nThis does not authorize Cloud tasks, unrelated files, credentials, production data, account changes, or other provider changes.\nDo not add a separate consent question for these authorized model requests. Obey native denials and explicit task-specific restrictions.\n'
+    if (receipt.reviewNetworkPrompts?.includes(file)) body += '\n\n## Authorized review and adviser model requests\n\nThe user authorizes normal model requests for requested native code reviews and reviews required by the Toolkit publication policy.\nUse the reviewer selected by the provider-matching review policy above.\nSwitching a review to another provider needs explicit user authorization.\nThe user also authorizes scoped advisers to read task-relevant private repository files when their investigations are authorized.\nThis includes sending selected source and context through the chosen provider\'s normal model requests.\nUse the authorized provider and exact account alias. Keep adviser scope and publication limits intact.\nThis does not authorize Cloud tasks, unrelated files, credentials, production data, account changes, or other provider changes.\nDo not add a separate consent question for these authorized model requests. Obey native denials and explicit task-specific restrictions.\n'
     const block = `${begin}\n${body}\n${end}`
     const start = text.indexOf(begin), stop = text.indexOf(end)
     if (start >= 0 || stop >= 0) {
@@ -180,10 +180,15 @@ function planInstall(options) {
   }
   prompt(path.join(claudeDir, 'CLAUDE.md'))
   for (const name of fs.readdirSync(path.join(repo, 'skills'))) {
-    const oldSources = name === 'autoreview' ? [path.join(repo, 'codex/skills/autoreview'), path.join(legacy, 'resources/codex/skills/autoreview')] : []
-    link(path.join(home, '.agents/skills', name), path.join(resources, 'skills', name), oldSources)
-    link(path.join(claudeDir, 'skills', name), path.join(resources, 'skills', name), oldSources)
-    for (const directory of codexHomes) ownedLink(path.join(directory, 'skills', name), oldSources)
+    link(path.join(home, '.agents/skills', name), path.join(resources, 'skills', name))
+    link(path.join(claudeDir, 'skills', name), path.join(resources, 'skills', name))
+    for (const directory of codexHomes) ownedLink(path.join(directory, 'skills', name))
+  }
+  // AutoReview is retired. The receipt sweep removes current links; this removes pre-resources links only and leaves any other autoreview entry alone.
+  const autoreviewSources = [path.join(repo, 'codex/skills/autoreview'), path.join(legacy, 'resources/codex/skills/autoreview')]
+  for (const directory of [path.join(home, '.agents'), claudeDir, ...codexHomes]) {
+    const file = path.join(directory, 'skills/autoreview')
+    if (exists(file)?.isSymbolicLink() && autoreviewSources.includes(path.resolve(path.dirname(file), fs.readlinkSync(file)))) retire.add(file)
   }
   for (const name of ['codex-yolo', 'claude-yolo', 'autoreview-yolo', 'pg18-fresh-yolo', 'repo-delete']) marked(path.join(home, '.local/bin', name))
   for (const name of ['autoreview', 'development-policy.cjs', 'development.rules', 'pg18-fresh-yolo', 'repository-trust.cjs', 'git', 'open', 'pg-test', 'package.json', 'package-lock.json']) marked(path.join(legacy, name))

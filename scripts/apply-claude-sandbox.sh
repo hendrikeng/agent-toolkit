@@ -81,15 +81,12 @@ merge() {
         $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung", $home + "/Code/envest"]
         + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
-    # The Docker socket replaces the earlier docker exclusion.
+    # The Docker socket replaces the earlier docker exclusion. AutoReview was retired, so its helper exclusions are removed.
     # Server entries in the generated form are replaced, so a shorter or empty list removes old servers.
-    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or . == "docker *"
+    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or . == "docker *" or . == $home + "/.claude/skills/autoreview/scripts/autoreview *" or . == $home + "/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *" or . == $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *"
         or test("^ssh [^ ]+@[^ ]+ \\*$") or test("^(scp|rsync) \\* [^ ]+@[^ ]+:\\*$")) | not)))
     | .sandbox.excludedCommands |= append([
         "pg-test *", "pg18-fresh", "paseo *",
-        $home + "/.claude/skills/autoreview/scripts/autoreview *",
-        $home + "/.paseo/zerosub/homes/*/skills/autoreview/scripts/autoreview *",
-        $home + "/.local/share/agent-toolkit/resources/skills/autoreview/scripts/autoreview *",
         # The sandbox blocks signals to processes from earlier calls. The helper checks every target itself.
         $home + "/.local/bin/agent-stop *",
         # The sandbox blocks ~/Library/LaunchAgents and launchctl bootstrap. These run no arguments; they manage one fixed LaunchAgent.

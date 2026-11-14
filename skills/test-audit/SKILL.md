@@ -8,7 +8,7 @@ license: MIT
 
 Use the authoring gate for each new or changed test. Use the audit workflow only when the user asks to review or prune tests. Optimize for confidence, not deletion count.
 
-This skill is first-model test guidance. It does not trigger AutoReview or another AI review. Follow the repository's review policy at commit, push, pull request, merge, or ship boundaries.
+This skill is first-model test guidance. It does not trigger an AI review. Follow the repository's review policy at commit, push, pull request, merge, or ship boundaries.
 
 ## Authoring gate
 

@@ -60,9 +60,8 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.match(fs.readFileSync(path.join(path.dirname(claudeConfig), 'CLAUDE.md'), 'utf8'), /normal model requests/)
   for (const prompt of [path.join(path.dirname(config), 'AGENTS.md'), path.join(path.dirname(claudeConfig), 'CLAUDE.md')]) {
     const content = fs.readFileSync(prompt, 'utf8')
-    assert.match(content, /Claude agents use `--engine claude`/)
-    assert.match(content, /Codex agents use `--engine codex`/)
-    assert.match(content, /A Claude agent needs explicit user authorization before switching its review to Codex/)
+    assert.match(content, /Switching a review to another provider needs explicit user authorization/)
+    assert.doesNotMatch(content, /AutoReview/)
     assert.doesNotMatch(content, /regardless of the implementation provider/)
   }
   install(f.plan(options), noDownload)
@@ -217,6 +216,9 @@ test('migration retires only proven files with backups and stops before changing
   fs.writeFileSync(marker, createHash('sha256').update(fs.readFileSync(old)).digest('hex') + '\n')
   f.put('.local/libexec/agent-toolkit/resources/user-note.txt', 'Keep ambiguous old snapshot')
   const unrelated = f.put('.local/bin/user-command', 'keep')
+  const retiredSkill = path.join(f.home, '.claude/skills/autoreview')
+  fs.mkdirSync(path.dirname(retiredSkill), { recursive: true })
+  fs.symlinkSync(path.join(repo, 'codex/skills/autoreview'), retiredSkill)
   const config = f.put('.claude/settings.json', '{"enabledPlugins":{"ponytail@ponytail":true}}')
   assert.throws(f.plan, /Manual reconciliation/)
   assert.ok(fs.existsSync(old))
@@ -224,6 +226,7 @@ test('migration retires only proven files with backups and stops before changing
   fs.writeFileSync(config, '{}') // Explicit trusted reconciliation represented by the fixture owner.
   const backup = install(f.plan(), noDownload)
   assert.equal(fs.existsSync(old), false)
+  assert.throws(() => fs.lstatSync(retiredSkill), { code: 'ENOENT' })
   assert.equal(fs.readFileSync(path.join(backup, '.local/bin/autoreview-yolo'), 'utf8'), '#!/bin/sh\nold Toolkit launcher\n')
   assert.equal(fs.readFileSync(unrelated, 'utf8'), 'keep')
   assert.equal(fs.readFileSync(path.join(f.home, '.local/libexec/agent-toolkit/resources/user-note.txt'), 'utf8'), 'Keep ambiguous old snapshot')
