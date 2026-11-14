@@ -65,7 +65,7 @@ test('default reviewer networking updates selected homes, preserves user configu
   for (const prompt of [path.join(path.dirname(config), 'AGENTS.md'), path.join(path.dirname(claudeConfig), 'CLAUDE.md')]) {
     const content = fs.readFileSync(prompt, 'utf8')
     assert.match(content, /Switching a review to another provider needs explicit user authorization/)
-    assert.doesNotMatch(content, /AutoReview/)
+    assert.doesNotMatch(content, /scripts\/autoreview|--engine (claude|codex)/)
     assert.doesNotMatch(content, /regardless of the implementation provider/)
   }
   const repeat = install(f.plan(options))

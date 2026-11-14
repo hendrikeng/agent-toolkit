@@ -11,7 +11,7 @@ The design keeps the sandbox on for normal work and gives one reviewed escape fo
   The retry goes through the normal permission flow. In auto mode, which Paseo uses, the auto-mode classifier reviews it.
 - No command runs outside the sandbox without the escape. The settings have no `excludedCommands`, also not for the Toolkit helpers.
 - Production servers ask before each `ssh`, `scp`, or `rsync` (`permissions.ask`). An ask rule prompts also in auto mode.
-- Deny rules block force pushes. A hook scans the outgoing commits for secrets before each `git push`.
+- Deny rules block force pushes. The secret scan before `git push` is an agent instruction in [docs/code-review.md](code-review.md), not a hook.
 
 With `allowUnsandboxedCommands: false`, every blocked command fails, also `pg-test start`, `agent-stop`, and Docker. That is too restrictive to keep the sandbox on.
 
@@ -167,6 +167,8 @@ The retry runs outside the sandbox only after the permission flow approves it:
 
 The agent rules in `shared/AGENTS.md` add two limits. The agent gives the reason for each escape.
 The escape is allowed for the repository's own test, build, browser-test (for example Playwright Chromium), database, and Docker commands, also when they run changed code.
+`~/.cache/node/corepack` is not writable in the sandbox, because it holds program code that runs later. After a pnpm version bump, run one `corepack install` with the escape.
+
 Chromium cannot start inside the macOS sandbox: it registers a Mach service (`bootstrap_check_in`), and the sandbox profile of Claude Code allows no Mach registration. `sandbox.network.allowMachLookup` only adds lookups, so it does not help. Agents run browser tests with the escape from the start. A test on 2026-11-14 in auto mode: the classifier approved the escape, and Chromium started with no prompt. The agent does not write a new script only to run it outside the sandbox. In auto mode, the classifier reviews each escape.
 Typical escape cases are `ssh` to a staging server, a remote database connection, Docker, `pg-test`, and a nested reviewer.
 

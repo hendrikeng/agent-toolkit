@@ -1,6 +1,6 @@
 ---
 name: react
-description: React and Next.js guidance. Use automatically when a task writes, reviews, or refactors .tsx/.jsx components or React hooks, or when the repository depends on react or next. Not for Vue, React Native, or non-UI tasks.
+description: React and Next.js guidance. Use automatically when a task writes, reviews, or refactors .tsx/.jsx components or React hooks, or when the repository depends on react or next. Not for Vue repositories (also when react is only a devDependency), React Native, or non-UI tasks.
 license: MIT
 metadata:
   author: vercel

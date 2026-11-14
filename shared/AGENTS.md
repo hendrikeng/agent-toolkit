@@ -67,6 +67,7 @@ Never change live permission settings or grant access that managed policy forbid
 If the Claude sandbox blocks a command, retry it once with `dangerouslyDisableSandbox` and give the reason. Never ask the user to turn off the sandbox.
 The escape is allowed for the repository's own test, build, browser-test, database, and Docker commands, also when they run code you changed.
 Run Playwright and other Chromium browser tests with the escape from the start: Chromium cannot start inside the macOS sandbox.
+If a repository's own test or script starts `pg-test`, `initdb`, or Docker itself, run the whole command with the escape and give that reason.
 Do not write a new script only to run it outside the sandbox. For helpers and background processes, see `%TOOLKIT%/docs/claude-sandbox.md`.
 
 ## Reviews
@@ -75,6 +76,7 @@ Do not run AI reviews merely because edits or tests are complete.
 At a user-requested commit, push, PR, merge, or ship boundary, inspect the bundle and run focused deterministic checks.
 Run a native code review only for authentication, security, secrets, money, persisted data, schemas, migrations, concurrency,
 public APIs, installation, upgrades, release machinery, or 200 changed non-test, non-doc lines.
+A plan step that names AutoReview or Codex AutoReview means the native review under this policy.
 Explicit review requests run. `reviews:off` disables automatic reviews until `reviews:auto`; explicit reviews remain available.
 Review an unchanged bundle once across boundaries. After a review changes code, rerun affected checks and that review.
 Never install AI reviews as Git hooks.
