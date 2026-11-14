@@ -56,8 +56,7 @@ Wrap ad hoc heavy commands with `agent-heavy --`, for example a full typecheck, 
 ## Permission boundaries
 
 Distinguish execution denials, native approval requests, approval-review rejections, and explicit task prohibitions.
-If the Codex sandbox protects an authorized operation, request supported native escalation before execution.
-For example, protected Git metadata writes need this approval in Codex workspace-write mode.
+In Codex, if the sandbox protects an authorized operation, request native escalation before execution. Protected Git metadata writes are an example.
 A filesystem or sandbox denial is not itself an approval request.
 If the active policy and task permit it, request native approval after an execution denial.
 Do not repeat the command under unchanged sandbox conditions or bypass a denial through another tool, path, worker, or mode.
@@ -65,17 +64,8 @@ After an approval-review rejection, stop the rejected action and report the stat
 Obey explicit task prohibitions until the user lifts them. General publication approval does not lift a specific retry prohibition.
 Report each denial with its command, target, originating agent, permission mode, and denial type.
 Never change live permission settings or grant access that managed policy forbids.
-With the Claude sandbox on, you can retry a blocked command once with `dangerouslyDisableSandbox`. Give the reason.
-Never use this escape for a file that you wrote or changed in this task. Never ask the user to turn off the sandbox.
-Run `/bin/ps`, `agent-stop`, `pg-test`, and `pg18-fresh` by full path as separate whole calls, without quotes. Sandbox exclusions match only a whole call.
-Run `pg-test start` by its full path as its own call, and pass its URL to scripts. The exclusion does not apply inside a script.
-In scripts, use `lsof -t` instead of `ps`. The sandbox blocks the setuid `/bin/ps`.
-Start a long-lived server with the `run_in_background` option of the Bash tool, and stop it with TaskStop.
-Or start the servers and the tests in one call with `trap 'kill $pids' EXIT`.
-Never start a server with `&` or `nohup` and expect to stop it in a later call.
-If a server from an earlier call still runs, run `agent-stop <pid>` or `agent-stop --port <port>` as a separate call.
-Also stop its parent pid, for example of pnpm or turbo. For Docker Compose services, use `docker compose down`.
-Write the `agent-stop` path in full, without quotes or `~`, for example `/Users/<name>/.local/bin/agent-stop`. See `%TOOLKIT%/docs/claude-sandbox.md`.
+If the Claude sandbox blocks a command, retry it once with `dangerouslyDisableSandbox` and give the reason. Never ask the user to turn off the sandbox.
+Never use this escape for a file that you wrote or changed in this task. For helpers and background processes, see `%TOOLKIT%/docs/claude-sandbox.md`.
 
 ## Reviews
 

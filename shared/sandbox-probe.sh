@@ -4,7 +4,6 @@
 #   bash <toolkit>/shared/sandbox-probe.sh [item ...]
 # Each item prints PASS, FAIL with the last error line, or SKIP. The script changes no repository files.
 # It creates only its own mktemp directory and stops its own pg-test fixture.
-# Excluded commands run outside the sandbox only when a whole tool call matches, so this script cannot test them.
 set -u
 [[ ${TMPDIR:-} ]] || { echo 'TMPDIR is not set' >&2; exit 2; }
 work=$(mktemp -d "$TMPDIR/sandbox-probe.XXXXXX") || exit 2
@@ -90,8 +89,14 @@ item_kill_across() {
   [[ ${PROBE_KILL_PID:-} =~ ^[1-9][0-9]*$ ]] || { skip kill-across 'set PROBE_KILL_PID to a sleep that an earlier call started'; return; }
   probe kill-across 10 bash -c 'kill -TERM "$1" && echo ok' _ "$PROBE_KILL_PID"
 }
+# Helpers and shell startup files run later outside the sandbox, so denyWrite protects them.
+item_deny_write() {
+  probe deny-write 10 bash -c 'f=$HOME/.local/bin/.sandbox-probe-$$; if : > "$f" 2>/dev/null; then rm -f -- "$f"; echo "wrote $f"; exit 1; fi; echo denied'
+}
 item_lsof() { probe lsof 20 bash -c 'out=$(lsof -nP -iTCP -sTCP:LISTEN) && printf "%s\n" "$out" | head -n 2'; }
+# PostgreSQL cannot create shared memory in the sandbox. Set PROBE_PG_TEST=1 outside the sandbox to check the helper.
 item_pg_test() {
+  [[ ${PROBE_PG_TEST:-} == 1 ]] || { skip pg-test 'expected: runs through the escape'; return; }
   has pg-test || { skip pg-test 'not installed'; return; }
   local started url
   if ! started=$(limit 120 pg-test start 2>&1); then
@@ -106,7 +111,8 @@ item_pg_test() {
   # Keep the cleanup registration when the stop fails.
   if (( failures == before )); then pg_id=; fi
 }
-item_docker() { has docker && probe docker 20 docker info --format '{{.ServerVersion}}' || skip docker 'not installed'; }
+# The sandbox has no Docker socket: the Docker daemon has full host access.
+item_docker() { skip docker 'expected: runs through the escape'; }
 item_playwright() {
   local dir=${PROBE_PLAYWRIGHT_DIR:-$HOME/Code/tracn/tracn-web}
   [[ -d $dir/node_modules/@playwright/test ]] || { skip playwright "no @playwright/test in $dir"; return; }
@@ -137,7 +143,7 @@ item_hosts() {
 }
 
 items=("$@")
-[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm pnpm_dlx uv pip localhost ps nice openpty kill_across lsof pg_test docker playwright codex claude paseo infisical fly railway ssh repo_check hosts)
+[[ ${#items[@]} -gt 0 ]] || items=(tmpdir mktemp_default git_local git_cwd shared_writes other_git git_https git_ssh gh npm pnpm pnpm_dlx uv pip localhost ps nice openpty kill_across deny_write lsof pg_test docker playwright codex claude paseo infisical fly railway ssh repo_check hosts)
 for item in "${items[@]}"; do "item_${item//-/_}"; done
 printf '%s failure(s)\n' "$failures"
 (( failures == 0 ))

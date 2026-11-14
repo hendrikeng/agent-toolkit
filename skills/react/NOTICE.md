@@ -48,3 +48,5 @@ SOFTWARE.
 - `rules/async-dependencies.md`: The plain `Promise.all()` version is the main correct example. `better-all` is optional.
 - `rules/rerender-memo.md`, `rules/rerender-memo-with-default-value.md`, `rules/rerender-simple-expression-in-memo.md`, `rules/rerender-split-combined-hooks.md`: The first line under the heading tells the agent to check for the React Compiler first. If the compiler is on, the agent does not add manual memoization for performance.
 - All files: trailing whitespace is removed, so `git diff --check` passes.
+- `rules/advanced-use-latest.md` is removed. It said that `useEffectEvent` gives a stable callback ref, which contradicts `advanced-effect-event-deps`. `advanced-event-handler-refs` covers the same pattern. Its Quick Reference line is removed, and the rule count is 69.
+- `SKILL.md`: A line before "When to Apply" limits the rules to code that the agent writes or changes, and limits the `js-*` rules to a measured hot path.

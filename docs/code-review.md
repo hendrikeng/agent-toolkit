@@ -8,8 +8,10 @@ Match the reviewer to the provider family of the agent that requests the review.
 ## Claude
 
 ```sh
-claude -p "/code-review medium [target]" --model claude-opus-5-5 --effort medium --safe-mode --setting-sources user --permission-mode dontAsk --strict-mcp-config --allowedTools "Read Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git ls-files *)" --disallowedTools "Bash(*--output*) Bash(*--ext-diff*)" < /dev/null
+claude -p "/code-review medium [target]" --model opus --effort medium --safe-mode --setting-sources user --permission-mode dontAsk --strict-mcp-config --allowedTools "Read Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status *) Bash(git rev-parse *) Bash(git merge-base *) Bash(git ls-files *)" --disallowedTools "Bash(*--output*) Bash(*--ext-diff*)" < /dev/null
 ```
+
+`--model opus` selects the newest Opus model, which is also the default in the user settings.
 
 ### Threat note
 

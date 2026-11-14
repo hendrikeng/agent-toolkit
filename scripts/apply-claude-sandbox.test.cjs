@@ -50,7 +50,9 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.equal(applied.status, 0, applied.stdout)
   const settings = JSON.parse(fs.readFileSync(f.real, 'utf8'))
   assert.equal(settings.model, 'fable')
-  assert.deepEqual(settings.permissions.deny, ['Bash(git push -f*)'])
+  // The script also writes the user's force-push rule. It stays first and once.
+  assert.deepEqual(settings.permissions.deny.filter(rule => rule === 'Bash(git push -f*)'), ['Bash(git push -f*)'])
+  assert.equal(settings.permissions.deny[0], 'Bash(git push -f*)')
   // Ask rules are only added: existing rules stay, production servers ask, staging uses the reviewed escape.
   assert.deepEqual(settings.permissions.ask, ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)', ...['agawulum@sl90.web.hostpoint.ch', 'bonzanib@sl662.web.hostpoint.ch', 'wfw-prod@wfw.ch']
     .flatMap(server => ['ssh', 'scp', 'rsync'].map(command => `Bash(${command} *${server}*)`))])
@@ -65,15 +67,9 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Library/pnpm/store`))
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Code/paseo-worktrees`), 'orchestrators write in worker worktrees')
   assert.ok(settings.sandbox.filesystem.allowWrite.some(dir => dir.startsWith('/var/folders/')), 'plain mktemp -d uses the macOS temporary directory')
-  assert.ok(!settings.sandbox.excludedCommands.some(command => command.includes('capture.mjs')))
-  assert.deepEqual(settings.sandbox.excludedCommands.filter(command => !command.startsWith(`${f.home}/.local/bin/`)), ['make release', '/bin/ps *'], 'user entries stay')
-  assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/pg-test *`))
-  assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/agent-stop *`), 'agents stop their own background processes')
-  for (const name of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']) {
-    assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/${name}`), name)
-  }
-  // Docker uses the socket in the sandbox.
-  assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.orbstack/run/docker.sock`, `${f.home}/.fly/fly-agent.sock`])
+  // capture.mjs goes, and no helper is excluded. The user entry stays.
+  assert.deepEqual(settings.sandbox.excludedCommands, ['make release'])
+  assert.deepEqual(settings.sandbox.network.allowUnixSockets, [`${f.home}/.fly/fly-agent.sock`])
   // Only servers in SANDBOX_SSH_STAGING skip the ask rules. A host name with "staging" alone does not.
   const asks = (servers, staging) => JSON.parse(spawnSync('bash', [script, '--emit'], { env: { ...f.env, SANDBOX_SSH_SERVERS: servers, SANDBOX_SSH_STAGING: staging }, encoding: 'utf8' }).stdout)
     .permissions.ask.filter(rule => !settings.permissions.ask.includes(rule))
@@ -137,15 +133,29 @@ test('the sandbox write roots for projects are the allowed roots of agent-stop',
   assert.ok(projects.includes('envest'))
 })
 
-test('the sandbox script keeps explicit stricter values and removes old bare-name exclusions', t => {
-  const old = ['pg-test *', 'pg18-fresh', 'agent-stop *', 'agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']
-  const f = fixture(t, { sandbox: { allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false, excludedCommands: ['make release', ...old] } })
-  const settings = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
+test('the sandbox script keeps explicit stricter values and user entries, and removes the entries that earlier versions wrote', t => {
+  const f = fixture(t, { sandbox: { allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false } })
+  const helpers = ['pg-test *', 'pg18-fresh', 'agent-stop *', 'agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep']
+  const old = JSON.parse(f.original)
+  old.sandbox.excludedCommands = ['make release', ...helpers, ...helpers.map(name => `${f.home}/.local/bin/${name}`), '/bin/ps *']
+  old.sandbox.network.allowUnixSockets = [`${f.home}/.orbstack/run/docker.sock`, '/x/user.sock']
+  old.sandbox.filesystem.denyWrite = ['**/.env']
+  fs.writeFileSync(f.real, JSON.stringify(old))
+  const emit = () => JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
+  const settings = emit()
   assert.equal(settings.sandbox.allowUnsandboxedCommands, false)
   assert.equal(settings.sandbox.autoAllowBashIfSandboxed, false)
-  assert.ok(!settings.sandbox.excludedCommands.some(command => old.includes(command)))
-  assert.ok(settings.sandbox.excludedCommands.includes('make release'))
-  assert.ok(settings.sandbox.excludedCommands.includes(`${f.home}/.local/bin/pg-test *`))
+  assert.deepEqual(settings.sandbox.excludedCommands, ['make release'])
+  assert.deepEqual(settings.sandbox.network.allowUnixSockets, ['/x/user.sock', `${f.home}/.fly/fly-agent.sock`])
+  // Helpers and shell startup files run outside the sandbox later, so sandboxed commands must not change them.
+  assert.deepEqual(settings.sandbox.filesystem.denyWrite, ['**/.env', ...['.local/bin', '.local/share/agent-toolkit', '.zshrc', '.zprofile', '.bashrc', '.bash_profile', '.profile'].map(name => `${f.home}/${name}`)])
+  // The user rule stays. A + refspec and --force-with-lease are also denied, also with git options and git by path.
+  for (const rule of ['Bash(git push -f*)', 'Bash(git push * +*)', 'Bash(git push +*)', 'Bash(git push *--force*)', 'Bash(git -* push *--force*)', 'Bash(*/git push * +*)']) {
+    assert.ok(settings.permissions.deny.includes(rule), rule)
+  }
+  assert.equal(settings.hooks, undefined, 'the script adds no hooks')
+  fs.writeFileSync(f.real, JSON.stringify(settings))
+  assert.deepEqual(emit(), settings, 'a second merge adds nothing')
   const preview = spawnSync('bash', [script, '--dry-run', '--no-update'], { env: f.env, encoding: 'utf8' })
   assert.equal(preview.status, 0, preview.stderr)
   assert.match(preview.stdout, /Keeping the existing sandbox\.allowUnsandboxedCommands = false\./)

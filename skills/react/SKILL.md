@@ -9,7 +9,9 @@ metadata:
 
 # Vercel React Best Practices
 
-Comprehensive performance optimization guide for React and Next.js applications, maintained by Vercel. Contains 70 rules across 8 categories, prioritized by impact to guide automated refactoring and code generation.
+Comprehensive performance optimization guide for React and Next.js applications, maintained by Vercel. Contains 69 rules across 8 categories, prioritized by impact to guide automated refactoring and code generation.
+
+Apply these rules only to code that you write or change. Use the `js-*` micro-optimization rules only on a measured hot path.
 
 ## When to Apply
 
@@ -127,7 +129,6 @@ Reference these guidelines when:
 - `advanced-effect-event-deps` - Don't put `useEffectEvent` results in effect deps
 - `advanced-event-handler-refs` - Use `useEffectEvent` for handlers in effects; refs on older React
 - `advanced-init-once` - Initialize app once per app load
-- `advanced-use-latest` - useLatest for stable callback refs
 
 ## How to Use
 

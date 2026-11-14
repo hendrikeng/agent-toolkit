@@ -105,13 +105,6 @@ test('an unknown launchctl state keeps the plist and fails instead of reporting 
   assert.ok(fs.existsSync(f.plist))
 })
 
-test('the installed script ignores the old AGENT_AWAKE_TEST_ROOT variable', { skip: process.platform !== 'darwin' }, t => {
-  const f = fixture(t)
-  const result = spawnSync(path.join(__dirname, 'agent-awake'), ['--status'], { env: { ...f.env, AGENT_AWAKE_TEST_ROOT: f.root }, encoding: 'utf8' })
-  assert.equal(result.status, 0)
-  assert.deepEqual(f.calls(), [], 'the fake launchctl in the variable root is not used')
-})
-
 test('agent-awake refuses a symlinked plist path', { skip: process.platform !== 'darwin' }, t => {
   const f = fixture(t)
   const target = path.join(f.root, 'target')

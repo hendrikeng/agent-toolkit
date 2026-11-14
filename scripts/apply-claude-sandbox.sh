@@ -67,9 +67,8 @@ merge() {
     | .sandbox |= (if has("autoAllowBashIfSandboxed") then . else .autoAllowBashIfSandboxed = true end)
     | .sandbox |= (if has("allowUnsandboxedCommands") then . else .allowUnsandboxedCommands = true end)
     | .sandbox.network.allowLocalBinding = true
-    # Docker works in the sandbox, also from scripts. The Docker daemon has full host access.
-    # Fly talks to its local agent through a socket. Needs probe verification.
-    | .sandbox.network.allowUnixSockets |= append([$home + "/.orbstack/run/docker.sock", $home + "/.fly/fly-agent.sock"])
+    # Fly talks to its local agent through a socket. Earlier versions also allowed the Docker socket, which gives full host access.
+    | .sandbox.network.allowUnixSockets |= ((. // []) - [$home + "/.orbstack/run/docker.sock"] | append([$home + "/.fly/fly-agent.sock"]))
     | .sandbox.network.allowedDomains |= append([
         "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
@@ -81,6 +80,9 @@ merge() {
         "fonts.googleapis.com", "fonts.gstatic.com", "cdn.playwright.dev", "playwright.download.prss.microsoft.com", "nodejs.org"])
     # Git uses HTTPS (the Git rule below). ssh runs outside the sandbox through the escape, so it still reads its keys.
     | .sandbox.filesystem.denyRead |= append([$home + "/.ssh"])
+    # Helpers and shell startup files run later outside the sandbox. This also holds if a broad allowWrite entry covers them.
+    | .sandbox.filesystem.denyWrite |= append([$home + "/.local/bin", $home + "/.local/share/agent-toolkit",
+        $home + "/.zshrc", $home + "/.zprofile", $home + "/.bashrc", $home + "/.bash_profile", $home + "/.profile"])
     # Orchestrators commit in worker worktrees, whose Git data is in the main checkouts.
     # The project roots must stay the same as the allowed roots in shared/agent-stop.pl. The test compares them.
     # ~/.fly and the pnpm cache (pnpm dlx) need probe verification.
@@ -88,21 +90,17 @@ merge() {
         $home + "/Library/Caches/pnpm", $home + "/.fly",
         $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung", $home + "/Code/envest"]
         + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
-    # An agent can change capture.mjs in its working directory and then run it outside the sandbox.
-    # Earlier versions wrote bare names, which match any binary with that name on PATH. The full-path forms below replace them.
-    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or IN("pg-test *", "pg18-fresh",
-        "agent-stop *", "agent-awake", "agent-sleep", "paseo-awake", "paseo-sleep")) | not)))
-    | .sandbox.excludedCommands |= append([
-        # PostgreSQL cannot create shared memory in the sandbox. Absolute paths: a bare name matches any pg-test on PATH.
-        $home + "/.local/bin/pg-test *", $home + "/.local/bin/pg18-fresh",
-        # The sandbox blocks signals to processes from earlier calls. The helper checks every target itself.
-        $home + "/.local/bin/agent-stop *",
-        # The sandbox blocks ~/Library/LaunchAgents and launchctl bootstrap. These run no arguments; they manage one fixed LaunchAgent.
-        $home + "/.local/bin/agent-awake", $home + "/.local/bin/agent-sleep",
-        $home + "/.local/bin/paseo-awake", $home + "/.local/bin/paseo-sleep",
-        # ps is setuid, so the sandbox blocks it. It reads process data and cannot run code.
-        "/bin/ps *"])
+    # Remove the exclusions that earlier versions wrote, in bare and full-path form. Excluded helpers ran outside the sandbox
+    # with an environment that the caller controls, for example NODE_OPTIONS and PATH. They now use the escape, where auto mode reviews the full call.
+    # An agent can also change capture.mjs in its working directory and then run it outside the sandbox. User entries stay.
+    | ([("pg-test *", "pg18-fresh", "agent-stop *", "agent-awake", "agent-sleep", "paseo-awake", "paseo-sleep") | ., $home + "/.local/bin/" + .]
+        + ["/bin/ps *"]) as $old
+    | .sandbox.excludedCommands = ((.sandbox.excludedCommands // []) | map(select((contains("capture.mjs") or IN($old[])) | not)))
+    # Rules match the command text. Each prefix covers plain git, git with options such as -C, and git by path.
+    | .permissions.deny |= append(["git push", "git -* push", "*/git push", "*/git -* push"]
+        | map("Bash(" + . + (" -f*", " * -f *", " *--force*", " +*", " * +*") + ")"))
     # Production servers ask before each ssh, scp, or rsync. Ask rules are only added, never removed.
+    # An ask rule wins over each allow rule, so a generic ssh ask rule would also prompt for staging.
     | .permissions.ask |= append(($staging | split(" ")) as $stage | $servers | split(" ") | map(select(. != "" and (. as $s | $stage | index([$s]) | not)))
         | map("Bash(ssh *\(.)*)", "Bash(scp *\(.)*)", "Bash(rsync *\(.)*)"))
   ' "$1"

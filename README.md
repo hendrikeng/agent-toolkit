@@ -106,7 +106,7 @@ Automatic reviews run only when the user requests a commit, push, PR, merge, or 
 - Review an unchanged bundle once. After an accepted review fix, run the affected checks and that review again.
 - `reviews:off` stops automatic reviews and `reviews:auto` restores them. Explicit reviews stay available. There are no Git review hooks.
 
-The reviewer matches the provider family of the requesting agent. Other families use Codex. Claude uses `/code-review medium` with `claude-opus-5-5`. Codex uses `codex exec review` with `gpt-6.1-sol` at medium reasoning.
+The reviewer matches the provider family of the requesting agent. Other families use Codex. Claude uses `/code-review medium` with `opus`, the newest Opus model. Codex uses `codex exec review` with `gpt-6.1-sol` at medium reasoning.
 The [code review commands](docs/code-review.md) give the exact commands, tool limits, and the pre-push secret scan. A review takes about 1-4 minutes.
 Native reviews replaced AutoReview on 2026-11-14 (8 of 14 known bugs found, against 1).
 
@@ -171,7 +171,7 @@ Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them
 
 Workers use the provider family and account alias of the Orchestrator unless the user requests another.
 A profile name does not set permissions, and native Plan mode is not a read-only sandbox. Verify effective settings in a fresh session.
-The [profile guide](docs/paseo-profiles.md) gives exact fields, manual steps, instruction text, and effort sources. The [canonical presets](shared/hosts/paseo-profiles.json) supply the values. The inspected host runs Paseo 0.10.3.
+The [profile guide](docs/paseo-profiles.md) gives the profile table, the steps to create and update profiles, and notes on effort and Fable. The [role instructions](shared/hosts/paseo-roles.md) give the text for each role. The [canonical presets](shared/hosts/paseo-profiles.json) supply the values. The inspected host runs Paseo 0.10.3.
 
 ### Paseo tool trust
 
@@ -188,14 +188,16 @@ Verify `running` status with `paseo plugin ls`. Disable it with `paseo plugin di
 
 ## Permissions and sandbox
 
-The Toolkit keeps existing provider and host permissions. It adds no workspace scope, credential denies, network allowlist, or Git guards. Approval prompts are not an OS sandbox.
+The installer keeps existing provider and host permissions. It adds no workspace scope, credential denies, or Git guards. Approval prompts are not an OS sandbox.
 The [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
 `scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a backup.
 A blocked command can be retried once outside the sandbox, with classifier review in auto mode. Production servers ask before `ssh`, `scp`, and `rsync`.
+The script also adds deny rules for force pushes and `denyWrite` entries for the helpers and shell startup files. No command is excluded from the sandbox, and Docker goes through the escape.
+It registers a `git push` hook. The hook runs `trufflehog` on the outgoing commits and blocks the push if it finds a secret. If `trufflehog` is missing, the hook warns and allows the push.
 
 ## Helper commands
 
-Agents call the helpers by full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. The sandbox exclusion matches only that form.
+Agents call the helpers by full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. The Claude sandbox blocks `pg-test start`, `agent-stop`, and `agent-awake`. The agent then retries the call with the reviewed escape.
 
 ### Keep the Mac awake
 
@@ -225,7 +227,7 @@ Do not add `agent-heavy` to `excludedCommands`, because it runs any command.
 
 ### Stop background processes
 
-The Claude sandbox blocks signals to processes from earlier calls. Use `agent-stop <pid>` or `agent-stop --port <port>`. See [the sandbox guide](docs/claude-sandbox.md#stop-background-processes).
+The Claude sandbox blocks signals to processes from earlier calls. Use `agent-stop <pid>` or `agent-stop --port <port>` through the escape. See [the sandbox guide](docs/claude-sandbox.md#stop-background-processes).
 
 ### Disposable PostgreSQL
 

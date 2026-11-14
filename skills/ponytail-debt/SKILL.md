@@ -1,9 +1,11 @@
 ---
 name: ponytail-debt
 description: >
+  Invoke only when the user explicitly requests it.
   List every `shortcut:` comment (and older `ponytail:` ones) as a debt ledger. One-shot report,
   changes nothing. Use for "ponytail debt", "what did ponytail defer", "list the
   shortcuts", /ponytail-debt.
+disable-model-invocation: true
 ---
 
 Every deliberate ponytail shortcut is marked with a `shortcut:` comment naming
