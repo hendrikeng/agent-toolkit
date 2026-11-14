@@ -183,7 +183,24 @@ It approves only these Paseo MCP tools, for Codex and Claude:
 - `create_workspace` and `rename_workspace`.
 
 For Claude, it also approves `create_agent`, `update_agent`, and `set_agent_mode` when the call names a safe mode. No mode, `bypassPermissions`, `full-access`, or an unknown mode gets a prompt. For Codex, these three tools always prompt.
+For Claude, it also approves `Edit`, `Write`, and `MultiEdit` on a Markdown auto-memory note of the agent's own project: `<root>/projects/<project>/memory/<note>.md`.
+`<root>` is `~/.claude` or `~/.paseo/zerosub/homes/<home>`. `<project>` is the Claude Code name for the agent working directory, for example `-Users-me-Code-app` for `/Users/me/Code/app`.
+For an agent in a Paseo worktree, `<project>` can also be the name for the project root in the Paseo project registry. Claude Code keeps worktree memory under the main checkout.
+The agent must be in a mode that allows edits, not plan mode. The path must contain no symlink, except a Paseo home `projects` link to `~/.claude/projects`.
+An existing note must be a regular file with one link.
 All other tools and approvals stay unchanged, including `send_agent_prompt`, terminal and browser tools, `kill_agent`, and `archive_workspace`.
+
+The plugin logs each request that it does not approve to `~/.local/share/agent-toolkit/permission-log.jsonl`. It sets the log to mode 0600 and its directory to mode 0700.
+Each line has the time, agent ID, provider, tool name, kind, and a short summary.
+For file tools, the summary is the directory and the file extension, for example `/repo/src/*.ts`, never the file name. For shell commands, it is the program name, plus the subcommand for known tools such as `git push` or `npx playwright`. A command that starts with a quoted assignment is logged as `(unparsed)`.
+MCP tools have no summary. The log does not contain command arguments, file contents, or edit strings.
+When the log is larger than 1 MB, the plugin moves it to `permission-log.1.jsonl` and starts a new log.
+To count the prompts by tool and by directory or command name, use this command:
+
+```bash
+jq -r '"\(.tool)\t\(.summary // "-" | split(" ")[0] | sub("/[^/]*$"; "/*"))"' ~/.local/share/agent-toolkit/permission-log.jsonl | sort | uniq -c | sort -rn | head -20
+```
+
 Verify `running` status with `paseo plugin ls`. Disable it with `paseo plugin disable agent-toolkit-paseo-tool-trust`.
 
 ## Permissions and sandbox
