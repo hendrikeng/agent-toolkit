@@ -192,7 +192,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
-    "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+    "notes": "Default primary session. Owns scope, delegation, integration, checks, and cleanup. Does small tasks directly."
   },
   {
     "name": "Toolkit Med - Claude Orchestrator",
@@ -201,7 +201,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use as the primary delivery coordinator. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+    "notes": "Default primary session. Owns scope, delegation, integration, checks, and cleanup. Does small tasks directly."
   },
   {
     "name": "Toolkit High - Codex Orchestrator",
@@ -210,7 +210,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "high",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
-    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Own scope, useful delegation, integration, check evidence, handoffs, and cleanup. Complete small tasks directly. Put the actual assignment and authorization in the task prompt."
+    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. Owns scope, delegation, integration, checks, and cleanup."
   },
   {
     "name": "Toolkit High - Claude Fable Orchestrator",
@@ -219,7 +219,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "high",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use as the primary delivery coordinator for hard work, such as difficult integration, migrations, concurrency, or security-sensitive changes. Fable costs more per token than Opus. Delegate bounded implementation to Medium Workers with compact briefs. Keep scope, integration judgment, and verification. Do lookups and small edits directly. Do not start an agent for work smaller than its brief. Put the actual assignment and authorization in the task prompt."
+    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. Fable costs two times more per token than Opus. Delegates bounded work to Medium Opus Workers with short briefs. Sets native subagents to Opus. Does lookups and small edits directly."
   },
   {
     "name": "Toolkit High - Codex Planner",
@@ -228,7 +228,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "high",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": true },
-    "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving Implement for a planning-only assignment."
+    "notes": "Plans substantial work before implementation. Defines scope, dependencies, risks, and acceptance criteria. Asks only necessary questions. Does not implement."
   },
   {
     "name": "Toolkit High - Claude Fable Planner",
@@ -237,7 +237,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "high",
     "modeId": "plan",
     "featureValues": { "fast_mode": false },
-    "notes": "Use for a substantial implementation proposal before authorization. Read the code, resolve choices, and define scope, dependencies, risks, and acceptance criteria. Ask only necessary unresolved questions. Collect the plan without approving implementation for a planning-only assignment."
+    "notes": "Plans substantial work before implementation. Defines scope, dependencies, risks, and acceptance criteria. Asks only necessary questions. Does not implement."
   },
   {
     "name": "Toolkit Med - Codex Worker",
@@ -246,7 +246,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
-    "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
+    "notes": "Implements authorized, bounded work. Needs edit ownership and acceptance criteria. Returns changes, check results, and blockers. Does not delegate or publish unless authorized."
   },
   {
     "name": "Toolkit Med - Claude Worker",
@@ -255,7 +255,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use for authorized, bounded implementation, debugging, or verification. Require explicit edit ownership and observable acceptance criteria. Return changes, focused check evidence, and blockers. Do not delegate or publish without authorization in the task prompt."
+    "notes": "Implements authorized, bounded work. Needs edit ownership and acceptance criteria. Returns changes, check results, and blockers. Does not delegate or publish unless authorized."
   },
   {
     "name": "Toolkit Med - Codex UI Worker",
@@ -264,7 +264,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
-    "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
+    "notes": "Worker for frontend: components, layout, styling, accessibility, and responsive behavior. Reuses the existing design system. Verifies in a browser, or reports that it could not."
   },
   {
     "name": "Toolkit Med - Claude UI Worker",
@@ -273,7 +273,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use for authorized frontend implementation: components, layout, styling, responsive behavior, accessibility, and interaction states. Reuse the existing framework and design system. Require assigned files, observable acceptance criteria, and visual verification when browser access is available. Report missing browser verification explicitly."
+    "notes": "Worker for frontend: components, layout, styling, accessibility, and responsive behavior. Reuses the existing design system. Verifies in a browser, or reports that it could not."
   },
   {
     "name": "Toolkit Med - Codex Adviser",
@@ -282,7 +282,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto-review",
     "featureValues": { "plan_mode": false },
-    "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
+    "notes": "Gives a recommendation or second opinion on a bounded question, with evidence and uncertainty. Analysis only: no edits, delegation, or publishing."
   },
   {
     "name": "Toolkit Med - Claude Adviser",
@@ -291,7 +291,7 @@ Keep Planner planning controls as specified.
     "thinkingOptionId": "medium",
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
-    "notes": "Use for a completed recommendation or second opinion on a bounded question. Require an analysis-only assignment with evidence, alternatives, and uncertainty. Do not edit, approve implementation, delegate, or publish."
+    "notes": "Gives a recommendation or second opinion on a bounded question, with evidence and uncertainty. Analysis only: no edits, delegation, or publishing."
   }
 ]
 ```
@@ -668,7 +668,7 @@ Compare correctness, corrections, elapsed time, and actual usage on representati
 OpenAI documents Medium as Sol's API default.
 Anthropic recommends explicit Medium as the Opus 5.5 calibration starting point.
 Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. The Claude High Orchestrator and Planner use Fable 5.2 at High, because Anthropic names Fable as a planner and orchestrator for other models.
-All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily, so its notes limit delegation to bounded work with compact briefs.
+All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily. Its notes and the Orchestrator role limit delegation to bounded work, and its workers and subagents use Opus.
 Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
 API defaults do not prove effective Paseo launch settings.
 Effort labels do not represent equal reasoning budgets across providers or models.

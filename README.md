@@ -310,7 +310,7 @@ High targets harder work where verification and edge cases matter. Effort labels
 Sonnet 5.5 is an optional Worker choice after task-level comparison, without adding another profile.
 Astra remains an optional task-specific choice rather than the Codex Adviser default.
 Fable 5.2 costs two times more per token than Opus 5.5. Cache reads cost the same. The Claude High Orchestrator and Planner use Fable 5.2 at High, because Anthropic names Fable as a planner and orchestrator for other models.
-All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily, so its notes limit delegation to bounded work with compact briefs.
+All other Claude profiles use Opus 5.5 at Medium. Fable delegates readily. Its notes and the Orchestrator role limit delegation to bounded work, and its workers and subagents use Opus.
 Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you no longer use them.
 See [Claude model and effort guidance](https://code.claude.com/docs/en/model-config), [Opus 5.5 calibration](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5), and [Fable 5.2 guidance](https://platform.claude.com/docs/en/models/fable-5-2/overview.md).
 
