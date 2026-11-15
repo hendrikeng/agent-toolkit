@@ -50,8 +50,19 @@ function codexNetworkConfig(text) {
   return result
 }
 
-function claudeReviewNetworkConfig(text) {
-  const jsonc = require('jsonc-parser'), settings = parseJsonc(text)
+// Secret .env files, anywhere on disk: `//` anchors at the filesystem root, a bare `**/` only below the session's directory.
+// Example files such as .env.example stay readable. Read rules also stop Claude's other file tools; Edit also covers NotebookEdit.
+const envFiles = ['.env', '.env.local', '.env.*.local', '.env.development', '.env.production', '.env.staging', '.env.test', '.env.preview']
+const envDenyRules = ['Read', 'Edit'].flatMap(tool => envFiles.map(file => `${tool}(//**/${file})`))
+  // The local Toolkit config is trusted by agent-stop and the sandbox script, so agents must not edit it.
+  .concat(['Edit(~/.config/agent-toolkit/**)'])
+
+function claudeSettingsConfig(text) {
+  const jsonc = require('jsonc-parser'), formattingOptions = { insertSpaces: true, tabSize: 2 }
+  const deny = parseJsonc(text).permissions?.deny ?? []
+  // Append missing rules only: user rules stay in place.
+  if (envDenyRules.some(rule => !deny.includes(rule))) text = jsonc.applyEdits(text, jsonc.modify(text, ['permissions', 'deny'], [...deny, ...envDenyRules.filter(rule => !deny.includes(rule))], { formattingOptions }))
+  const settings = parseJsonc(text)
   // scripts/apply-claude-sandbox.sh alone turns the sandbox on. Without a sandbox object, Claude has no network allowlist to extend.
   if (typeof settings.sandbox !== 'object' || settings.sandbox === null) return text
   const domains = ['api.anthropic.com']
@@ -67,7 +78,7 @@ function claudeReviewNetworkConfig(text) {
     if (domains.some(domain => match.test(domain))) throw Error(`Claude reviewer domain is explicitly denied by ${pattern}; reconcile it in your trusted terminal.`)
   }
   const allowed = [...new Set([...(settings.sandbox.network?.allowedDomains ?? []), ...domains])]
-  return jsonc.applyEdits(text, jsonc.modify(text, ['sandbox', 'network', 'allowedDomains'], allowed, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
+  return jsonc.applyEdits(text, jsonc.modify(text, ['sandbox', 'network', 'allowedDomains'], allowed, { formattingOptions }))
 }
 
 function treeHash(root) {
@@ -151,7 +162,7 @@ function planInstall(options) {
   if (options.reviewNetwork) {
     for (const [file, configure, empty] of [
       [path.join(codexHome, 'config.toml'), codexNetworkConfig, ''],
-      [path.join(claudeDir, 'settings.json'), claudeReviewNetworkConfig, '{}\n'],
+      [path.join(claudeDir, 'settings.json'), claudeSettingsConfig, '{}\n'],
     ]) {
       if (exists(file)?.isSymbolicLink()) refuse(file)
       const text = exists(file) ? read(file) : empty, next = configure(text)
@@ -170,7 +181,7 @@ function planInstall(options) {
     link(path.join(home, '.agents/skills', name), path.join(resources, 'skills', name))
     link(path.join(claudeDir, 'skills', name), path.join(resources, 'skills', name))
   }
-  for (const [command, filename] of [['pg-test', 'shared/postgres/pg-test.cjs'], ['pg18-fresh', 'shared/postgres/pg18-fresh.cjs'], ['paseo-service', 'shared/paseo-service.cjs'], ['agent-heavy', 'shared/agent-heavy.pl'], ['agent-stop', 'shared/agent-stop.pl']]) {
+  for (const [command, filename] of [['pg-test', 'shared/postgres/pg-test.cjs'], ['paseo-service', 'shared/paseo-service.cjs'], ['agent-heavy', 'shared/agent-heavy.pl'], ['agent-stop', 'shared/agent-stop.pl']]) {
     link(path.join(home, '.local/bin', command), path.join(resources, filename))
   }
   if (process.platform === 'darwin') for (const command of ['agent-awake', 'agent-sleep', 'paseo-awake', 'paseo-sleep', 'agent-display-off']) {
@@ -229,7 +240,7 @@ function install(plan) {
     fs.copyFileSync(path.join(repo, 'shared/AGENTS.md'), path.join(stage, 'shared/AGENTS.md'))
     for (const file of ['shared/paseo-service.cjs', 'shared/agent-heavy.pl', 'shared/agent-stop.pl']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     fs.mkdirSync(path.join(stage, 'docs'), { recursive: true })
-    for (const file of ['docs/paseo-worktrees.md', 'docs/claude-sandbox.md', 'docs/code-review.md', 'shared/sandbox-probe.sh']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
+    for (const file of ['docs/paseo-worktrees.md', 'docs/claude-sandbox.md', 'docs/code-review.md', 'shared/sandbox-probe.sh', 'shared/local-config.sh']) fs.copyFileSync(path.join(repo, file), path.join(stage, file))
     treeHash(stage) // Reject source symlinks before changing an installed resource.
     // Re-read after staging: preserve edits made since planning.
     plan = planInstall(plan.options)
@@ -314,6 +325,6 @@ if (require.main === module) {
     execFileSync('npm', ['ci', '--prefix', __dirname, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
     const plan = planInstall({ repo, home, reviewNetwork: !args.includes('--preserve-permissions'), codexHome: process.env.CODEX_HOME, claudeDir: process.env.CLAUDE_CONFIG_DIR, paseoHome: process.env.PASEO_HOME })
     const backup = install(plan)
-    console.log(`Installed copied resources.${exists(backup) ? ` Backups: ${backup}` : ''}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; reviewer model domains added to an existing Claude sandbox allowlist. Original provider configs were backed up before any change.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
+    console.log(`Installed copied resources.${exists(backup) ? ` Backups: ${backup}` : ''}\n${plan.options.reviewNetwork ? 'Codex workspace network access and automatic approval review enabled; Claude deny rules for secret .env files added; reviewer model domains added to an existing Claude sandbox allowlist. Original provider configs were backed up before any change.' : 'Provider permissions were not changed.'}\nStart fresh sessions with your normal provider commands. Paseo settings were not changed.`)
   } catch (error) { console.error(error.message); process.exitCode = 1 }
 }

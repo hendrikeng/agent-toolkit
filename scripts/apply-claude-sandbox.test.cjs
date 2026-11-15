@@ -11,7 +11,7 @@ const terminal = { skip: process.platform !== 'darwin' ? 'macOS only' : !pty && 
 
 // A copy of the live layout: settings.json is a link to the real file, as in the Paseo homes.
 // A fake getconf returns darwinTmp: the real macOS temporary directory may contain this fixture, and apply refuses that.
-function fixture(t, { darwinTmp = '/var/folders/zz/agent-toolkit-test/T/', sandbox = {} } = {}) {
+function fixture(t, { darwinTmp = '/var/folders/zz/agent-toolkit-test/T/', sandbox = {}, config } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'tmp.')))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), real = path.join(home, '.claude/settings.json'), paseo = path.join(home, '.paseo/claude-x')
@@ -19,10 +19,14 @@ function fixture(t, { darwinTmp = '/var/folders/zz/agent-toolkit-test/T/', sandb
   fs.writeFileSync(path.join(root, 'bin/getconf'), `#!/bin/sh\nprintf '%s\\n' '${darwinTmp.replace('{home}', home)}'\n`, { mode: 0o755 })
   fs.mkdirSync(path.dirname(real), { recursive: true })
   fs.mkdirSync(paseo, { recursive: true })
+  if (config) {
+    fs.mkdirSync(path.join(home, '.config/agent-toolkit'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.config/agent-toolkit/local.env'), config)
+  }
   const original = JSON.stringify({
     model: 'fable', env: { KEEP: '1' }, permissions: { deny: ['Bash(git push -f*)'], ask: ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)'] }, skipDangerousModePermissionPrompt: true,
     sandbox: { enabled: false, network: { allowedDomains: ['example.org', 'api.openai.com'] }, filesystem: { allowWrite: [] },
-      excludedCommands: ['node /x/tracn-capture/capture.mjs *', 'make release'], ...sandbox },
+      excludedCommands: ['node /x/app-capture/capture.mjs *', 'make release'], ...sandbox },
   }, null, 2) + '\n'
   fs.writeFileSync(real, original, { mode: 0o600 })
   fs.symlinkSync(real, path.join(paseo, 'settings.json'))
@@ -38,7 +42,9 @@ function fixture(t, { darwinTmp = '/var/folders/zz/agent-toolkit-test/T/', sandb
 }
 
 test('the sandbox script previews, merges without dropping settings, repeats cleanly, turns off, and restores', terminal, t => {
-  const f = fixture(t)
+  // The local config file supplies the personal values. It is data: a command in it must not run.
+  const f = fixture(t, { config: ['# servers', 'SANDBOX_SSH_SERVERS="ops@prod.example.com ops@staging.example.com"', "SANDBOX_SSH_STAGING='ops@staging.example.com'",
+    'SANDBOX_EXTRA_DOMAINS=*.example.app', 'TOOLKIT_PROJECT_ROOTS="~/Code/paseo-worktrees /x/$(touch${IFS}$HOME/pwned)"', ''].join('\n') })
   const preview = f.run('--dry-run')
   assert.equal(preview.status, 0, preview.stdout)
   assert.match(preview.stdout, /"enabled": true/)
@@ -54,7 +60,7 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.deepEqual(settings.permissions.deny.filter(rule => rule === 'Bash(git push -f*)'), ['Bash(git push -f*)'])
   assert.equal(settings.permissions.deny[0], 'Bash(git push -f*)')
   // Ask rules are only added: existing rules stay, production servers ask, staging uses the reviewed escape.
-  assert.deepEqual(settings.permissions.ask, ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)', ...['agawulum@sl90.web.hostpoint.ch', 'bonzanib@sl662.web.hostpoint.ch', 'wfw-prod@wfw.ch']
+  assert.deepEqual(settings.permissions.ask, ['Bash(npm publish *)', 'Bash(ssh *old@prod.example*)', ...['ops@prod.example.com']
     .flatMap(server => ['ssh', 'scp', 'rsync'].map(command => `Bash(${command} *${server}*)`))])
   assert.equal(settings.skipDangerousModePermissionPrompt, true)
   assert.deepEqual(settings.env, { KEEP: '1', SSL_CERT_FILE: '/etc/ssl/cert.pem' })
@@ -64,6 +70,9 @@ test('the sandbox script previews, merges without dropping settings, repeats cle
   assert.deepEqual(settings.sandbox.filesystem.denyRead, [`${f.home}/.ssh`])
   assert.deepEqual(settings.sandbox.network.allowedDomains.slice(0, 3), ['example.org', 'api.openai.com', 'github.com'])
   assert.equal(settings.sandbox.network.allowedDomains.filter(domain => domain === 'api.openai.com').length, 1)
+  assert.equal(settings.sandbox.network.allowedDomains.at(-1), '*.example.app')
+  assert.ok(settings.sandbox.filesystem.allowWrite.includes('/x/$(touch${IFS}$HOME/pwned)'), 'the config value stays text')
+  assert.equal(fs.existsSync(path.join(f.home, 'pwned')), false)
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Library/pnpm/store`))
   assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Code/paseo-worktrees`), 'orchestrators write in worker worktrees')
   assert.ok(settings.sandbox.filesystem.allowWrite.some(dir => dir.startsWith('/var/folders/')), 'plain mktemp -d uses the macOS temporary directory')
@@ -123,14 +132,47 @@ test('the sandbox script refuses changes without a terminal and refuses invalid 
   assert.equal(fs.readdirSync(path.dirname(f.real)).filter(name => name.includes('before-sandbox')).length, 0)
 })
 
-test('the sandbox write roots for projects are the allowed roots of agent-stop', { skip: process.platform !== 'darwin' }, t => {
+test('the sandbox write roots for projects and agent-stop use the same config key and default', t => {
   const f = fixture(t)
   const settings = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout)
-  const projects = settings.sandbox.filesystem.allowWrite.filter(dir => dir.startsWith(`${f.home}/Code/`)).map(dir => dir.slice(`${f.home}/Code/`.length))
-  const stop = fs.readFileSync(path.join(__dirname, '../shared/agent-stop.pl'), 'utf8').match(/"\$home\/Code\/\$_" \} qw\(([^)]*)\)/)
-  assert.ok(stop, 'agent-stop defines its project roots with qw()')
-  assert.deepEqual(projects.sort(), stop[1].split(/\s+/).sort())
-  assert.ok(projects.includes('envest'))
+  assert.ok(settings.sandbox.filesystem.allowWrite.includes(`${f.home}/Code`), 'default project root')
+  assert.deepEqual(settings.permissions.ask, JSON.parse(f.original).permissions.ask, 'no servers by default')
+})
+
+test('the Bash and Perl config readers return the same project roots, and agent-stop ignores an unsafe file', t => {
+  const f = fixture(t)
+  const home = os.userInfo().homedir // agent-stop takes the home folder from the user database.
+  const config = path.join(f.home, '.config/agent-toolkit/local.env')
+  fs.mkdirSync(path.dirname(config), { recursive: true, mode: 0o700 })
+  fs.writeFileSync(config, ['# TOOLKIT_PROJECT_ROOTS=/comment', '  TOOLKIT_PROJECT_ROOTS =/spaced-key',
+    `  TOOLKIT_PROJECT_ROOTS= " ~/a /abs/ rel ~ / ~/ /x/../y /g* ~/b// "  \r`, 'TOOLKIT_PROJECT_ROOTS=/second', ''].join('\n'), { mode: 0o600 })
+  const bash = () => spawnSync('bash', ['-c', 'source "$1"; toolkit_project_roots "$2" "$3"', '_', path.join(__dirname, '../shared/local-config.sh'), config, home], { encoding: 'utf8' })
+  const perl = () => spawnSync(path.join(__dirname, '../shared/agent-stop.pl'), ['--print-roots', config], { encoding: 'utf8' })
+  const warning = `Ignoring invalid project roots in ${config}: rel ~ / ~/ /x/../y /g*\n`
+  for (const reader of [bash(), perl()]) {
+    assert.equal(reader.stdout, `${home}/a\n/abs\n${home}/b\n`)
+    assert.equal(reader.stderr, warning)
+  }
+  // The roots come only from the file, also for the sandbox settings.
+  const emitted = JSON.parse(spawnSync('bash', [script, '--emit'], { env: { ...f.env, TOOLKIT_PROJECT_ROOTS: '/from-env' }, encoding: 'utf8' }).stdout)
+  assert.ok(!emitted.sandbox.filesystem.allowWrite.includes('/from-env'))
+  assert.ok(emitted.sandbox.filesystem.allowWrite.includes('/abs'))
+  // Another user could write the file, so agent-stop falls back to the default roots.
+  fs.chmodSync(config, 0o620)
+  const unsafe = perl()
+  assert.equal(unsafe.stdout, `${home}/Code\n`)
+  assert.match(unsafe.stderr, /ignoring .*local\.env: it must be a regular file of this user/)
+})
+
+test('the configured project roots replace the earlier generated roots and keep other user entries', t => {
+  const f = fixture(t, { config: 'TOOLKIT_PROJECT_ROOTS=~/Code/new\n' })
+  const old = JSON.parse(f.original)
+  old.sandbox.filesystem.allowWrite = [`${f.home}/Code`, `${f.home}/Code/old`, '/user/dir', `${f.home}/Codex`]
+  fs.writeFileSync(f.real, JSON.stringify(old))
+  const allowWrite = JSON.parse(spawnSync('bash', [script, '--emit'], { env: f.env, encoding: 'utf8' }).stdout).sandbox.filesystem.allowWrite
+  assert.deepEqual(allowWrite.slice(0, 2), ['/user/dir', `${f.home}/Codex`])
+  assert.ok(allowWrite.includes(`${f.home}/Code/new`))
+  assert.ok(!allowWrite.includes(`${f.home}/Code`) && !allowWrite.includes(`${f.home}/Code/old`))
 })
 
 test('the sandbox script keeps explicit stricter values and user entries, and removes the entries that earlier versions wrote', t => {

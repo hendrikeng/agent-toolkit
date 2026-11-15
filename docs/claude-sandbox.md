@@ -1,6 +1,6 @@
 # Claude sandbox for agent work
 
-This guide gives an optional Claude Code sandbox configuration for Toolkit and TRACN work on macOS.
+This guide gives an optional Claude Code sandbox configuration for Toolkit and project work on macOS.
 The Toolkit default is the sandbox off and sessions in auto mode. See [Permissions and sandbox](../README.md#permissions-and-sandbox).
 With the sandbox on, Chromium, Railway SSH, Neo4j Bolt, and other non-HTTP database drivers need the escape for each call.
 The sandbox is enforced by the operating system. It applies in `bypassPermissions` mode and to all child processes, including Python and Node scripts.
@@ -22,7 +22,7 @@ With `allowUnsandboxedCommands: false`, every blocked command fails, also `pg-te
 Run this command once from a trusted human terminal:
 
 ```sh
-cd ~/Code/wewereyoung/agent-toolkit && git pull --ff-only && scripts/apply-claude-sandbox.sh
+cd ~/agent-toolkit && git pull --ff-only && scripts/apply-claude-sandbox.sh
 ```
 
 The script backs up `settings.json` with a timestamp and runs `./update.sh`.
@@ -35,7 +35,7 @@ Before you apply, you can test the settings in one new sandboxed Claude run. Thi
 Run it from a terminal or a session without the sandbox. The working directory is an orchestrator checkout:
 
 ```sh
-cd ~/Code/tracn/tracn-product && claude -p --permission-mode bypassPermissions --setting-sources project,local --settings "$(~/Code/wewereyoung/agent-toolkit/scripts/apply-claude-sandbox.sh --emit)" 'Run this as one Bash call and print its output: bash ~/Code/wewereyoung/agent-toolkit/shared/sandbox-probe.sh'
+cd ~/Code/app && claude -p --permission-mode bypassPermissions --setting-sources project,local --settings "$(~/agent-toolkit/scripts/apply-claude-sandbox.sh --emit)" 'Run this as one Bash call and print its output: bash ~/agent-toolkit/shared/sandbox-probe.sh'
 ```
 
 `--setting-sources project,local` skips the live user settings file. The emitted settings replace it, so removed values stay removed.
@@ -67,7 +67,7 @@ Start fresh sessions after each change.
 All Paseo Claude homes link their `settings.json` to `~/.claude/settings.json`. The script changes the real file.
 Merge the keys into the existing file.
 The script removes the `excludedCommands` entries that earlier versions wrote, in the bare and the full-path form.
-These are `pg-test *`, `pg18-fresh`, `agent-stop *`, `agent-awake`, `agent-sleep`, `paseo-awake`, `paseo-sleep`, and `/bin/ps *`.
+These are `pg-test *`, `pg18-fresh` (a removed helper), `agent-stop *`, `agent-awake`, `agent-sleep`, `paseo-awake`, `paseo-sleep`, and `/bin/ps *`.
 It also removes the `capture.mjs` entry. An agent can change that file in its working directory and then run it outside the sandbox.
 It removes the OrbStack Docker socket from `allowUnixSockets`.
 If `settings.json` resolves to a path inside a root in `allowWrite`, the script stops and changes nothing. The sandbox must not be able to change its own settings.
@@ -86,29 +86,30 @@ The script keeps other entries that you added.
     "allowUnsandboxedCommands": true,
     "network": {
       "allowLocalBinding": true,
-      "allowUnixSockets": ["/Users/hendrik/.fly/fly-agent.sock"],
+      "allowUnixSockets": ["/Users/<name>/.fly/fly-agent.sock"],
       "allowedDomains": [
         "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
         "app.infisical.com", "backboard.railway.com", "*.neon.tech", "console.neo4j.io", "*.databases.neo4j.io",
         "*.redislabs.com", "*.redis-cloud.com", "api.stripe.com", "*.ubicloud.com", "api.cloudflare.com",
-        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com",
+        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com",
         "release-assets.githubusercontent.com", "*.supabase.co", "api.supabase.com",
-        "app.envest.vc", "*.fly.dev", "api.fly.io", "api.machines.dev", "registry.fly.io", "api.vercel.com", "vercel.com",
+        "*.fly.dev", "api.fly.io", "api.machines.dev", "registry.fly.io", "api.vercel.com", "vercel.com",
         "fonts.googleapis.com", "fonts.gstatic.com", "cdn.playwright.dev", "playwright.download.prss.microsoft.com", "nodejs.org"
+        // Then each entry of SANDBOX_EXTRA_DOMAINS.
       ]
     },
     "filesystem": {
-      "denyRead": ["/Users/hendrik/.ssh"],
+      "denyRead": ["/Users/<name>/.ssh"],
       "denyWrite": [
-        "/Users/hendrik/.local/bin", "/Users/hendrik/.local/share/agent-toolkit",
-        "/Users/hendrik/.zshrc", "/Users/hendrik/.zprofile", "/Users/hendrik/.bashrc", "/Users/hendrik/.bash_profile", "/Users/hendrik/.profile"
+        "/Users/<name>/.local/bin", "/Users/<name>/.local/share/agent-toolkit",
+        "/Users/<name>/.zshrc", "/Users/<name>/.zprofile", "/Users/<name>/.bashrc", "/Users/<name>/.bash_profile", "/Users/<name>/.profile"
       ],
       "allowWrite": [
-        "/Users/hendrik/.npm", "/Users/hendrik/.cache/uv", "/Users/hendrik/Library/pnpm/store",
-        "/Users/hendrik/Library/Caches/pnpm", "/Users/hendrik/.fly",
-        "/Users/hendrik/Code/paseo-worktrees", "/Users/hendrik/Code/tracn", "/Users/hendrik/Code/wewereyoung", "/Users/hendrik/Code/envest",
-        "/var/folders/ng/983309q54vq0fpqdhbblh4c40000gn/T"
+        "/Users/<name>/.npm", "/Users/<name>/.cache/uv", "/Users/<name>/Library/pnpm/store",
+        "/Users/<name>/Library/Caches/pnpm", "/Users/<name>/.fly",
+        // Then each entry of TOOLKIT_PROJECT_ROOTS, default "/Users/<name>/Code". These replace earlier entries at or below ~/Code.
+        "/var/folders/<id>/T"
       ]
     }
   },
@@ -118,8 +119,8 @@ The script keeps other entries that you added.
       // The same five rules for the prefixes "git -* push", "*/git push", and "*/git -* push".
     ],
     "ask": [
-      "Bash(ssh *agawulum@sl90.web.hostpoint.ch*)", "Bash(scp *agawulum@sl90.web.hostpoint.ch*)", "Bash(rsync *agawulum@sl90.web.hostpoint.ch*)"
-      // The same three rules for bonzanib@sl662.web.hostpoint.ch and wfw-prod@wfw.ch. Staging servers get no rule.
+      "Bash(ssh *ops@prod.example.com*)", "Bash(scp *ops@prod.example.com*)", "Bash(rsync *ops@prod.example.com*)"
+      // The same three rules for each other production server in SANDBOX_SSH_SERVERS. Staging servers get no rule.
     ]
   }
 }
@@ -142,18 +143,18 @@ Existing SSH remote URLs stay unchanged. The keychain credential helper supplies
 | No `CLAUDE_CODE_TMPDIR` | In the `env` settings, this value changes `TMPDIR` but not the sandbox write rule. The sandbox still allows only `/tmp/claude-501`, so every temporary file failed, including shell heredocs. Claude also failed to write its `cwd-…` file after each call, so commands reported false exit codes. Do not set it. |
 | Git `insteadOf` | On macOS, Git over SSH cannot pass the sandbox proxy. Git over HTTPS worked for fetch and push, including private repositories. |
 | `allowWrite` | npm and uv failed to write their caches in `~/.npm` and `~/.cache/uv`. pnpm moved its store into `$TMPDIR`, which loses the shared store. Only the store is writable, not the global `pnpm` commands. |
-| `allowWrite` for `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest` | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. The envest worktrees use `~/Code/envest/envest-app/.git`, and the envest backups are also in `~/Code/envest`. `agent-stop` uses the same project roots. A test fails if the two lists are different. |
+| `allowWrite` for the project roots (`TOOLKIT_PROJECT_ROOTS`, default `~/Code`) | An orchestrator commits, merges, and pushes in the worktrees of its workers. A commit in a worktree also writes the Git directory of the main checkout. Without these entries, both fail. Include the Paseo worktree root and each main checkout. `agent-stop` reads the same project roots from the same file. |
 | `allowWrite` for `~/.fly` and `~/Library/Caches/pnpm`, `allowUnixSockets` for `~/.fly/fly-agent.sock` | `fly` writes its configuration and talks to its local agent through this socket. `pnpm dlx` writes its cache in `~/Library/Caches/pnpm`. These entries need probe verification. `fly deploy` can also need WireGuard, which the sandbox can block. The Fly agent cannot run host commands, but sandboxed code can use its WireGuard tunnels into Fly private networks. The sandbox can also read the Fly token in `~/.fly/config.yml`. |
 | `allowWrite` for the macOS temporary directory | macOS `mktemp -d` without a template ignores `TMPDIR` and uses `getconf DARWIN_USER_TEMP_DIR`. Repository scripts use it. The script reads the path on your Mac. |
 | `allowUnsandboxedCommands: true` | A blocked command can be retried once outside the sandbox with `dangerouslyDisableSandbox`. The normal permission flow reviews the retry. In auto mode, the classifier reviews it. With `false`, each blocked command failed. See [The escape](#the-escape). |
 | `autoAllowBashIfSandboxed: true` | Sandboxed commands run without a prompt. If the key is absent, the script sets it, because its default can change in newer Claude Code versions. |
 | `denyWrite` for `~/.local/bin`, `~/.local/share/agent-toolkit`, and the shell startup files | Helpers and shell startup files run later outside the sandbox. A sandboxed command must not change them. These paths are not in `allowWrite`, so the sandbox already blocks them. The deny entries keep them blocked if a broad `allowWrite` entry is added later. |
 | `denyRead` for `~/.ssh` (absolute path) | Sandboxed commands cannot read SSH keys. Git uses HTTPS through the Git rule, so it does not need them. `ssh` runs outside the sandbox through the escape, so it still reads its keys. |
-| No `excludedCommands` | An excluded command runs outside the sandbox with an environment that the caller controls, for example `NODE_OPTIONS`, `BASH_ENV`, `PATH`, `HOME`, and `TMPDIR`. A helper path alone does not make the call safe. Helpers such as `pg-test`, `pg18-fresh`, `agent-stop`, `agent-awake`, and `/bin/ps` now use the escape, where the classifier sees the full call. |
-| No Docker socket | The Docker daemon has full host access, so the socket lets sandboxed code leave the sandbox. Docker, also from scripts such as the `tracn-api` database scripts, goes through the escape. |
+| No `excludedCommands` | An excluded command runs outside the sandbox with an environment that the caller controls, for example `NODE_OPTIONS`, `BASH_ENV`, `PATH`, `HOME`, and `TMPDIR`. A helper path alone does not make the call safe. Helpers such as `pg-test`, `agent-stop`, `agent-awake`, and `/bin/ps` now use the escape, where the classifier sees the full call. |
+| No Docker socket | The Docker daemon has full host access, so the socket lets sandboxed code leave the sandbox. Docker, also from repository database scripts, goes through the escape. |
 | `permissions.deny` for force pushes | Each rule matches the command text. The rules cover `-f`, `--force`, `--force-with-lease`, and a `+` refspec, with plain `git`, `git` with options such as `-C`, and `git` by path. |
 | No `ssh`, `scp`, or `rsync` exclusions | Plain `ssh` cannot pass the sandbox proxy. Do not exclude these commands for a server. Options such as `ssh -o ProxyCommand`, `scp -S`, and `rsync -e` run any local program, so each entry is a full escape without review. These commands go through the escape. |
-| `permissions.ask` for production servers | An ask rule wins over each allow rule. Thus a generic `Bash(ssh *)` ask rule with allow rules for staging prompts for staging too. The script reads the server list from `SANDBOX_SSH_SERVERS` (default: Porta Mundi, Bonzani, `wfw-prod@wfw.ch`, `wfw-staging@wfw.ch`). `SANDBOX_SSH_STAGING` lists the staging servers (default: `wfw-staging@wfw.ch`). Each other server is production and gets ask rules for `ssh`, `scp`, and `rsync`. The script only adds ask rules. It never removes an ask rule, so remove a rule for an old server by hand. A `*` in a rule matches any text, so options before the host also match. Staging uses the classifier-reviewed escape. |
+| `permissions.ask` for production servers | An ask rule wins over each allow rule. Thus a generic `Bash(ssh *)` ask rule with allow rules for staging prompts for staging too. The script reads the server list from `SANDBOX_SSH_SERVERS` and the staging servers from `SANDBOX_SSH_STAGING`. Both are empty by default. See [Local configuration](../README.md#local-configuration). Each other server is production and gets ask rules for `ssh`, `scp`, and `rsync`. The script only adds ask rules. It never removes an ask rule, so remove a rule for an old server by hand. A `*` in a rule matches any text, so options before the host also match. Staging uses the classifier-reviewed escape. |
 | No `paseo *` | The Paseo CLI can start agents and terminals in any permission mode, so an exclusion is a full escape. Agents use the Paseo MCP tools. A human can use the CLI in a terminal. |
 | `allowedDomains` | In `bypassPermissions` mode, hosts outside this list are allowed without a prompt. In auto mode, which Paseo uses, the sandbox refuses a host outside this list without a prompt. A missing host fails the command. |
 
@@ -178,7 +179,7 @@ Typical escape cases are `ssh` to a staging server, a remote database connection
 
 `shared/AGENTS.md` points agents to this section.
 
-- The sandbox blocks `pg-test start`, `pg18-fresh`, `agent-stop`, `agent-awake`, `agent-sleep`, Docker, and the setuid `/bin/ps`. Run each of them as a separate call. If the sandbox blocks it, retry it with the escape.
+- The sandbox blocks `pg-test start`, `agent-stop`, `agent-awake`, `agent-sleep`, Docker, and the setuid `/bin/ps`. Run each of them as a separate call. If the sandbox blocks it, retry it with the escape.
 - Run `pg-test start` as its own call, and pass its URL to scripts.
 - In scripts, use `lsof -t` instead of `ps`.
 - Start a long-lived server with the `run_in_background` option of the Bash tool, and stop it with TaskStop.
@@ -197,9 +198,9 @@ An agent then cannot stop its own background servers, for example an API and fak
 Run it by its full installed path as a separate call:
 
 ```sh
-/Users/hendrik/.local/bin/agent-stop 12345 12346
-/Users/hendrik/.local/bin/agent-stop --port 3401 3402
-/Users/hendrik/.local/bin/agent-stop --signal INT --wait 5 12345
+/Users/<name>/.local/bin/agent-stop 12345 12346
+/Users/<name>/.local/bin/agent-stop --port 3401 3402
+/Users/<name>/.local/bin/agent-stop --signal INT --wait 5 12345
 ```
 
 The default signal is `TERM`. The other permitted signals are `INT` and `KILL`.
@@ -213,13 +214,13 @@ A reviewer can approve the escape for these reasons:
 - The path is fixed. `denyWrite` keeps `~/.local/bin` and the installed Toolkit resources read-only in the sandbox, so an agent cannot change the helper.
 - Perl runs in taint mode (`-T`). Perl then ignores `PERL5LIB`, `PERLLIB`, and `PERL5OPT`, so the caller cannot load a module into the helper.
 - The helper accepts only process IDs, port numbers, `--signal`, and `--wait`. It refuses `0`, negative IDs (process groups), and names. It never runs an argument as code or through a shell.
-- The process must belong to the current user. Its working directory must be below an allowed root: `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, `~/Code/envest`, the macOS temporary directory, or `/private/tmp/claude-<uid>`.
+- The process must belong to the current user. Its working directory must be below an allowed root: a project root (`TOOLKIT_PROJECT_ROOTS` in `~/.config/agent-toolkit/local.env`, default `~/Code`), the macOS temporary directory, or `/private/tmp/claude-<uid>`.
   These roots are the same as the `allowWrite` roots above, without the caches and `~/.fly`.
 - A root must be a directory of the current user, and no part of its path can be a symlink. The helper ignores a root that fails this test. A symlink therefore cannot move a root to another directory.
 - The helper always refuses process 1, itself, and its parent chain. It also refuses each macOS app and each process with the name Paseo, Claude, Codex, Chrome, Chromium, Firefox, Safari, or tmux.
 - The helper reads the real executable from the `txt` file descriptor, because a process can set the `argv[0]` that `ps` shows. The app and name rules apply to both.
 - If the helper cannot read the owner, the executable, the command, or the working directory, it refuses.
-- On macOS, the helper reads the home directory from the user database and the temporary directory from `getconf`. `HOME` and `TMPDIR` do not change the roots.
+- On macOS, the helper reads the home directory from the user database and the temporary directory from `getconf`. `HOME`, `TMPDIR`, and `TOOLKIT_PROJECT_ROOTS` in the environment do not change the roots.
 
 The helper does the checks again immediately before it sends the signal. The last check compares the owner and the start time of the process.
 A pid can still be reused in the few milliseconds between that check and the signal. This needs a new process with the same pid in that window.
@@ -253,8 +254,8 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 |---|---|---|
 | `$TMPDIR` write with a `mktemp` template | PASS | PASS |
 | `mktemp -d` without a template | FAIL: macOS uses `/var/folders/.../T` | `allowWrite` for that directory |
-| Writes in `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung` from another working directory | FAIL | `allowWrite` |
-| Ref write in another checkout (`tracn-api`) | FAIL: cannot lock ref | `allowWrite` |
+| Writes in the project roots from another working directory | FAIL | `allowWrite` |
+| Ref write in another checkout | FAIL: cannot lock ref | `allowWrite` |
 | Local Git, commit, worktree add and remove | PASS | PASS |
 | Ref write in the shared Git directory of a worktree | PASS | PASS |
 | Git over HTTPS, fetch and push (dry run) | PASS | PASS |
@@ -268,13 +269,13 @@ The working directory was this repository. The second run added `SSL_CERT_FILE` 
 | `lsof` | PASS | PASS |
 | `pg-test start` | FAIL: shared memory denied | Escape |
 | Docker | FAIL: socket permission denied | Escape. The Docker socket is not allowed. |
-| Playwright Chromium (`@playwright/test` in `tracn-web`) | FAIL: browser closed at launch | PASS with `--single-process` (repository change, see below) |
+| Playwright Chromium (`@playwright/test` in a web project) | FAIL: browser closed at launch | PASS with `--single-process` (repository change, see below) |
 | `codex login status`, `claude --version` | PASS | PASS |
 | Paseo CLI | FAIL: `os.uptime()` `EPERM` | Not excluded. Agents use the Paseo MCP tools. |
 | `infisical --version`, `railway whoami` | PASS | PASS |
 | Plain `ssh` | FAIL: host name not resolved | Escape. Production servers ask. |
 | Toolkit `./verify.sh` | FAIL on 2026-11-03: 4 helper tests of the former AutoReview skill refused `/tmp`. Those tests are removed. Not measured again. | Not measured again |
-| 22 HTTPS hosts (GitHub, registries, Infisical, Railway, Neon, Neo4j Aura, Redis Cloud, Stripe, Ubicloud, Anthropic, OpenAI, Cloudflare, TRACN) | PASS | PASS |
+| 22 HTTPS hosts (GitHub, registries, Infisical, Railway, Neon, Neo4j Aura, Redis Cloud, Stripe, Ubicloud, Anthropic, OpenAI, Cloudflare, a project API) | PASS | PASS |
 | Node `fetch`, Python HTTPS | PASS | PASS |
 | Database connection to Neon (Postgres protocol) | PASS with the sandbox network open | FAIL: `getaddrinfo ENOTFOUND`. Use the escape. |
 
@@ -291,14 +292,14 @@ Do the [first-session checklist](#first-session-checklist) after you apply them.
 - **An ask rule matches the command text.** It does not match `sh -c '...'`, `/usr/bin/ssh`, or a deploy script that calls `ssh` inside. The classifier still reviews these forms when they use the escape.
 - **Deploy scripts** such as `scripts/deploy-rsync.sh` call `rsync` and `ssh` inside the script. The script needs the escape. Do not run a deploy script that you changed in the same task through the escape. Do not exclude the script itself, because an agent can change it.
 - **Remote database connections do not work in the sandbox.** Only HTTPS passes the sandbox proxy. Database drivers for Neon, Neo4j Aura, and Redis cannot resolve the host. The connection goes through the escape. For a long database task, a human can run `scripts/apply-claude-sandbox.sh --off`, and then `scripts/apply-claude-sandbox.sh --no-update` when the task is complete.
-- **Playwright** needs `--single-process` in the Chromium launch arguments when a sandboxed Claude session runs it. Change `tracn-web/playwright.config.ts`, in the `use` block: `launchOptions: { args: process.env.CLAUDECODE ? ['--single-process'] : [] }`. The Paseo browser tools run outside the sandbox and need no change.
+- **Playwright** needs `--single-process` in the Chromium launch arguments when a sandboxed Claude session runs it. Change `playwright.config.ts` of the web project, in the `use` block: `launchOptions: { args: process.env.CLAUDECODE ? ['--single-process'] : [] }`. The Paseo browser tools run outside the sandbox and need no change.
 - **The escape runs a command with full access.** The classifier and the ask rules review it, but they are not an OS boundary. The sandbox here protects against accidental damage, not against an agent that tries to escape.
 - **A Codex native review can fail in a sandboxed Claude session.** Codex runs its tool commands in its own Seatbelt sandbox, and a nested sandbox fails with `sandbox_apply: Operation not permitted`. A nested Claude reviewer (`claude -p`) can fail in the same way. The reviewer then goes through the escape. This is not tested. Do not exclude `codex *` or `claude -p *`, because that lets an agent run any prompt outside the sandbox without review.
 - **Excluded commands run with full access** and with an environment that the caller controls. The settings exclude no command. Do not add patterns for helpers, interpreters, package scripts, or files in the working directory.
 - **The force-push rules match the command text.** A force push inside a script or an alias does not match.
 - **The Write and Edit tools** are outside the sandbox. They cannot delete directories.
 - **The working directory, including the repository root and `.git`, stays writable.**
-- **All projects in `~/Code/paseo-worktrees`, `~/Code/tracn`, `~/Code/wewereyoung`, and `~/Code/envest` are writable from every session.** The sandbox does not keep one project's agent out of another project there. It still protects the home directory, system paths, configuration, and other folders.
+- **All projects in the project roots are writable from every session.** The sandbox does not keep one project's agent out of another project there. It still protects the home directory, system paths, configuration, and other folders.
 - **The macOS temporary directory and `/tmp/claude-501` are shared by all sessions.** Use `mktemp` names and delete only your own exact path.
 
 ## First-session checklist
@@ -311,8 +312,8 @@ Do this checklist once, in a fresh Paseo Claude session in auto mode, after you 
 4. Run `gh pr list` in a repository. Expect a pass in the sandbox.
 5. Run `git push --dry-run`. Expect a pass in the sandbox over HTTPS.
 6. Run a read-only `psql` query against a Neon database. Expect the sandbox to block it, and then a classifier-approved retry with the escape.
-7. Run `ssh wfw-staging@wfw.ch true`. Expect a block, and then a classifier-reviewed retry.
-8. Run `ssh wfw-prod@wfw.ch true`. Expect an ask prompt.
+7. Run `ssh <staging server> true`. Expect a block, and then a classifier-reviewed retry.
+8. Run `ssh <production server> true`. Expect an ask prompt.
 9. Run the native reviewer command from `docs/code-review.md`. Record if it needs the escape.
 10. Start a worker with the Paseo MCP tools. Expect no sandbox error.
 11. Do one normal task. Count the prompts and the escapes.
@@ -330,7 +331,7 @@ The fix gives each agent its own temporary root. The sandbox then allows writes 
 
 Design:
 
-1. A small Paseo plugin uses a `server.before` hook for agent creation. The hook creates `/Users/hendrik/.agent-tmp/<first 8 characters of the agent ID>` with mode `0700`.
+1. A small Paseo plugin uses a `server.before` hook for agent creation. The hook creates `/Users/<name>/.agent-tmp/<first 8 characters of the agent ID>` with mode `0700`.
 2. The hook sets `CLAUDE_CODE_TMPDIR` and `TMPDIR` to this directory in the agent environment. Claude appends `claude-501`. Unsandboxed commands and Codex use `TMPDIR` directly.
 3. For Codex, set `exclude_slash_tmp = true` in `[sandbox_workspace_write]`. The writable temporary root is then only the agent's `TMPDIR`.
 4. A `server.on` hook removes the agent's own directory when the agent is archived. It removes only the exact path that the hook created.

@@ -50,12 +50,21 @@ fi
 home=$HOME
 # macOS mktemp without a template uses this per-user directory, not TMPDIR.
 darwin_tmp=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)
-# Deployment servers that agents reach with ssh, scp, and rsync: Porta Mundi, Bonzani, and WFW.
+# Personal values stay out of the repository, in KEY=value lines of ~/.config/agent-toolkit/local.env, read as data by shared/local-config.sh.
+# A variable in the environment overrides the file, except TOOLKIT_PROJECT_ROOTS: shared/agent-stop.pl reads the same roots from the file only.
+source "$repo/shared/local-config.sh"
+config=$home/.config/agent-toolkit/local.env
+for key in SANDBOX_SSH_SERVERS SANDBOX_SSH_STAGING SANDBOX_EXTRA_DOMAINS; do
+  [[ ${!key+x} ]] || printf -v "$key" '%s' "$(toolkit_config "$config" "$key")"
+done
+# Deployment servers that agents reach with ssh, scp, and rsync. Default: none.
 # ssh runs through the reviewed escape. Each server that is not in SANDBOX_SSH_STAGING is production and gets ask rules.
-servers=${SANDBOX_SSH_SERVERS-agawulum@sl90.web.hostpoint.ch bonzanib@sl662.web.hostpoint.ch wfw-prod@wfw.ch wfw-staging@wfw.ch}
-staging=${SANDBOX_SSH_STAGING-wfw-staging@wfw.ch}
+servers=$SANDBOX_SSH_SERVERS staging=$SANDBOX_SSH_STAGING domains=$SANDBOX_EXTRA_DOMAINS
+# Project roots, writable from every session. Default: ~/Code.
+roots=$(toolkit_project_roots "$config" "$home")
 merge() {
-  jq --arg home "$home" --arg darwin_tmp "${darwin_tmp%/}" --arg servers "$servers" --arg staging "$staging" '
+  jq --arg home "$home" --arg darwin_tmp "${darwin_tmp%/}" --arg servers "$servers" --arg staging "$staging" \
+    --arg domains "$domains" --arg roots "$roots" '
     # Append missing items and keep the existing order.
     def append($items): reduce $items[] as $item (. // []; if index([$item]) then . else . + [$item] end);
     .env = ((.env // {}) + {SSL_CERT_FILE: "/etc/ssl/cert.pem"})
@@ -74,22 +83,25 @@ merge() {
         "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
         "app.infisical.com", "backboard.railway.com", "*.neon.tech", "console.neo4j.io", "*.databases.neo4j.io",
         "*.redislabs.com", "*.redis-cloud.com", "api.stripe.com", "*.ubicloud.com", "api.cloudflare.com",
-        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com", "*.tracn.com",
+        "api.anthropic.com", "api.openai.com", "chatgpt.com", "auth.openai.com",
         "release-assets.githubusercontent.com", "*.supabase.co", "api.supabase.com",
-        "app.envest.vc", "*.fly.dev", "api.fly.io", "api.machines.dev", "registry.fly.io", "api.vercel.com", "vercel.com",
-        "fonts.googleapis.com", "fonts.gstatic.com", "cdn.playwright.dev", "playwright.download.prss.microsoft.com", "nodejs.org"])
+        "*.fly.dev", "api.fly.io", "api.machines.dev", "registry.fly.io", "api.vercel.com", "vercel.com",
+        "fonts.googleapis.com", "fonts.gstatic.com", "cdn.playwright.dev", "playwright.download.prss.microsoft.com", "nodejs.org"]
+        + ($domains | split(" ") | map(select(. != ""))))
     # Git uses HTTPS (the Git rule below). ssh runs outside the sandbox through the escape, so it still reads its keys.
     | .sandbox.filesystem.denyRead |= append([$home + "/.ssh"])
     # Helpers and shell startup files run later outside the sandbox. This also holds if a broad allowWrite entry covers them.
     | .sandbox.filesystem.denyWrite |= append([$home + "/.local/bin", $home + "/.local/share/agent-toolkit",
         $home + "/.zshrc", $home + "/.zprofile", $home + "/.bashrc", $home + "/.bash_profile", $home + "/.profile"])
     # Orchestrators commit in worker worktrees, whose Git data is in the main checkouts.
-    # The project roots must stay the same as the allowed roots in shared/agent-stop.pl. The test compares them.
+    # The project roots are also the allowed roots of shared/agent-stop.pl, which reads the same config file.
     # ~/.fly and the pnpm cache (pnpm dlx) need probe verification.
+    # The configured roots replace the earlier generated ones: entries at or below ~/Code go, other user entries stay.
+    | ($roots | split("\n") | map(select(. != ""))) as $roots
+    | .sandbox.filesystem.allowWrite |= ((. // []) | map(select(IN($roots[]) or (. != $home + "/Code" and (startswith($home + "/Code/") | not)))))
     | .sandbox.filesystem.allowWrite |= append([$home + "/.npm", $home + "/.cache/uv", $home + "/Library/pnpm/store",
-        $home + "/Library/Caches/pnpm", $home + "/.fly",
-        $home + "/Code/paseo-worktrees", $home + "/Code/tracn", $home + "/Code/wewereyoung", $home + "/Code/envest"]
-        + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
+        $home + "/Library/Caches/pnpm", $home + "/.fly"]
+        + $roots + (if $darwin_tmp == "" then [] else [$darwin_tmp] end))
     # Remove the exclusions that earlier versions wrote, in bare and full-path form. Excluded helpers ran outside the sandbox
     # with an environment that the caller controls, for example NODE_OPTIONS and PATH. They now use the escape, where auto mode reviews the full call.
     # An agent can also change capture.mjs in its working directory and then run it outside the sandbox. User entries stay.

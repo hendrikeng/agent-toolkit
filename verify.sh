@@ -4,10 +4,10 @@ repo_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cd "$repo_dir"
 
 [[ $# -eq 0 ]] || { printf 'Usage: ./verify.sh\n' >&2; exit 2; }
-for script in install.sh shared/macos/agent-awake setup-paseo.sh update.sh shared/sandbox-probe.sh scripts/apply-claude-sandbox.sh; do
+for script in install.sh shared/macos/agent-awake setup-paseo.sh update.sh shared/sandbox-probe.sh shared/local-config.sh scripts/apply-claude-sandbox.sh; do
   bash -n "$script"
 done
-for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs shared/postgres/pg18-fresh.cjs skills/security-audit/validate-findings.cjs skills/security-audit/validate-coverage-ledger.cjs; do
+for script in shared/install.cjs shared/paseo-setup.cjs shared/paseo-service.cjs shared/postgres/pg-test.cjs skills/security-audit/validate-findings.cjs skills/security-audit/validate-coverage-ledger.cjs; do
   node --check "$script"
 done
 perl -c shared/agent-heavy.pl

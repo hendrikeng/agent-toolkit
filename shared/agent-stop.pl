@@ -20,16 +20,17 @@ $ENV{PATH} = '/usr/bin:/bin:/usr/sbin:/sbin';
 delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 
 sub usage { print STDERR "Usage: agent-stop [--signal TERM|INT|KILL] [--wait <seconds>] <pid>...\n       agent-stop [--signal TERM|INT|KILL] [--wait <seconds>] --port <port>...\n"; exit 2 }
-my ($signal, $wait, $ports, @operands) = ('TERM', 0, 0);
+my ($signal, $wait, $ports, $print_roots, @operands) = ('TERM', 0, 0);
 while (@ARGV) {
  my $arg = shift @ARGV;
  if ($arg eq '--signal') { (shift(@ARGV) // '') =~ /^(TERM|INT|KILL)$/ or usage(); $signal = $1 }
  elsif ($arg eq '--wait') { (shift(@ARGV) // '') =~ /^(\d{1,3})$/ or usage(); $wait = $1 }
  elsif ($arg eq '--port') { $ports = 1 }
+ elsif ($arg eq '--print-roots') { ($print_roots = shift(@ARGV) // '') =~ m{^/} or usage() }
  elsif ($arg =~ /^-\d+$/ || $arg !~ /^-/) { push @operands, $arg } # A negative pid is a refused target, not an option.
  else { usage() }
 }
-usage() unless @operands;
+usage() unless @operands || $print_roots;
 
 my ($lsof) = grep { -x } '/usr/sbin/lsof', '/usr/bin/lsof';
 $lsof //= '/usr/sbin/lsof';
@@ -43,10 +44,45 @@ sub output {
  return @lines;
 }
 
-# The only root list in this file. scripts/apply-claude-sandbox.test.cjs fails if the sandbox allowWrite roots differ.
 # The home directory comes from the password database, and on macOS the temporary directory from getconf.
 my $home = (getpwuid($<))[7];
-my @roots = ((map { "$home/Code/$_" } qw(paseo-worktrees tracn wewereyoung envest)), $^O eq 'darwin' ? (output('/usr/bin/getconf', 'DARWIN_USER_TEMP_DIR'), "/private/tmp/claude-$<") : ($ENV{TMPDIR} || '/tmp'));
+# Project roots: TOOLKIT_PROJECT_ROOTS in ~/.config/agent-toolkit/local.env, with the rules of shared/local-config.sh.
+# The file is read as data. The environment is ignored, because the caller controls it. Default: ~/Code.
+# The file counts only if it and its folder belong to this user, no other user can write them, and it is not a symlink.
+sub project_roots {
+ my ($file) = @_;
+ my ($dir) = $file =~ m{^(.*)/[^/]*$};
+ my @file = lstat $file;
+ return ("$home/Code") unless @file;
+ my $regular = -f _; # lstat: false for a symlink.
+ my @dir = lstat $dir;
+ if (!$regular || !@dir || !-d _ || grep { $_->[4] != $< || $_->[2] & 022 } \@file, \@dir) {
+  print STDERR "agent-stop: ignoring $file: it must be a regular file of this user, in a folder of this user, and not group- or world-writable\n";
+  return ("$home/Code");
+ }
+ my $value;
+ open(my $config, '<', $file) or return ("$home/Code");
+ while (<$config>) {
+  next unless /^\s*TOOLKIT_PROJECT_ROOTS=(.*)$/;
+  ($value = $1) =~ s/\r$//;
+  $value =~ s/^\s+|\s+$//g;
+  $value = $1 if $value =~ /^"(.*)"$/ || $value =~ /^'(.*)'$/;
+  last;
+ }
+ close($config);
+ return ("$home/Code") unless defined $value;
+ my (@roots, @dropped);
+ for my $root (split ' ', $value) {
+  my $path = $root =~ s{^~/}{$home/}r =~ s{/+$}{}r;
+  if ($path !~ m{^/} || "/$path/" =~ m{/\.\.?/} || $path =~ /[*?\[]/ || $path eq $home =~ s{/+$}{}r) { push @dropped, $root } else { push @roots, $path }
+ }
+ print STDERR "Ignoring invalid project roots in $file: @dropped\n" if @dropped;
+ return @roots;
+}
+# --print-roots FILE prints the project roots read from FILE and stops. It never signals, so tests can compare it with the Bash reader.
+if ($print_roots) { print "$_\n" for project_roots($print_roots); exit 0 }
+my @projects = project_roots("$home/.config/agent-toolkit/local.env");
+my @roots = (@projects, $^O eq 'darwin' ? (output('/usr/bin/getconf', 'DARWIN_USER_TEMP_DIR'), "/private/tmp/claude-$<") : ($ENV{TMPDIR} || '/tmp'));
 # Roots are fixed paths. Only the macOS aliases /var and /tmp are resolved. A root must be a directory of this user,
 # and no part of its path can be a symlink. A symlink can therefore never move a root to another directory.
 @roots = grep { my @stat = lstat; @stat && -d _ && $stat[4] == $< && (abs_path($_) // '') eq $_ }

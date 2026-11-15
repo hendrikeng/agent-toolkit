@@ -50,15 +50,24 @@ item_git_cwd() {
 }
 # Orchestrators write in the worktrees of their workers. Each check creates and removes its own file.
 item_shared_writes() {
-  local dir
-  for dir in ${PROBE_WRITE_DIRS:-$HOME/Code/paseo-worktrees $HOME/Code/tracn $HOME/Code/wewereyoung $HOME/Code/envest}; do
+  local dir dirs
+  # Default: the project roots from the config file of scripts/apply-claude-sandbox.sh, else ~/Code.
+  if [[ ${PROBE_WRITE_DIRS:-} ]]; then read -r -a dirs <<< "$PROBE_WRITE_DIRS"
+  else
+    source "$(dirname "${BASH_SOURCE[0]}")/local-config.sh" || return
+    dirs=()
+    while IFS= read -r dir; do dirs+=("$dir"); done < <(toolkit_project_roots "$HOME/.config/agent-toolkit/local.env" "$HOME")
+  fi
+  for dir in ${dirs[@]+"${dirs[@]}"}; do
+    [[ $dir == '~/'* ]] && dir=$HOME/${dir#'~/'}
     [[ -d $dir ]] || { skip "write:${dir##*/}" "missing $dir"; continue; }
     probe "write:${dir##*/}" 10 bash -c 'f=$(mktemp "$1/.sandbox-probe.XXXXXX") && rm -f -- "${f:?}" && echo ok' _ "$dir"
   done
 }
 # A commit in another checkout writes that checkout's Git directory.
 item_other_git() {
-  local repo=${PROBE_OTHER_REPO:-$HOME/Code/tracn/tracn-api}
+  local repo=${PROBE_OTHER_REPO:-}
+  [[ $repo ]] || { skip other-git 'set PROBE_OTHER_REPO to another checkout'; return; }
   git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || { skip other-git "no Git repository at $repo"; return; }
   probe other-git 20 bash -c 'ref=refs/sandbox-probe/$2 && head=$(git -C "$1" rev-parse HEAD) && git -C "$1" update-ref "$ref" "$head" "" && git -C "$1" update-ref -d "$ref" "$head" && echo ok' _ "$repo" "${work##*.}"
 }
@@ -114,7 +123,7 @@ item_pg_test() {
 # The sandbox has no Docker socket: the Docker daemon has full host access.
 item_docker() { skip docker 'expected: runs through the escape'; }
 item_playwright() {
-  local dir=${PROBE_PLAYWRIGHT_DIR:-$HOME/Code/tracn/tracn-web}
+  local dir=${PROBE_PLAYWRIGHT_DIR:-$PWD}
   [[ -d $dir/node_modules/@playwright/test ]] || { skip playwright "no @playwright/test in $dir"; return; }
   probe playwright 90 node -e 'const {chromium}=require(require.resolve("@playwright/test",{paths:[process.argv[1]]}));(async()=>{const b=await chromium.launch({args:process.env.CLAUDECODE?["--single-process"]:[]});const p=await b.newPage();await p.setContent("<h1>ok</h1>");console.log(await p.textContent("h1"));await b.close()})().catch(e=>{console.error(e.message.split("\n")[0]);process.exit(1)})' "$dir"
 }
@@ -135,8 +144,8 @@ item_hosts() {
   for host in ${PROBE_HOSTS:-github.com api.github.com codeload.github.com objects.githubusercontent.com raw.githubusercontent.com \
     registry.npmjs.org pypi.org files.pythonhosted.org app.infisical.com backboard.railway.com console.neon.tech \
     console.neo4j.io api.redislabs.com api.stripe.com api.ubicloud.com api.anthropic.com api.openai.com chatgpt.com \
-    auth.openai.com api.cloudflare.com api.tracn.com staging.tracn.com release-assets.githubusercontent.com api.supabase.com \
-    app.envest.vc api.fly.io api.machines.dev registry.fly.io api.vercel.com vercel.com fonts.googleapis.com fonts.gstatic.com \
+    auth.openai.com api.cloudflare.com release-assets.githubusercontent.com api.supabase.com \
+    api.fly.io api.machines.dev registry.fly.io api.vercel.com vercel.com fonts.googleapis.com fonts.gstatic.com \
     cdn.playwright.dev playwright.download.prss.microsoft.com nodejs.org}; do
     probe "host:$host" 20 curl -sS -o /dev/null -w '%{http_code}' "https://$host/"
   done

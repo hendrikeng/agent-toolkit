@@ -6,6 +6,7 @@ const os = require('node:os')
 const { spawnSync } = require('node:child_process')
 const { planInstall, install } = require('./install.cjs')
 const repo = path.resolve(__dirname, '..')
+const envDenies = ['Read', 'Edit'].flatMap(tool => ['.env', '.env.local', '.env.*.local', '.env.development', '.env.production', '.env.staging', '.env.test', '.env.preview'].map(file => `${tool}(//**/${file})`)).concat(['Edit(~/.config/agent-toolkit/**)'])
 
 function fixture(t, checkout = repo) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'toolkit-install-')))
@@ -56,7 +57,7 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.deepEqual(Object.keys(claude.sandbox), ['enabled', 'allowUnsandboxedCommands', 'network'])
   assert.deepEqual(Object.keys(claude.sandbox.network), ['allowedDomains'])
   assert.deepEqual(claude.sandbox.network.allowedDomains, ['github.com', 'api.anthropic.com'])
-  assert.deepEqual(claude.permissions.deny, ['Bash(git push *)'])
+  assert.deepEqual(claude.permissions.deny, ['Bash(git push *)', ...envDenies])
   assert.equal(claude.model, 'chosen')
   assert.ok(claudeOnce.includes('// Human sandbox policy'))
   assert.equal(fs.readFileSync(path.join(backup, '.claude-work/settings.json'), 'utf8'), claudeOriginal)
@@ -78,16 +79,21 @@ test('default reviewer networking updates selected homes, preserves user configu
   assert.match(fs.readFileSync(path.join(path.dirname(config), 'AGENTS.md'), 'utf8'), /authorizes scoped advisers/)
 })
 
-test('default setup never creates a Claude sandbox or settings file', t => {
+test('default setup adds secret .env denies once, keeps user rules, and never creates a Claude sandbox', t => {
   const f = fixture(t)
-  // A WebFetch denial without a sandbox object changes nothing, so it does not stop setup.
-  const withoutSandbox = '{"model":"chosen","permissions":{"deny":["WebFetch(domain:api.anthropic.com)"]}}\n'
-  const claude = f.put('.claude/settings.json', withoutSandbox)
+  // A WebFetch denial without a sandbox object does not stop setup. Example files stay readable.
+  const user = ['WebFetch(domain:api.anthropic.com)', 'Edit(**/.env)', 'Edit(**/.env.*)', 'Write(**/.env)', 'Read(//**/.env)']
+  const claude = f.put('.claude/settings.json', JSON.stringify({ model: 'chosen', permissions: { deny: user } }))
   install(f.plan({}))
-  assert.equal(fs.readFileSync(claude, 'utf8'), withoutSandbox)
+  const once = fs.readFileSync(claude, 'utf8')
+  assert.deepEqual(JSON.parse(once), { model: 'chosen', permissions: { deny: [...user, ...envDenies.filter(rule => rule !== 'Read(//**/.env)')] } })
+  assert.ok(!/example|sample|template/.test(once))
+  install(f.plan({}))
+  assert.equal(fs.readFileSync(claude, 'utf8'), once)
+  // A missing settings file gets only the denies.
   const other = path.join(f.home, '.claude-other')
   install(f.plan({ claudeDir: other }))
-  assert.equal(fs.existsSync(path.join(other, 'settings.json')), false)
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(other, 'settings.json'), 'utf8')), { permissions: { deny: envDenies } })
 })
 
 test('failed default network installation restores config bytes and permissions', t => {
@@ -165,7 +171,7 @@ test('permission-preserving install and repeat install preserve configuration, i
   assert.equal(fs.existsSync(path.join(repeat, '.local/share/agent-toolkit/resources')), false)
   assert.deepEqual(fs.readdirSync(path.join(f.home, '.local/share/agent-toolkit')).filter(name => name.startsWith('.install-')), [])
   for (const [file, content] of Object.entries(untouched)) assert.equal(fs.readFileSync(path.join(f.home, file), 'utf8'), content, file)
-  for (const command of ['pg-test', 'pg18-fresh', 'paseo-service', 'agent-heavy', 'agent-stop']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
+  for (const command of ['pg-test', 'paseo-service', 'agent-heavy', 'agent-stop']) assert.ok(fs.statSync(path.join(f.home, '.local/bin', command)).mode & 0o111, command + ' must be executable')
   assert.equal(fs.readFileSync(path.join(f.home, '.local/bin/pg-test'), 'utf8'), fs.readFileSync(path.join(repo, 'shared/postgres/pg-test.cjs'), 'utf8'))
   const pairing = spawnSync(process.execPath, [path.join(f.home, '.local/bin/paseo-service')], { encoding: 'utf8', env: { PATH: process.env.PATH } })
   assert.equal(pairing.status, 1)

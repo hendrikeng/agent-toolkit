@@ -71,7 +71,6 @@ Use the [profiles](paseo-profiles.md) and [role instructions](../shared/hosts/pa
 ## PostgreSQL
 
 - [ ] `pg-test start`, `status <id>`, and `stop <id>` (by full path) give a PG18 fixture with a least-privileged role. Stop removes the data files, socket, and log.
-- [ ] `pg18-fresh` runs only in its supported repository. Otherwise mark it unavailable.
 - [ ] Do not run `pg-test gc`.
 
 Report authentication and permission failures. Do not switch accounts or broaden permissions to make a check pass.

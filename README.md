@@ -35,6 +35,7 @@ Normal installation changes the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR` (n
 - It copies Git-tracked `skills/` files and the helpers to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to these copies, never to the checkout.
 - It appends one marked instruction block to each provider instruction file, with review authorization from `shared/review-authorization.md`. Human text stays unchanged.
 - Codex keeps workspace file restrictions and gets command network access with automatic approval review.
+- It adds Claude `permissions.deny` rules that block reads and edits of secret `.env` files, also with the sandbox off. If `settings.json` does not exist, it creates the file with only these rules. See [Secret .env files](#secret-env-files).
 - If Claude `settings.json` has a `sandbox` object, it adds `api.anthropic.com` to `sandbox.network.allowedDomains`, for the headless Claude reviewer. It never turns the sandbox on.
 - It backs up each Claude `settings.json` or Codex `config.toml` before it changes it, and restores them if deployment fails.
 
@@ -205,11 +206,52 @@ Do not use `bypassPermissions` mode for unattended work: it skips the classifier
 The sandbox is optional. On macOS it blocks Chromium, SSH keys, and database drivers that cannot use its proxy, so these commands need the escape each time.
 Keep a backup of the machine, such as Time Machine, because neither mode is an OS boundary without the sandbox.
 
-The installer keeps existing provider and host permissions. It adds no workspace scope, credential denies, or Git guards. Approval prompts are not an OS sandbox.
+The installer keeps existing provider and host permissions and rules. It adds the `.env` deny rules below, but no workspace scope, other credential denies, or Git guards. Approval prompts are not an OS sandbox.
 To use the optional sandbox, the [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working.
 `scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a backup.
 The script also adds rules that apply with the sandbox off: deny rules for force pushes, and ask rules for `ssh`, `scp`, and `rsync` to production servers.
 With the sandbox on, a blocked command can be retried once outside it, with classifier review in auto mode, and `denyWrite` protects the helpers and shell startup files.
+
+### Secret .env files
+
+Normal installation adds these rules to `permissions.deny` in Claude `settings.json`. `--preserve-permissions` skips them.
+
+```text
+Read(//**/.env)   Read(//**/.env.local)   Read(//**/.env.*.local)   Read(//**/.env.development)
+Read(//**/.env.production)   Read(//**/.env.staging)   Read(//**/.env.test)   Read(//**/.env.preview)
+```
+
+Each rule also has an `Edit(...)` form. The `//` prefix anchors a rule at the file system root, so it matches these files in every folder.
+A rule with only `**/` matches below the session's working directory only.
+`.env.example`, `.env.sample`, and `.env.template` stay readable. The installer adds only missing rules and keeps your rules.
+
+The rules stop Claude's file tools and the shell file commands that Claude Code recognizes, such as `cat`, `head`, and `sed`, and redirections.
+They do not stop a program that opens the file itself, for example an app or a test that loads its own `.env` at runtime.
+The rules apply to Claude only. Codex can deny reads only in a named permission profile (`default_permissions`), which cannot be combined with the `sandbox_mode` setting that the installer writes.
+
+### Local configuration
+
+Personal values stay out of this repository. Put them in `~/.config/agent-toolkit/local.env`, one `KEY=value` line each, with mode `0600`.
+The scripts read the file as data and never run it, with `shared/local-config.sh` and the same rules in `agent-stop`.
+The first line for a key wins. Quotes around a value are optional. Use a separate line for each comment.
+A variable in the environment overrides the file, except `TOOLKIT_PROJECT_ROOTS`, which comes only from the file.
+A project root must be an absolute path or a `~/` path. The scripts ignore `/`, the home folder, paths with `.` or `..` parts, and glob characters, and print a warning.
+`agent-stop` ignores the whole file if it is a symlink, if it or its folder belongs to another user, or if a group or other users can write it.
+The installer also adds the deny rule `Edit(~/.config/agent-toolkit/**)`, because `agent-stop` and the sandbox script trust this file.
+
+```sh
+# Servers that agents reach with ssh, scp, and rsync. Each server that is not staging gets ask rules.
+SANDBOX_SSH_SERVERS="ops@prod.example.com ops@staging.example.com"
+SANDBOX_SSH_STAGING="ops@staging.example.com"
+# Domains added to the sandbox allowedDomains.
+SANDBOX_EXTRA_DOMAINS="*.example.app"
+# Project roots that the sandbox can write and where agent-stop can stop processes. Default: ~/Code.
+TOOLKIT_PROJECT_ROOTS="~/Code/paseo-worktrees ~/Code/app"
+```
+
+After a change, run `scripts/apply-claude-sandbox.sh` again. `agent-stop` reads the file at each call.
+The script replaces the `allowWrite` entries at or below `~/Code` with the configured roots. It keeps other entries.
+If you remove a root outside `~/Code` from the file, also remove it from `sandbox.filesystem.allowWrite` yourself.
 
 ## Helper commands
 
@@ -270,9 +312,6 @@ Roles are never superusers. Use the returned URL only in the test process. Files
 `stop` removes the database files, socket, and log, and is safe to repeat. Garbage collection stops ownerless fixtures after two hours. Only a human terminal runs `gc`.
 If PostgreSQL reports denied shared-memory initialization, use the native approval path or a trusted human terminal.
 
-`pg18-fresh` runs an existing reviewed PostgreSQL 18 fresh-install inventory suite with Docker isolation, from the target repository. It takes no arguments and needs `pnpm@11.22.0`.
-It installs dependencies in a networked container, then runs the source read-only without network. It builds from `postgres:18-bookworm` and `node:24-bookworm-slim`, which are not pinned digests.
-
 ### Paseo services
 
 `paseo-service` records cross-workspace service pairs and resolves current ports when the consumer starts. See [service pairs](docs/paseo-worktrees.md#pair-services-across-repositories).
@@ -282,7 +321,7 @@ It installs dependencies in a networked container, then runs the source read-onl
 To update from a trusted human terminal:
 
 ```sh
-cd /Users/hendrik/Code/wewereyoung/agent-toolkit
+cd ~/agent-toolkit
 ./update.sh
 ```
 
@@ -291,7 +330,7 @@ The script needs a clean checkout. It fast-forwards from its upstream, runs chec
 `update.sh` has no `--preserve-permissions` option. To keep current provider permissions, use:
 
 ```sh
-cd /Users/hendrik/Code/wewereyoung/agent-toolkit
+cd ~/agent-toolkit
 git pull --ff-only --no-tags
 npm ci --prefix shared --ignore-scripts --no-audit --no-fund
 ./verify.sh

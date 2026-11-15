@@ -33,7 +33,7 @@ The coordinator's branch is not automatically a valid base in another repository
 
 Use a shared task prefix for new workspace titles, branches, and worktree slugs.
 Include the target repository name and preserve names explicitly chosen by the user.
-For example, `invite-flow--tracn-web` and `invite-flow--tracn-api` identify workspaces for one task in two repositories.
+For example, `invite-flow--app-web` and `invite-flow--app-api` identify workspaces for one task in two repositories.
 
 The coordinator passes the target workspace's `workspaceId` explicitly when it creates each worker.
 Cross-repository workers remain attached as native subagents.
@@ -82,7 +82,7 @@ Remote `PASEO_HOST` endpoints are refused because the target address uses that m
 4. Record the pair:
 
 ```sh
-paseo-service pair "$WEB_WORKSPACE_ID" "$API_WORKSPACE_ID" api TRACN_API_PROXY_TARGET
+paseo-service pair "$WEB_WORKSPACE_ID" "$API_WORKSPACE_ID" api APP_API_PROXY_TARGET
 ```
 
 For a task that changes both repositories, select its web and API worktrees.
@@ -101,7 +101,7 @@ The helper rejects records for another daemon.
 Remove a completed pairing explicitly:
 
 ```sh
-paseo-service unpair "$WEB_WORKSPACE_ID" TRACN_API_PROXY_TARGET
+paseo-service unpair "$WEB_WORKSPACE_ID" APP_API_PROXY_TARGET
 ```
 
 `unpair` is safe when the record is already absent. It stops no service and removes no workspace.
@@ -113,21 +113,21 @@ Use the generic helper inside the environment loader, immediately before the app
 
 ```sh
 infisical run <existing-project-flags> -- \
-  paseo-service run TRACN_API_PROXY_TARGET -- \
+  paseo-service run APP_API_PROXY_TARGET -- \
   pnpm exec vite --port "$PASEO_PORT" --host "$HOST"
 ```
 
 Preserve the application's existing Infisical flags and environment choice.
-The helper overwrites `TRACN_API_PROXY_TARGET` after Infisical supplies its environment.
+The helper overwrites `APP_API_PROXY_TARGET` after Infisical supplies its environment.
 Wrapping the existing `pnpm run dev` outside Infisical does not preserve this ordering.
 Other projects use their own loader, service name, variable, and application command.
-No Vue, Vite, or TRACN behavior is built into the helper.
+No Vue, Vite, or project behavior is built into the helper.
 
-For TRACN, the small application integration is a separate `package.json` script named `dev:paseo`:
+For a Vite project that uses Infisical, the small application integration is a separate `package.json` script named `dev:paseo`:
 
 ```json
 {
-  "dev:paseo": "infisical run --domain https://app.infisical.com/api --projectId 736aa93e-999e-452b-a73d-2d00d3aef986 --env dev --path /runtime --include-imports=false --expand=false --silent -- paseo-service run TRACN_API_PROXY_TARGET -- vite"
+  "dev:paseo": "infisical run --domain https://app.infisical.com/api --projectId <project-id> --env dev --path /runtime --include-imports=false --expand=false --silent -- paseo-service run APP_API_PROXY_TARGET -- vite"
 }
 ```
 
@@ -147,7 +147,7 @@ By default, `run` selects the unique active workspace for its exact physical wor
 If several workspaces share that directory, pass the consumer ID explicitly:
 
 ```sh
-paseo-service run "$WEB_WORKSPACE_ID" TRACN_API_PROXY_TARGET -- pnpm exec vite --port "$PASEO_PORT" --host "$HOST"
+paseo-service run "$WEB_WORKSPACE_ID" APP_API_PROXY_TARGET -- pnpm exec vite --port "$PASEO_PORT" --host "$HOST"
 ```
 
 The explicit ID must still match the launch directory.

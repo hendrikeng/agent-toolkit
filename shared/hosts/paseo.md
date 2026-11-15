@@ -41,7 +41,7 @@ Do not select the target repository's main checkout or an unrelated worktree as 
 For new workspaces, use the coordinator's task or worktree name as a shared prefix for titles, branch names, and worktree slugs.
 Honor names explicitly chosen by the user. Do not rename existing user workspaces or branches.
 Include the target repository name. Add a short coordinator workspace ID if the shared prefix is ambiguous.
-For example, a task named `invite-flow` can use `invite-flow--tracn-api` as its API workspace title and worktree slug.
+For example, a task named `invite-flow` can use `invite-flow--app-api` as its API workspace title and worktree slug.
 Choose an explicit base ref from the target repository. The coordinator's branch name is not a base ref in another repository.
 Record the coordinator workspace ID and each target repository, workspace ID, branch, and path in the task's existing continuation context.
 Include the coordinator workspace ID and shared task name in each worker's brief.
