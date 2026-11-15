@@ -55,7 +55,7 @@ test('default reviewer networking updates selected homes, preserves user configu
   // Only scripts/apply-claude-sandbox.sh sets sandbox switches; the installer adds reviewer domains.
   assert.deepEqual(Object.keys(claude.sandbox), ['enabled', 'allowUnsandboxedCommands', 'network'])
   assert.deepEqual(Object.keys(claude.sandbox.network), ['allowedDomains'])
-  assert.deepEqual(claude.sandbox.network.allowedDomains, ['github.com', 'api.openai.com', 'chatgpt.com', 'auth.openai.com', 'api.anthropic.com'])
+  assert.deepEqual(claude.sandbox.network.allowedDomains, ['github.com', 'api.anthropic.com'])
   assert.deepEqual(claude.permissions.deny, ['Bash(git push *)'])
   assert.equal(claude.model, 'chosen')
   assert.ok(claudeOnce.includes('// Human sandbox policy'))
@@ -81,7 +81,7 @@ test('default reviewer networking updates selected homes, preserves user configu
 test('default setup never creates a Claude sandbox or settings file', t => {
   const f = fixture(t)
   // A WebFetch denial without a sandbox object changes nothing, so it does not stop setup.
-  const withoutSandbox = '{"model":"chosen","permissions":{"deny":["WebFetch(domain:api.openai.com)"]}}\n'
+  const withoutSandbox = '{"model":"chosen","permissions":{"deny":["WebFetch(domain:api.anthropic.com)"]}}\n'
   const claude = f.put('.claude/settings.json', withoutSandbox)
   install(f.plan({}))
   assert.equal(fs.readFileSync(claude, 'utf8'), withoutSandbox)
@@ -110,7 +110,7 @@ test('failed default network installation restores config bytes and permissions'
 test('an explicit Claude model-domain denial stops default setup before changing either provider', t => {
   const f = fixture(t)
   const config = f.put('.codex/config.toml', 'model="chosen"\n')
-  for (const original of ['{"sandbox":{"network":{"deniedDomains":["*.openai.com"]}}}', '{"sandbox":{},"permissions":{"deny":["WebFetch(domain:api.openai.com)"]}}', '{"sandbox":{"network":{"deniedDomains":["api.openai.com:443"]}}}', '{"sandbox":{"network":{"deniedDomains":["*:443"]}}}']) {
+  for (const original of ['{"sandbox":{"network":{"deniedDomains":["*.anthropic.com"]}}}', '{"sandbox":{},"permissions":{"deny":["WebFetch(domain:api.anthropic.com)"]}}', '{"sandbox":{"network":{"deniedDomains":["api.anthropic.com:443"]}}}', '{"sandbox":{"network":{"deniedDomains":["*:443"]}}}']) {
     const claude = f.put('.claude/settings.json', original)
     assert.throws(() => f.plan({}), /explicitly denied/)
     assert.equal(fs.readFileSync(config, 'utf8'), 'model="chosen"\n')

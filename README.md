@@ -35,10 +35,10 @@ Normal installation changes the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR` (n
 - It copies Git-tracked `skills/` files and the helpers to `~/.local/share/agent-toolkit/resources/`. Discovery symlinks point to these copies, never to the checkout.
 - It appends one marked instruction block to each provider instruction file, with review authorization from `shared/review-authorization.md`. Human text stays unchanged.
 - Codex keeps workspace file restrictions and gets command network access with automatic approval review.
-- If Claude `settings.json` has a `sandbox` object, it adds `api.openai.com`, `chatgpt.com`, `auth.openai.com`, and `api.anthropic.com` to `sandbox.network.allowedDomains`. It never turns the sandbox on.
+- If Claude `settings.json` has a `sandbox` object, it adds `api.anthropic.com` to `sandbox.network.allowedDomains`, for the headless Claude reviewer. It never turns the sandbox on.
 - It backs up each Claude `settings.json` or Codex `config.toml` before it changes it, and restores them if deployment fails.
 
-`--preserve-permissions` skips the permission and network changes. Existing Claude domain denies, `WebFetch(domain:...)` deny rules, Codex named permission profiles, or other Codex filesystem modes stop normal installation. Use `--preserve-permissions` or reconcile them first.
+`--preserve-permissions` skips the permission and network changes. A Claude deny rule for `api.anthropic.com`, Codex named permission profiles, or other Codex filesystem modes stop normal installation. Use `--preserve-permissions` or reconcile them first.
 
 Source edits do not deploy until a human installs again. Add `~/.local/bin` to `PATH` for the helpers. Restart old sessions, then use:
 
@@ -114,13 +114,7 @@ Findings are advice. Verify each one. Fix confirmed correctness, security, and d
 If the reviewer fails, report it. A switch to another provider needs explicit user authorization. Do not retry after a permission denial or rejection.
 Codex automatic approval review is separate and can reject reviewer network access.
 
-For a repository-level standing authorization, a human can add this text to the repository instructions:
-
-```text
-For explicitly requested reviews and Toolkit's required publication reviews, I authorize the native reviewer of the requesting agent's provider to send the selected review source and context through its normal model requests. Claude agents use Claude, and Codex agents use Codex. Explicit reviewer choices take precedence. A switch to another provider needs my explicit authorization. This does not authorize permission bypasses, Cloud tasks, other providers, account changes, unrelated files, credentials, or production data.
-```
-
-This text does not grant network access. Earlier task-specific transmission blocks stay binding until the user revokes them.
+Normal installation adds an authorization for the native reviewer's normal model requests to the installed instruction block. `--preserve-permissions` leaves it out. Earlier task-specific transmission blocks stay binding until the user revokes them.
 
 ## Native Paseo
 
@@ -146,7 +140,7 @@ It adds up to six missing presets for each provider family. Select an account al
 It also offers:
 
 - A default-off System Prompt context (`daemon.appendSystemPrompt`). It points to the [role guidance](shared/hosts/paseo-roles.md) and makes primary sessions Orchestrator by default. Without it, name the role in the first prompt.
-- The [Paseo tool trust](#paseo-tool-trust) plugin, accepted by default.
+- The [Paseo tool trust](#paseo-tool-trust) plugin. The question defaults to no.
 
 Create only the profiles that you use. In Paseo, select Codex Auto-review mode to keep automatic approval review.
 
@@ -167,11 +161,10 @@ Create only the profiles that you use. In Paseo, select Codex Auto-review mode t
 
 Medium is the routine default. Select High before a difficult assignment. Fable 5.2 costs two times more per API token than Opus 5.5.
 To make Opus the default for native subagents, set `CLAUDE_CODE_SUBAGENT_MODEL` to `claude-opus-5-5` in the `env` block of the Claude `settings.json`.
-Setup does not remove the earlier Opus High Orchestrator or Planner. Remove them in the native editor if you do not use them.
 
 Workers use the provider family and account alias of the Orchestrator unless the user requests another.
 A profile name does not set permissions, and native Plan mode is not a read-only sandbox. Verify effective settings in a fresh session.
-The [profile guide](docs/paseo-profiles.md) gives the profile table, the steps to create and update profiles, and notes on effort and Fable. The [role instructions](shared/hosts/paseo-roles.md) give the text for each role. The [canonical presets](shared/hosts/paseo-profiles.json) supply the values. The inspected host runs Paseo 0.10.3.
+The [profile guide](docs/paseo-profiles.md) gives the profile table, the steps to create and update profiles, and notes on effort and Fable. The [role instructions](shared/hosts/paseo-roles.md) give the text for each role. The [canonical presets](shared/hosts/paseo-profiles.json) supply the values.
 
 ### Paseo tool trust
 
@@ -213,15 +206,14 @@ The sandbox is optional. On macOS it blocks Chromium, SSH keys, and database dri
 Keep a backup of the machine, such as Time Machine, because neither mode is an OS boundary without the sandbox.
 
 The installer keeps existing provider and host permissions. It adds no workspace scope, credential denies, or Git guards. Approval prompts are not an OS sandbox.
-The [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working with the sandbox on.
+To use the optional sandbox, the [Claude sandbox guide](docs/claude-sandbox.md) gives settings that keep Git, `gh`, package managers, and tests working.
 `scripts/apply-claude-sandbox.sh` applies them from a trusted human terminal. Use `--off` to turn the sandbox off, and `--restore <backup>` to restore a backup.
-A blocked command can be retried once outside the sandbox, with classifier review in auto mode. Production servers ask before `ssh`, `scp`, and `rsync`.
-The script also adds deny rules for force pushes and `denyWrite` entries for the helpers and shell startup files. No command is excluded from the sandbox, and Docker goes through the escape.
-It registers a `git push` hook. The hook runs `trufflehog` on the outgoing commits and blocks the push if it finds a secret. If `trufflehog` is missing, the hook warns and allows the push.
+The script also adds rules that apply with the sandbox off: deny rules for force pushes, and ask rules for `ssh`, `scp`, and `rsync` to production servers.
+With the sandbox on, a blocked command can be retried once outside it, with classifier review in auto mode, and `denyWrite` protects the helpers and shell startup files.
 
 ## Helper commands
 
-Agents call the helpers by full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. The Claude sandbox blocks `pg-test start`, `agent-stop`, and `agent-awake`. The agent then retries the call with the reviewed escape.
+Agents call the helpers by full path, for example `/Users/<name>/.local/bin/pg-test start`, as a separate call. With the Claude sandbox on, it blocks `pg-test start`, `agent-stop`, and `agent-awake`, and the agent retries the call with the reviewed escape.
 
 ### Keep the Mac awake
 
@@ -251,7 +243,7 @@ Do not add `agent-heavy` to `excludedCommands`, because it runs any command.
 
 ### Stop background processes
 
-The Claude sandbox blocks signals to processes from earlier calls. Use `agent-stop <pid>` or `agent-stop --port <port>` through the escape. See [the sandbox guide](docs/claude-sandbox.md#stop-background-processes).
+Use `agent-stop <pid>` or `agent-stop --port <port>` to stop a server from an earlier call. With the Claude sandbox on, it blocks those signals, so run `agent-stop` through the escape. See [the sandbox guide](docs/claude-sandbox.md#stop-background-processes).
 
 ### Disposable PostgreSQL
 
@@ -333,22 +325,6 @@ enabled = false
 Replaced configuration and instruction files go to `~/.local/share/agent-toolkit/backups/`. Keep them private. Restore single compared files, not a whole global configuration.
 A crash or an existing lock needs manual inspection.
 
-Older installs also copied the full resources folder into each backup, which can use many gigabytes. To find these copies, run:
-
-```sh
-ls -d ~/.local/share/agent-toolkit/backups/*/.local/share/agent-toolkit/resources
-```
-
-Remove each listed folder that you do not need. Keep the other files in each backup folder, because they can hold your original settings.
-
-### Remove AutoReview leftovers
-
-Remove the former AutoReview output directory by hand:
-
-1. Run `ls -ld ~/.claude/autoreview-out ~/.paseo/zerosub/homes/*/autoreview-out`.
-2. Remove each Paseo home link that points to `~/.claude/autoreview-out`. Then remove `~/.claude/autoreview-out`.
-3. Keep all other entries.
-
 ### Pins
 
 | Resource | Pin |
@@ -383,4 +359,3 @@ They do not prove a provider security boundary, model adherence, a live review, 
 | `shared/postgres/` | PostgreSQL helpers |
 | `shared/agent-heavy.pl`, `shared/agent-stop.pl` | Heavy-check limit and background process stop |
 | `docs/` | Sandbox, code review, Paseo profile, worktree, and acceptance guides |
-| `paseo/tool-approvals/` | Unrelated work; not managed by Toolkit |

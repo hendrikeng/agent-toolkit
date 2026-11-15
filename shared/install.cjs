@@ -54,7 +54,7 @@ function claudeReviewNetworkConfig(text) {
   const jsonc = require('jsonc-parser'), settings = parseJsonc(text)
   // scripts/apply-claude-sandbox.sh alone turns the sandbox on. Without a sandbox object, Claude has no network allowlist to extend.
   if (typeof settings.sandbox !== 'object' || settings.sandbox === null) return text
-  const domains = ['api.openai.com', 'chatgpt.com', 'auth.openai.com', 'api.anthropic.com']
+  const domains = ['api.anthropic.com']
   const denied = [...(settings.sandbox?.network?.deniedDomains ?? []), ...(settings.permissions?.deny ?? []).flatMap(rule => {
     const domain = /^WebFetch\(domain:(.+)\)$/.exec(rule)?.[1]
     return domain ? [domain] : []
