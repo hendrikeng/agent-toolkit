@@ -28,7 +28,7 @@ To keep your current provider permissions, use:
 ./install.sh --preserve-permissions
 ```
 
-The installer refuses noninteractive invocation. Do not run it from an agent to repair that agent's security boundary. The former `--review-network` option is the same as normal installation.
+The installer refuses noninteractive invocation. Do not run it from an agent to repair that agent's security boundary.
 
 Normal installation changes the selected `CODEX_HOME` and `CLAUDE_CONFIG_DIR` (normal defaults when not set):
 
