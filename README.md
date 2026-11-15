@@ -150,7 +150,6 @@ Create only the profiles that you use. In Paseo, select Codex Auto-review mode t
 | Toolkit Med - Codex Orchestrator | `gpt-6.1-sol` | Medium | `plan_mode: false` | Primary session |
 | Toolkit High - Codex Orchestrator | `gpt-6.1-sol` | High | `plan_mode: false` | Hard primary work |
 | Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Primary session |
-| Toolkit High - Claude Fable Orchestrator | `claude-fable-5-2` | High | Existing non-`plan` mode | Hard primary work |
 | Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `plan_mode: true` | Substantial plan for later approval |
 | Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | Native `plan` mode | Substantial plan for later approval |
 | Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `plan_mode: false` | Bounded implementation and verification |
@@ -159,8 +158,10 @@ Create only the profiles that you use. In Paseo, select Codex Auto-review mode t
 | Toolkit Med - Claude UI Worker | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Frontend, accessibility, and visual checks |
 | Toolkit Med - Codex Adviser | `gpt-6.1-sol` | Medium | `plan_mode: false` | Second opinion on a bounded question |
 | Toolkit Med - Claude Adviser | `claude-opus-5-5` | Medium | Existing non-`plan` mode | Second opinion on a bounded question |
+| Toolkit High - Claude Fable Adviser | `claude-fable-5-2` | High | Existing non-`plan` mode | Hard decisions that the Opus Orchestrator consults |
 
 Medium is the routine default. Select High before a difficult assignment. Fable 5.2 costs two times more per API token than Opus 5.5.
+The Opus Orchestrator consults the Fable Adviser for hard decisions, after Anthropic's advisor strategy. The built-in `/advisor fable` tool is optional per session; see the [profile guide](docs/paseo-profiles.md#fable).
 To make Opus the default for native subagents, set `CLAUDE_CODE_SUBAGENT_MODEL` to `claude-opus-5-5` in the `env` block of the Claude `settings.json`.
 
 Workers use the provider family and account alias of the Orchestrator unless the user requests another.

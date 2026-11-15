@@ -12,7 +12,6 @@ The values come from [paseo-profiles.json](../shared/hosts/paseo-profiles.json).
 | Toolkit Med - Codex Orchestrator | `gpt-6.1-sol` | Medium | `auto-review` | Default primary session |
 | Toolkit Med - Claude Orchestrator | `claude-opus-5-5` | Medium | `auto` | Default primary session |
 | Toolkit High - Codex Orchestrator | `gpt-6.1-sol` | High | `auto-review` | Primary session for hard work: migrations, concurrency, security, difficult integration |
-| Toolkit High - Claude Fable Orchestrator | `claude-fable-5-2` | High | `auto` | Primary session for hard work |
 | Toolkit High - Codex Planner | `gpt-6.1-sol` | High | `auto-review`, `plan_mode: true` | Plan substantial work before implementation |
 | Toolkit High - Claude Fable Planner | `claude-fable-5-2` | High | `plan` | Plan substantial work before implementation |
 | Toolkit Med - Codex Worker | `gpt-6.1-sol` | Medium | `auto-review` | Bounded implementation and checks |
@@ -21,6 +20,7 @@ The values come from [paseo-profiles.json](../shared/hosts/paseo-profiles.json).
 | Toolkit Med - Claude UI Worker | `claude-opus-5-5` | Medium | `auto` | Frontend, accessibility, and browser checks |
 | Toolkit Med - Codex Adviser | `gpt-6.1-sol` | Medium | `auto-review` | Second opinion on a bounded question, no edits |
 | Toolkit Med - Claude Adviser | `claude-opus-5-5` | Medium | `auto` | Second opinion on a bounded question, no edits |
+| Toolkit High - Claude Fable Adviser | `claude-fable-5-2` | High | `auto` | Hard decisions that the Opus Orchestrator consults |
 
 Codex profiles set `plan_mode: false` unless the table says otherwise. Claude profiles set `fast_mode: false`.
 Codex Plan is the `plan_mode` feature, separate from the permission mode. Claude Plan is `modeId: "plan"`.
@@ -59,10 +59,12 @@ Start fresh sessions after an update. Resumed sessions keep their old settings.
 
 ## Fable
 
-The Claude High Orchestrator and Planner use Fable 5.2. All other Claude profiles use Opus 5.5.
+The Claude Planner and the High Adviser use Fable 5.2. All other Claude profiles, including the Orchestrator, use Opus 5.5.
 At API prices, Fable costs two times more per token than Opus. Cache reads cost the same.
-Fable delegates bounded work to Medium Opus Workers with short briefs. Its native subagents also use Opus.
-To make Opus the default for native subagents, set `CLAUDE_CODE_SUBAGENT_MODEL` to `claude-opus-5-5` in the `env` block of the Claude `settings.json`.
+This follows Anthropic's advisor strategy: a less expensive model does the work, and a stronger model gives guidance at decision points.
+The Opus Orchestrator consults the Fable Adviser for hard decisions instead of running Fable for the whole session.
+Claude Code also has a built-in advisor tool (`/advisor fable`, or `advisorModel` in settings). It consults Fable automatically inside one session, and subagents inherit it.
+Each call reads the full conversation without a cache, so the Toolkit leaves it off by default. Turn it on for one session when a long task needs it.
 
 ## Roles and briefs
 

@@ -27,15 +27,6 @@
     "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. Owns scope, delegation, integration, checks, and cleanup."
   },
   {
-    "name": "Toolkit High - Claude Fable Orchestrator",
-    "provider": "claude",
-    "model": "claude-fable-5-2",
-    "thinkingOptionId": "high",
-    "modeId": "auto",
-    "featureValues": { "fast_mode": false },
-    "notes": "Primary session for hard work: migrations, concurrency, security, or difficult integration. At API prices, Fable costs two times more per token than Opus. Delegates bounded work to Medium Opus Workers with short briefs. Sets native subagents to Opus. Does lookups and small edits directly."
-  },
-  {
     "name": "Toolkit High - Codex Planner",
     "provider": "codex",
     "model": "gpt-6.1-sol",
@@ -106,5 +97,14 @@
     "modeId": "auto",
     "featureValues": { "fast_mode": false },
     "notes": "Gives a recommendation or second opinion on a bounded question, with evidence and uncertainty. Analysis only: no edits, delegation, or publishing."
+  },
+  {
+    "name": "Toolkit High - Claude Fable Adviser",
+    "provider": "claude",
+    "model": "claude-fable-5-2",
+    "thinkingOptionId": "high",
+    "modeId": "auto",
+    "featureValues": { "fast_mode": false },
+    "notes": "Consult for hard decisions: architecture, risky migrations, recurring failures, or a final check before done. Fable costs two times more per token than Opus, so ask focused questions, not routine ones. Analysis only: no edits, delegation, or publishing."
   }
 ]
