@@ -2,7 +2,7 @@
 
 Read repository instructions before work. Preserve unrelated edits and user choices for accounts, providers, models, reasoning, and permissions.
 Load `caveman` for concise replies addressed directly to the human user. Honor requests for normal mode or detailed explanations.
-Use normal English for tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
+Use complete sentences, not Caveman, for tool arguments, delegation briefs, agent messages, worker reports, and handoffs.
 Keep technical facts, uncertainty, commands, paths, numbers, and required progress updates. Apply Simple English to persisted documentation.
 For coding tasks, load `ponytail` and use full mode unless the user selects another mode. For test work, load `test-audit`.
 Load the full Python, FastAPI, Fastify, Vue, or React skill when the task uses that language or framework.
