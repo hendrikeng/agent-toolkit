@@ -18,14 +18,19 @@ Target: a pull request gets its result in less than 2 minutes at the median and 
 
 ## 2. Budgets
 
+Cost rule: the billed minutes per run must not increase. Get faster by doing less work, not by paying for larger machines.
+
+
 - **Wait, less than 10 seconds.** Use Ubicloud runners for all jobs, also for short jobs. Do not use Blacksmith. Cancel the run in progress on a branch when a new commit arrives (`concurrency` with `cancel-in-progress`).
 - **Setup, less than 30 seconds.** Seed the caches from the integration branch, so that more than 95% of pull request runs get a cache hit. Cache `node_modules`, not only the package store. Use a blobless clone (`filter: blob:none`) for lint, typecheck, and build. Jobs that read history or file content outside the checkout need a full clone, because a private repository with `persist-credentials: false` cannot fetch missing blobs later.
 - **Lint, less than 5 seconds.** Use oxlint and turn on all rules that you can. Keep ESLint only for rules that oxlint does not have, for example Vue template rules, and turn off the overlap with `eslint-plugin-oxlint`.
-- **Typecheck, less than 5 seconds.** Use TypeScript 7 (`tsgo`). If `vue-tsc` or a framework cannot use TypeScript 7 yet, keep the old checker and record the measured reason.
-- **Format.** Use oxfmt. Remove Prettier.
+- **Typecheck, less than 5 seconds.** Measure `bun check` and TypeScript 7 (`tsgo`) against `tsc`, and use the fastest one with the same errors. If `vue-tsc` or a framework cannot use TypeScript 7 yet, keep the old checker and record the measured reason.
+- **Format.** Measure `bun fmt` and oxfmt, and use the faster one that does not change behavior. Remove Prettier.
+- **Test runner.** Measure `bun test` against Vitest. Switch only for test files that do not need Vitest-only APIs or framework plugins.
+- **Dependencies.** If a faster tool needs newer dependencies, upgrade them in a separate commit, and run the full suite.
 - **Install and scripts.** Measure Bun against the current package manager. Switch only if Bun is faster and loses no protection that the repository uses. Bun 1.4 does not fail on conflicting peer dependencies, does not check `engines`, and does not document a strict mode for `minimumReleaseAge`. If a deploy reads the lockfile, update the deploy configuration in the same change. Node stays the runtime unless measurements show that Bun is safe and faster.
 - **Script runner.** Use `node --run` in shared scripts. It needs no package manager setup and is faster than `npm run` and `pnpm run`.
-- **Tests, less than 60 seconds for each shard.** Do not reload the application for each test file (Vitest `isolate: false`). Reset the state after each file, and write the cleanup rules into `AGENTS.md`. Run tests in random order to find leaks. Split the shards by measured duration onto 8-core machines. Give each shard its own database. Buy cores before you add shards, and set the concurrency to the number of cores.
+- **Tests, less than 60 seconds for each shard.** Do not reload the application for each test file (Vitest `isolate: false`). Reset the state after each file, and write the cleanup rules into `AGENTS.md`. Run tests in random order to find leaks. Split the shards by recorded test duration. Give each shard its own database. Keep the standard runner size: do not buy larger runners. Set the concurrency to the number of cores. Build the application once per test process and reuse it across test files.
 - **Job shape.** Run lint, typecheck, build, and tests in parallel. Move migration checks and the tests of other applications out of the slowest job into their own jobs.
 - **Selection.** On pull requests, run only what the diff can reach (`vitest --changed`, `turbo --affected`, or `nx affected`). Then hide a real change from the selection on purpose, and make sure that CI fails.
 - **Local, less than 9 seconds.** Add a pre-push hook that runs format, lint, and typecheck on the changed files. Use a hook, not a line in `AGENTS.md`, because agents skip steps. The hook must not run AI reviews.
