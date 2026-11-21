@@ -33,8 +33,9 @@ function fixture(t, { darwinTmp = '/var/folders/zz/agent-toolkit-test/T/', sandb
   const env = { PATH: `${root}/bin:${process.env.PATH}`, HOME: home, TMPDIR: root, CLAUDE_CONFIG_DIR: paseo, GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig') }
   // script(1) supplies a terminal, as a human terminal does.
   const run = (...args) => spawnSync('script', ['-q', '/dev/null', 'bash', script, '--no-update', ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-  // The answer goes through the terminal that script(1) supplies. script(1) sends EOF first for input that is ready at once, so write it after the prompt.
-  const answer = (input, ...args) => spawnSync('bash', ['-c', '(sleep 1; printf "%s" "$0") | script -q /dev/null bash "$@"', input, script, ...args], { env, encoding: 'utf8' })
+  // expect(1) supplies the terminal and types the answer only after the prompt appears. A fixed delay failed on a loaded machine.
+  const expectScript = 'set timeout 60; spawn bash {*}[split $env(ARGS) "\\n"]; expect -exact {[y/N] }; send "[string trim $env(ANSWER)]\\r"; expect eof; exit [lindex [wait] 3]'
+  const answer = (input, ...args) => spawnSync('expect', ['-c', expectScript], { env: { ...env, ANSWER: input, ARGS: [script, ...args].join('\n') }, encoding: 'utf8' })
   // Another rewrite value on the same key must survive apply and undo.
   spawnSync('git', ['config', '--global', 'url.https://github.com/.insteadOf', 'ssh://git@github.com/'], { env })
   const gitRule = () => spawnSync('git', ['config', '--global', '--get-all', 'url.https://github.com/.insteadOf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').filter(value => value !== 'ssh://git@github.com/').join('\n')
