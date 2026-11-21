@@ -18,7 +18,7 @@ Target: a pull request gets its result in less than 2 minutes at the median and 
 
 ## 2. Budgets
 
-Cost rule: the billed minutes per run must not increase. Get faster by doing less work, not by paying for larger machines.
+Cost rule: cut work first. Then balance speed and cost. A shape that costs at most about 1 USD more each month for a repository is acceptable if it makes the pull request result much faster. Report the monthly cost of each option.
 
 
 - **Wait, less than 10 seconds.** Use Ubicloud runners for all jobs, also for short jobs. Do not use Blacksmith. Cancel the run in progress on a branch when a new commit arrives (`concurrency` with `cancel-in-progress`).
